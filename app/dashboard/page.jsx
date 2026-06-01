@@ -31,13 +31,19 @@ function formatValue(value, type) {
   return num.toLocaleString();
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({
+  defaultLevel = "campaign"
+}) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
-  const [level, setLevel] = useState("campaign");
+  const [level, setLevel] = useState(defaultLevel);
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLevel(defaultLevel);
+  }, [defaultLevel]);
 
   useEffect(() => {
     loadAccountsAndDashboard();
@@ -48,7 +54,7 @@ export default function DashboardPage() {
       loadInsights(accountId, level);
     }
   }, [accountId, level]);
-
+}
   async function loadAccountsAndDashboard() {
     try {
       setError("");
