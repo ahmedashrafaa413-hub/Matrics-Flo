@@ -25,7 +25,7 @@ export default function SignupPage() {
       return;
     }
 
-    setStatus("Account created. Please check your email to confirm.");
+    setStatus("Account created successfully. You can login now.");
   }
 
   return (
