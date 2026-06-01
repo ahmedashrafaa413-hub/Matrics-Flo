@@ -322,10 +322,11 @@ export default function DashboardPage({
                   );
                 })}
               </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </main>
+                 </table>
+            </div>
+          )}
+        </section>
+      </main>
+    </div>
   );
 }
