@@ -31,9 +31,7 @@ function formatValue(value, type) {
   return num.toLocaleString();
 }
 
-export default function DashboardPage({
-  defaultLevel = "campaign"
-}) {
+export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
   const [level, setLevel] = useState(defaultLevel);
@@ -54,7 +52,7 @@ export default function DashboardPage({
       loadInsights(accountId, level);
     }
   }, [accountId, level]);
-}
+
   async function loadAccountsAndDashboard() {
     try {
       setError("");
@@ -128,11 +126,7 @@ export default function DashboardPage({
   }, [rows]);
 
   const nameKey =
-    level === "ad"
-      ? "ad_name"
-      : level === "adset"
-      ? "adset_name"
-      : "campaign_name";
+    level === "ad" ? "ad_name" : level === "adset" ? "adset_name" : "campaign_name";
 
   const title =
     level === "ad"
@@ -166,13 +160,8 @@ export default function DashboardPage({
         <div className="dash-filter-card">
           <label>Ad Account</label>
 
-          <select
-            value={accountId}
-            onChange={(e) => changeAccount(e.target.value)}
-          >
-            {accounts.length === 0 && (
-              <option value="">No accounts loaded</option>
-            )}
+          <select value={accountId} onChange={(e) => changeAccount(e.target.value)}>
+            {accounts.length === 0 && <option value="">No accounts loaded</option>}
 
             {accounts.map((acc) => (
               <option key={acc.id} value={acc.id}>
@@ -222,8 +211,8 @@ export default function DashboardPage({
         <div className="dash-insight-card">
           <h3>Media Buyer Note</h3>
           <p>
-            راقب الحملات ذات CPC مرتفع وCTR منخفض لأنها غالبًا تحتاج تعديل
-            Creative أو Audience.
+            راقب الحملات ذات CPC مرتفع وCTR منخفض لأنها غالبًا تحتاج تعديل Creative
+            أو Audience.
           </p>
         </div>
       </section>
@@ -275,10 +264,7 @@ export default function DashboardPage({
         {rows.length === 0 ? (
           <div className="dash-empty">
             <h3>No data yet</h3>
-            <p>
-              اختار حساب إعلاني من Connections أو اضغط Refresh Data لعرض
-              البيانات.
-            </p>
+            <p>اختار حساب إعلاني من Connections أو اضغط Refresh Data لعرض البيانات.</p>
           </div>
         ) : (
           <div className="dash-table-scroll">
@@ -308,9 +294,7 @@ export default function DashboardPage({
 
                   return (
                     <tr key={index}>
-                      <td className="dash-name-cell">
-                        {row[nameKey] || "Unknown"}
-                      </td>
+                      <td className="dash-name-cell">{row[nameKey] || "Unknown"}</td>
                       <td>{formatValue(spend, "money")}</td>
                       <td>{formatValue(impressions, "number")}</td>
                       <td>{formatValue(row.reach, "number")}</td>
@@ -322,11 +306,10 @@ export default function DashboardPage({
                   );
                 })}
               </tbody>
-                 </table>
-            </div>
-          )}
-        </section>
-      </main>
-    </div>
+            </table>
+          </div>
+        )}
+      </section>
+    </main>
   );
 }
