@@ -3,5 +3,5 @@
 import DashboardPage from "../dashboard/page";
 
 export default function AdSetsPage() {
-  return <DashboardPage />;
+  return <DashboardPage defaultLevel="adset" />;
 }
