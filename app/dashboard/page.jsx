@@ -35,6 +35,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
   const [level, setLevel] = useState(defaultLevel);
+  const [dateRange, setDateRange] = useState("last_30d");
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
@@ -49,9 +50,9 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
 
   useEffect(() => {
     if (accountId) {
-      loadInsights(accountId, level);
+      loadInsights(accountId, level, dateRange);
     }
-  }, [accountId, level]);
+  }, [accountId, level, dateRange]);
 
   async function loadAccountsAndDashboard() {
     try {
@@ -80,7 +81,11 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
     }
   }
 
-  async function loadInsights(selectedAccount = accountId, selectedLevel = level) {
+  async function loadInsights(
+    selectedAccount = accountId,
+    selectedLevel = level,
+    selectedDateRange = dateRange
+  ) {
     if (!selectedAccount) return;
 
     try {
@@ -88,7 +93,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
       setStatus("Loading performance data...");
 
       const data = await apiGet(
-        `/api/meta/insights?account_id=${selectedAccount}&level=${selectedLevel}`
+        `/api/meta/insights?account_id=${selectedAccount}&level=${selectedLevel}&date_preset=${selectedDateRange}`
       );
 
       setRows(data.data || []);
@@ -126,7 +131,11 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   }, [rows]);
 
   const nameKey =
-    level === "ad" ? "ad_name" : level === "adset" ? "adset_name" : "campaign_name";
+    level === "ad"
+      ? "ad_name"
+      : level === "adset"
+      ? "adset_name"
+      : "campaign_name";
 
   const title =
     level === "ad"
@@ -151,7 +160,10 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
           <p>تحليل مباشر لأداء الحملات، الـ Ad Sets، والإعلانات من Meta Ads.</p>
         </div>
 
-        <button className="dash-refresh" onClick={() => loadInsights()}>
+        <button
+          className="dash-refresh"
+          onClick={() => loadInsights(accountId, level, dateRange)}
+        >
           Refresh Data
         </button>
       </header>
@@ -178,6 +190,18 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
             <option value="campaign">Campaigns</option>
             <option value="adset">Ad Sets</option>
             <option value="ad">Ads</option>
+          </select>
+        </div>
+
+        <div className="dash-filter-card">
+          <label>Date Range</label>
+
+          <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last_7d">Last 7 Days</option>
+            <option value="last_30d">Last 30 Days</option>
+            <option value="this_month">This Month</option>
           </select>
         </div>
       </section>
@@ -294,7 +318,9 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
 
                   return (
                     <tr key={index}>
-                      <td className="dash-name-cell">{row[nameKey] || "Unknown"}</td>
+                      <td className="dash-name-cell">
+                        {row[nameKey] || "Unknown"}
+                      </td>
                       <td>{formatValue(spend, "money")}</td>
                       <td>{formatValue(impressions, "number")}</td>
                       <td>{formatValue(row.reach, "number")}</td>
