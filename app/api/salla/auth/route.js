@@ -20,7 +20,7 @@ export async function GET() {
     `?client_id=${encodeURIComponent(clientId)}` +
     `&response_type=code` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&scope=${encodeURIComponent("offline_access")}` +
+    `&scope=${encodeURIComponent("offline_access orders.read")}` +
     `&state=${encodeURIComponent(state)}`;
 
   return NextResponse.redirect(authUrl);
