@@ -64,9 +64,15 @@ export default function ConnectionsPage() {
           <p>Connect your marketing platforms and choose your main ad account.</p>
         </div>
 
-        <a className="primary-btn" href="/api/meta/auth">
-          Connect Meta
-        </a>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <a className="primary-btn" href="/api/meta/auth">
+            Connect Meta
+          </a>
+
+          <a className="primary-btn" href="/api/salla/auth">
+            Connect Salla
+          </a>
+        </div>
       </div>
 
       <div className="chart-card">
@@ -109,6 +115,25 @@ export default function ConnectionsPage() {
         </div>
 
         <p className={accounts.length ? "dash-status" : "dash-error"}>{status}</p>
+      </div>
+
+      <div className="chart-card">
+        <h2>Salla Store</h2>
+        <p>Connect Salla to import orders, revenue, customers and real sales data.</p>
+
+        <div style={{ marginTop: 20 }}>
+          <span className="badge">Ready to Connect</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 20 }}>
+          <a className="primary-btn" href="/api/salla/auth">
+            Connect Salla
+          </a>
+        </div>
+
+        <p className="dash-status">
+          After connection, MetricsFlo will use Salla revenue to calculate real ROAS.
+        </p>
       </div>
 
       <div className="chart-card">
