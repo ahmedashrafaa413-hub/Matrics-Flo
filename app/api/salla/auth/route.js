@@ -13,12 +13,15 @@ export async function GET() {
     );
   }
 
+  const state = crypto.randomUUID();
+
   const authUrl =
     "https://accounts.salla.sa/oauth2/auth" +
     `?client_id=${encodeURIComponent(clientId)}` +
     `&response_type=code` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&scope=${encodeURIComponent("offline_access")}`;
+    `&scope=${encodeURIComponent("offline_access")}` +
+    `&state=${encodeURIComponent(state)}`;
 
   return NextResponse.redirect(authUrl);
 }
