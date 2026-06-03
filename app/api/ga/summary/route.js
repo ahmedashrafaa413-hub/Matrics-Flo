@@ -9,27 +9,17 @@ export async function GET() {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  const { data: connection } =
-    await supabase
-      .from("ga_connections")
-      .select("*")
-      .eq("user_id", "default_user")
-      .single();
+  const { data: connection } = await supabase
+    .from("ga_connections")
+    .select("*")
+    .eq("user_id", "default_user")
+    .single();
 
-  if (
-    !connection?.access_token ||
-    !connection?.property_id
-  ) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Property not selected"
-      },
-      {
-        status: 400
-      }
-    );
+  if (!connection?.access_token || !connection?.property_id) {
+    return NextResponse.json({
+      success: false,
+      error: "GA not connected"
+    });
   }
 
   const response = await fetch(
@@ -37,10 +27,8 @@ export async function GET() {
     {
       method: "POST",
       headers: {
-        Authorization:
-          `Bearer ${connection.access_token}`,
-        "Content-Type":
-          "application/json"
+        Authorization: `Bearer ${connection.access_token}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         dateRanges: [
@@ -50,15 +38,10 @@ export async function GET() {
           }
         ],
         metrics: [
-          {
-            name: "totalUsers"
-          },
-          {
-            name: "sessions"
-          },
-          {
-            name: "screenPageViews"
-          }
+          { name: "sessions" },
+          { name: "totalUsers" },
+          { name: "screenPageViews" },
+          { name: "conversions" }
         ]
       })
     }
@@ -67,9 +50,8 @@ export async function GET() {
   const data = await response.json();
 
   return NextResponse.json({
-    success: response.ok,
-    property:
-      connection.property_name,
+    success: true,
+    property: connection.property_name,
     data
   });
 }
