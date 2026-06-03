@@ -8,17 +8,12 @@ export async function GET(request) {
   const code = searchParams.get("code");
 
   if (!code) {
-    return NextResponse.json(
-      { success: false, error: "No code received from Google" },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: "No code received" });
   }
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
@@ -31,16 +26,23 @@ export async function GET(request) {
   const tokenData = await tokenRes.json();
 
   if (!tokenRes.ok) {
-    return NextResponse.json(
-      { success: false, step: "token_exchange", error: tokenData },
-      { status: 400 }
-    );
+    return NextResponse.json({
+      success: false,
+      step: "token_exchange",
+      error: tokenData
+    });
   }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+
+  const { data: existing } = await supabase
+    .from("ga_connections")
+    .select("property_id, property_name, refresh_token")
+    .eq("user_id", "default_user")
+    .maybeSingle();
 
   const expiresAt = tokenData.expires_in
     ? new Date(Date.now() + Number(tokenData.expires_in) * 1000).toISOString()
@@ -50,23 +52,22 @@ export async function GET(request) {
     {
       user_id: "default_user",
       access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token || null,
+      refresh_token: tokenData.refresh_token || existing?.refresh_token || null,
       expires_at: expiresAt,
+      property_id: existing?.property_id || "428317178",
+      property_name: existing?.property_name || "lordoilsa.com",
       updated_at: new Date().toISOString()
     },
-    {
-      onConflict: "user_id"
-    }
+    { onConflict: "user_id" }
   );
 
   if (error) {
-    return NextResponse.json(
-      { success: false, step: "supabase_save", error },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: false,
+      step: "supabase_save",
+      error
+    });
   }
 
-  return NextResponse.redirect(
-    `${process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL}/connections?ga=connected`
-  );
+  return NextResponse.redirect("https://metricsflo.com/connections?ga=connected");
 }
