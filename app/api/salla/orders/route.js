@@ -46,10 +46,49 @@ export async function GET() {
     );
   }
 
+  const orders = Array.isArray(ordersData.data) ? ordersData.data : [];
+
+  const rows = orders.map((order) => ({
+    user_id: connection.user_id || "default_user",
+    order_id: String(order.id || order.reference_id),
+    order_status: order.status?.name || order.status || null,
+    total_amount: Number(order.total?.amount || order.amounts?.total?.amount || 0),
+    currency:
+      order.total?.currency ||
+      order.amounts?.total?.currency ||
+      order.currency ||
+      "SAR",
+    order_date:
+      order.date?.date ||
+      order.created_at?.date ||
+      order.created_at ||
+      null,
+    raw_data: order,
+    created_at: new Date().toISOString()
+  }));
+
+  if (rows.length) {
+    const { error: saveError } = await supabase.from("salla_orders").upsert(
+      rows,
+      {
+        onConflict: "user_id,order_id"
+      }
+    );
+
+    if (saveError) {
+      return NextResponse.json(
+        { success: false, step: "supabase_orders_save", error: saveError },
+        { status: 500 }
+      );
+    }
+  }
+
   return NextResponse.json({
     success: true,
     store: connection.store_name,
     merchant_id: connection.merchant_id,
-    data: ordersData.data || ordersData
+    fetched_orders: orders.length,
+    saved_orders: rows.length,
+    data: rows
   });
 }
