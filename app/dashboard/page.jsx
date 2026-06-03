@@ -37,6 +37,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [level, setLevel] = useState(defaultLevel);
   const [dateRange, setDateRange] = useState("last_30d");
   const [rows, setRows] = useState([]);
+  const [sallaSummary, setSallaSummary] = useState(null);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
 
@@ -46,6 +47,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
 
   useEffect(() => {
     loadAccountsAndDashboard();
+    loadSallaSummary();
   }, []);
 
   useEffect(() => {
@@ -108,6 +110,15 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   function changeAccount(value) {
     setAccountId(value);
     saveSetting("primary_meta_account", value);
+  }
+
+  async function loadSallaSummary() {
+    try {
+      const data = await apiGet("/api/salla/summary");
+      setSallaSummary(data);
+    } catch (err) {
+      console.error("Failed to load Salla summary", err);
+    }
   }
 
   const totals = useMemo(() => {
@@ -221,6 +232,48 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
           </div>
         ))}
       </section>
+
+      {sallaSummary && (
+        <section className="dash-kpi-grid">
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>Salla Revenue</span>
+              <div>🛒</div>
+            </div>
+            <strong>
+              {Number(sallaSummary.total_revenue || 0).toLocaleString()} SAR
+            </strong>
+          </div>
+
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>Real Orders</span>
+              <div>📦</div>
+            </div>
+            <strong>{sallaSummary.total_orders || 0}</strong>
+          </div>
+
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>Average Order Value</span>
+              <div>💳</div>
+            </div>
+            <strong>
+              {Number(
+                sallaSummary.average_order_value || 0
+              ).toLocaleString()} SAR
+            </strong>
+          </div>
+
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>Store Name</span>
+              <div>🏪</div>
+            </div>
+            <strong>{sallaSummary.store_name}</strong>
+          </div>
+        </section>
+      )}
 
       <section className="dash-insights-grid">
         <div className="dash-insight-card">
