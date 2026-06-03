@@ -9,16 +9,34 @@ export async function GET() {
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  const { data: connection } = await supabase
+  const { data: connection, error } = await supabase
     .from("ga_connections")
     .select("*")
     .eq("user_id", "default_user")
     .single();
 
-  if (!connection?.access_token || !connection?.property_id) {
+  if (error) {
     return NextResponse.json({
       success: false,
-      error: "GA not connected"
+      step: "supabase_read",
+      error
+    });
+  }
+
+  if (!connection) {
+    return NextResponse.json({
+      success: false,
+      step: "no_connection"
+    });
+  }
+
+  if (!connection.access_token || !connection.property_id) {
+    return NextResponse.json({
+      success: false,
+      step: "missing_data",
+      has_access_token: Boolean(connection.access_token),
+      property_id: connection.property_id,
+      property_name: connection.property_name
     });
   }
 
@@ -49,8 +67,18 @@ export async function GET() {
 
   const data = await response.json();
 
+  if (!response.ok) {
+    return NextResponse.json({
+      success: false,
+      step: "ga_run_report",
+      status: response.status,
+      error: data
+    });
+  }
+
   return NextResponse.json({
     success: true,
+    property_id: connection.property_id,
     property: connection.property_name,
     data
   });
