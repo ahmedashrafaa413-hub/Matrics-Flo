@@ -97,7 +97,7 @@ export async function GET(request) {
         dateRanges: [dateRange],
         dimensions: [
           {
-            name: "sessionDefaultChannelGroup"
+            name: "deviceCategory"
           }
         ],
         metrics: [
@@ -128,15 +128,15 @@ export async function GET(request) {
   if (!response.ok) {
     return NextResponse.json({
       success: false,
-      step: "ga_channels",
+      step: "ga_devices",
       status: response.status,
       error: data
     });
   }
 
-  const channels =
+  const devices =
     data.rows?.map((row) => ({
-      channel: row.dimensionValues?.[0]?.value || "Unknown",
+      device: row.dimensionValues?.[0]?.value || "Unknown",
       sessions: Number(row.metricValues?.[0]?.value || 0),
       users: Number(row.metricValues?.[1]?.value || 0),
       conversions: Number(row.metricValues?.[2]?.value || 0)
@@ -148,6 +148,6 @@ export async function GET(request) {
     property_name: connection.property_name,
     range,
     dateRange,
-    channels
+    devices
   });
 }
