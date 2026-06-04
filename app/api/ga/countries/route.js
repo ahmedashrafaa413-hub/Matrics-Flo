@@ -3,6 +3,26 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+function getDateRange(range) {
+  if (range === "today") {
+    return { startDate: "today", endDate: "today" };
+  }
+
+  if (range === "yesterday") {
+    return { startDate: "yesterday", endDate: "yesterday" };
+  }
+
+  if (range === "7daysAgo") {
+    return { startDate: "7daysAgo", endDate: "today" };
+  }
+
+  if (range === "90daysAgo") {
+    return { startDate: "90daysAgo", endDate: "today" };
+  }
+
+  return { startDate: "30daysAgo", endDate: "today" };
+}
+
 async function refreshGoogleToken(refreshToken) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -20,7 +40,11 @@ async function refreshGoogleToken(refreshToken) {
   return res.json();
 }
 
-export async function GET() {
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  const range = searchParams.get("range") || "30daysAgo";
+  const dateRange = getDateRange(range);
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -70,12 +94,7 @@ export async function GET() {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        dateRanges: [
-          {
-            startDate: "30daysAgo",
-            endDate: "today"
-          }
-        ],
+        dateRanges: [dateRange],
         dimensions: [
           {
             name: "country"
@@ -128,6 +147,8 @@ export async function GET() {
     success: true,
     property_id: connection.property_id,
     property_name: connection.property_name,
+    range,
+    dateRange,
     countries
   });
 }
