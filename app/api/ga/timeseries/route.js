@@ -1,0 +1,145 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+export const dynamic = "force-dynamic";
+
+async function refreshGoogleToken(refreshToken) {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token"
+    })
+  });
+
+  return res.json();
+}
+
+function formatDate(value) {
+  if (!value || value.length !== 8) return value;
+
+  const year = value.slice(0, 4);
+  const month = value.slice(4, 6);
+  const day = value.slice(6, 8);
+
+  return `${year}-${month}-${day}`;
+}
+
+export async function GET() {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  const { data: connection, error } = await supabase
+    .from("ga_connections")
+    .select("*")
+    .eq("user_id", "default_user")
+    .single();
+
+  if (error || !connection?.refresh_token || !connection?.property_id) {
+    return NextResponse.json({
+      success: false,
+      step: "missing_connection",
+      error
+    });
+  }
+
+  const refreshed = await refreshGoogleToken(connection.refresh_token);
+
+  if (!refreshed.access_token) {
+    return NextResponse.json({
+      success: false,
+      step: "refresh_token",
+      error: refreshed
+    });
+  }
+
+  await supabase
+    .from("ga_connections")
+    .update({
+      access_token: refreshed.access_token,
+      expires_at: new Date(
+        Date.now() + Number(refreshed.expires_in || 3600) * 1000
+      ).toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq("user_id", "default_user");
+
+  const response = await fetch(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${connection.property_id}:runReport`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${refreshed.access_token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        dateRanges: [
+          {
+            startDate: "30daysAgo",
+            endDate: "today"
+          }
+        ],
+        dimensions: [
+          {
+            name: "date"
+          }
+        ],
+        metrics: [
+          {
+            name: "sessions"
+          },
+          {
+            name: "totalUsers"
+          },
+          {
+            name: "conversions"
+          }
+        ],
+        orderBys: [
+          {
+            dimension: {
+              dimensionName: "date"
+            }
+          }
+        ]
+      })
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    return NextResponse.json({
+      success: false,
+      step: "ga_timeseries",
+      status: response.status,
+      error: data
+    });
+  }
+
+  const rows =
+    data.rows?.map((row) => {
+      const date = formatDate(row.dimensionValues?.[0]?.value);
+
+      return {
+        date,
+        sessions: Number(row.metricValues?.[0]?.value || 0),
+        users: Number(row.metricValues?.[1]?.value || 0),
+        conversions: Number(row.metricValues?.[2]?.value || 0)
+      };
+    }) || [];
+
+  return NextResponse.json({
+    success: true,
+    property_id: connection.property_id,
+    property_name: connection.property_name,
+    rows
+  });
+}
