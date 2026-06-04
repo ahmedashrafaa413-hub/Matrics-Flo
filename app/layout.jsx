@@ -2,8 +2,8 @@ import "./globals.css";
 import Sidebar from "../components/layout/Sidebar";
 
 export const metadata = {
-  title: "AdIntelligence",
-  description: "AI-powered marketing intelligence platform"
+  title: "Matrics Flo",
+  description: "AI-powered marketing Analysis platform"
 };
 
 export default function RootLayout({ children }) {
