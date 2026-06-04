@@ -10,6 +10,10 @@ export default function ConnectionsPage() {
   const [status, setStatus] = useState("Checking connection...");
   const [loading, setLoading] = useState(false);
 
+  const [gaStatus, setGaStatus] = useState("Checking Google Analytics...");
+  const [gaConnected, setGaConnected] = useState(false);
+  const [gaProperty, setGaProperty] = useState("");
+
   async function loadAccounts() {
     setLoading(true);
     setStatus("Loading Meta accounts...");
@@ -38,8 +42,29 @@ export default function ConnectionsPage() {
     }
   }
 
+  async function checkGoogleAnalytics() {
+    setGaStatus("Checking Google Analytics...");
+
+    try {
+      const data = await apiGet("/api/ga/overview");
+
+      if (data?.success && data?.property_name) {
+        setGaConnected(true);
+        setGaProperty(data.property_name);
+        setGaStatus("Google Analytics connected successfully");
+      } else {
+        setGaConnected(false);
+        setGaStatus("Google Analytics is not connected");
+      }
+    } catch (error) {
+      setGaConnected(false);
+      setGaStatus(error.message || "Google Analytics is not connected");
+    }
+  }
+
   useEffect(() => {
     loadAccounts();
+    checkGoogleAnalytics();
   }, []);
 
   function handleSelect(value) {
@@ -61,7 +86,7 @@ export default function ConnectionsPage() {
         <div>
           <span className="eyebrow">Connections</span>
           <h1>Platform Connections</h1>
-          <p>Connect your marketing platforms and choose your main ad account.</p>
+          <p>Connect your marketing platforms and choose your main data sources.</p>
         </div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -71,6 +96,10 @@ export default function ConnectionsPage() {
 
           <a className="primary-btn" href="/api/salla/auth">
             Connect Salla
+          </a>
+
+          <a className="primary-btn" href="/api/ga/auth">
+            Connect GA4
           </a>
         </div>
       </div>
@@ -118,6 +147,44 @@ export default function ConnectionsPage() {
       </div>
 
       <div className="chart-card">
+        <h2>Google Analytics 4</h2>
+        <p>
+          Connect GA4 to import sessions, users, page views, conversions, traffic
+          sources, devices, countries, top pages and realtime active users.
+        </p>
+
+        <div style={{ marginTop: 20 }}>
+          <span className={gaConnected ? "badge connected" : "badge"}>
+            {gaConnected ? "Connected" : "Not Connected"}
+          </span>
+        </div>
+
+        {gaProperty && (
+          <p className="dash-status">
+            Active Property: {gaProperty}
+          </p>
+        )}
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 20 }}>
+          <a className="primary-btn" href="/api/ga/auth">
+            {gaConnected ? "Reconnect Google Analytics" : "Connect Google Analytics"}
+          </a>
+
+          <a className="primary-btn" href="/ga">
+            Open GA4 Dashboard
+          </a>
+
+          <button className="primary-btn" onClick={checkGoogleAnalytics}>
+            Refresh GA4 Status
+          </button>
+        </div>
+
+        <p className={gaConnected ? "dash-status" : "dash-error"}>
+          {gaStatus}
+        </p>
+      </div>
+
+      <div className="chart-card">
         <h2>Salla Store</h2>
         <p>Connect Salla to import orders, revenue, customers and real sales data.</p>
 
@@ -143,7 +210,6 @@ export default function ConnectionsPage() {
             ["Google Ads", "Search, Performance Max, YouTube and conversions"],
             ["TikTok Ads", "Campaigns, ad groups, ads and creatives"],
             ["Snapchat Ads", "Campaigns, ad squads and ads"],
-            ["GA4", "Website events, traffic sources and conversions"],
             ["Shopify", "Revenue, orders, products and customers"]
           ].map(([name, desc]) => (
             <div className="platform-card" key={name}>
