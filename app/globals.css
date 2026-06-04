@@ -327,3 +327,233 @@ body {
     grid-template-columns: 1fr;
   }
 }
+/* GA4 Executive Dashboard */
+
+.ga-dashboard {
+  width: 100%;
+}
+
+.ga-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.ga-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.ga-kpi-card {
+  background:
+    radial-gradient(circle at top right, rgba(101, 87, 255, 0.22), transparent 35%),
+    linear-gradient(180deg, #151b33, #10162b);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 22px;
+  min-height: 138px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18);
+}
+
+.ga-kpi-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ga-kpi-value {
+  display: block;
+  margin-top: 18px;
+  font-size: 30px;
+  font-weight: 950;
+  color: white;
+}
+
+.ga-kpi-sub {
+  display: block;
+  margin-top: 8px;
+  color: #a7f3d0;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ga-main-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.ga-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  padding: 24px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.14);
+}
+
+.ga-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.ga-card-header h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.ga-card-header p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.ga-chart-box {
+  width: 100%;
+  height: 320px;
+}
+
+.ga-mini-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.ga-live-card {
+  background:
+    radial-gradient(circle at top right, rgba(34, 197, 94, 0.22), transparent 38%),
+    linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(17, 22, 42, 1));
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 26px;
+  padding: 24px;
+}
+
+.ga-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #86efac;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.ga-live-dot {
+  width: 10px;
+  height: 10px;
+  background: #22c55e;
+  border-radius: 999px;
+  box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.12);
+}
+
+.ga-live-number {
+  display: block;
+  margin-top: 22px;
+  font-size: 58px;
+  line-height: 1;
+  font-weight: 950;
+  color: #22c55e;
+}
+
+.ga-live-label {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.ga-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ga-table th {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+  padding: 14px;
+  border-bottom: 1px solid #28304f;
+  white-space: nowrap;
+}
+
+.ga-table td {
+  padding: 15px 14px;
+  border-bottom: 1px solid #202744;
+  color: #e5e7eb;
+}
+
+.ga-table tr:hover {
+  background: #171d35;
+}
+
+.ga-table-name {
+  color: white !important;
+  font-weight: 900;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ga-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(101, 87, 255, 0.14);
+  border: 1px solid rgba(101, 87, 255, 0.32);
+  color: #c4b5fd;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ga-loading,
+.ga-error {
+  padding: 24px;
+  border-radius: 22px;
+  margin-bottom: 22px;
+  font-weight: 900;
+}
+
+.ga-loading {
+  background: rgba(101, 87, 255, 0.12);
+  border: 1px solid rgba(101, 87, 255, 0.3);
+  color: #c4b5fd;
+}
+
+.ga-error {
+  background: rgba(251, 113, 133, 0.12);
+  border: 1px solid rgba(251, 113, 133, 0.3);
+  color: var(--red);
+}
+
+@media (max-width: 1200px) {
+  .ga-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .ga-main-grid,
+  .ga-mini-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .ga-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ga-card,
+  .ga-live-card,
+  .ga-kpi-card {
+    padding: 18px;
+  }
+
+  .ga-live-number {
+    font-size: 44px;
+  }
+}
