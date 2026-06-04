@@ -9,6 +9,10 @@ const menuItems = [
     href: "/dashboard",
   },
   {
+    title: "Google Analytics",
+    href: "/ga",
+  },
+  {
     title: "Connections",
     href: "/connections",
   },
