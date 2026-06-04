@@ -6,9 +6,7 @@ export const dynamic = "force-dynamic";
 async function refreshGoogleToken(refreshToken) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
@@ -36,6 +34,8 @@ export async function GET() {
     return NextResponse.json({
       success: false,
       step: "missing_connection",
+      has_refresh_token: Boolean(connection?.refresh_token),
+      property_id: connection?.property_id || null,
       error
     });
   }
@@ -45,7 +45,7 @@ export async function GET() {
   if (!refreshed.access_token) {
     return NextResponse.json({
       success: false,
-      step: "refresh_token",
+      step: "refresh_token_failed",
       error: refreshed
     });
   }
@@ -70,12 +70,7 @@ export async function GET() {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        dateRanges: [
-          {
-            startDate: "30daysAgo",
-            endDate: "today"
-          }
-        ],
+        dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
         metrics: [
           { name: "sessions" },
           { name: "totalUsers" },
@@ -103,7 +98,6 @@ export async function GET() {
   const users = Number(values[1]?.value || 0);
   const pageViews = Number(values[2]?.value || 0);
   const conversions = Number(values[3]?.value || 0);
-  const conversionRate = sessions ? (conversions / sessions) * 100 : 0;
 
   return NextResponse.json({
     success: true,
@@ -114,7 +108,9 @@ export async function GET() {
       users,
       pageViews,
       conversions,
-      conversionRate: Number(conversionRate.toFixed(2))
+      conversionRate: sessions
+        ? Number(((conversions / sessions) * 100).toFixed(2))
+        : 0
     }
   });
 }
