@@ -3,6 +3,23 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+async function refreshGoogleToken(refreshToken) {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token"
+    })
+  });
+
+  return res.json();
+}
+
 export async function GET() {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -15,7 +32,7 @@ export async function GET() {
     .eq("user_id", "default_user")
     .single();
 
-  if (error) {
+  if (error || !connection) {
     return NextResponse.json({
       success: false,
       step: "supabase_read",
@@ -23,29 +40,43 @@ export async function GET() {
     });
   }
 
-  if (!connection) {
-    return NextResponse.json({
-      success: false,
-      step: "no_connection"
-    });
-  }
-
-  if (!connection.access_token || !connection.property_id) {
+  if (!connection.refresh_token || !connection.property_id) {
     return NextResponse.json({
       success: false,
       step: "missing_data",
-      has_access_token: Boolean(connection.access_token),
+      has_refresh_token: Boolean(connection.refresh_token),
       property_id: connection.property_id,
       property_name: connection.property_name
     });
   }
+
+  const refreshed = await refreshGoogleToken(connection.refresh_token);
+
+  if (!refreshed.access_token) {
+    return NextResponse.json({
+      success: false,
+      step: "refresh_token",
+      error: refreshed
+    });
+  }
+
+  await supabase
+    .from("ga_connections")
+    .update({
+      access_token: refreshed.access_token,
+      expires_at: new Date(
+        Date.now() + Number(refreshed.expires_in || 3600) * 1000
+      ).toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq("user_id", "default_user");
 
   const response = await fetch(
     `https://analyticsdata.googleapis.com/v1beta/properties/${connection.property_id}:runReport`,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${connection.access_token}`,
+        Authorization: `Bearer ${refreshed.access_token}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
