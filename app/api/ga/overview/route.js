@@ -3,6 +3,41 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+function getDateRange(range) {
+  if (range === "today") {
+    return {
+      startDate: "today",
+      endDate: "today"
+    };
+  }
+
+  if (range === "yesterday") {
+    return {
+      startDate: "yesterday",
+      endDate: "yesterday"
+    };
+  }
+
+  if (range === "7daysAgo") {
+    return {
+      startDate: "7daysAgo",
+      endDate: "today"
+    };
+  }
+
+  if (range === "90daysAgo") {
+    return {
+      startDate: "90daysAgo",
+      endDate: "today"
+    };
+  }
+
+  return {
+    startDate: "30daysAgo",
+    endDate: "today"
+  };
+}
+
 async function refreshGoogleToken(refreshToken) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -18,7 +53,11 @@ async function refreshGoogleToken(refreshToken) {
   return res.json();
 }
 
-export async function GET() {
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  const range = searchParams.get("range") || "30daysAgo";
+  const dateRange = getDateRange(range);
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -70,12 +109,15 @@ export async function GET() {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        dateRanges: [{ startDate: "30daysAgo", endDate: "today" }],
+        dateRanges: [dateRange],
         metrics: [
           { name: "sessions" },
           { name: "totalUsers" },
           { name: "screenPageViews" },
-          { name: "conversions" }
+          { name: "conversions" },
+          { name: "engagementRate" },
+          { name: "bounceRate" },
+          { name: "averageSessionDuration" }
         ]
       })
     }
@@ -98,19 +140,26 @@ export async function GET() {
   const users = Number(values[1]?.value || 0);
   const pageViews = Number(values[2]?.value || 0);
   const conversions = Number(values[3]?.value || 0);
+  const engagementRate = Number(values[4]?.value || 0) * 100;
+  const bounceRate = Number(values[5]?.value || 0) * 100;
+  const averageSessionDuration = Number(values[6]?.value || 0);
+  const conversionRate = sessions ? (conversions / sessions) * 100 : 0;
 
   return NextResponse.json({
     success: true,
     property_id: connection.property_id,
     property_name: connection.property_name,
+    range,
+    dateRange,
     metrics: {
       sessions,
       users,
       pageViews,
       conversions,
-      conversionRate: sessions
-        ? Number(((conversions / sessions) * 100).toFixed(2))
-        : 0
+      conversionRate: Number(conversionRate.toFixed(2)),
+      engagementRate: Number(engagementRate.toFixed(2)),
+      bounceRate: Number(bounceRate.toFixed(2)),
+      averageSessionDuration: Number(averageSessionDuration.toFixed(2))
     }
   });
 }
