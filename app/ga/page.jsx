@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import DateRangePicker from "../../components/DateRangePicker";
+import { useDateRange } from "../context/DateRangeContext";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -50,6 +52,8 @@ async function getJson(url) {
 }
 
 export default function GoogleAnalyticsDashboard() {
+  const { dateRange } = useDateRange();
+
   const [overview, setOverview] = useState({
     sessions: 0,
     users: 0,
@@ -74,13 +78,13 @@ export default function GoogleAnalyticsDashboard() {
     setErrors([]);
 
     const requests = {
-      overview: getJson("/api/ga/overview"),
-      timeseries: getJson("/api/ga/timeseries"),
-      channels: getJson("/api/ga/channels"),
-      devices: getJson("/api/ga/devices"),
-      countries: getJson("/api/ga/countries"),
-      pages: getJson("/api/ga/pages"),
-      sources: getJson("/api/ga/sources"),
+      overview: getJson(`/api/ga/overview?range=${dateRange}`),
+      timeseries: getJson(`/api/ga/timeseries?range=${dateRange}`),
+      channels: getJson(`/api/ga/channels?range=${dateRange}`),
+      devices: getJson(`/api/ga/devices?range=${dateRange}`),
+      countries: getJson(`/api/ga/countries?range=${dateRange}`),
+      pages: getJson(`/api/ga/pages?range=${dateRange}`),
+      sources: getJson(`/api/ga/sources?range=${dateRange}`),
       realtime: getJson("/api/ga/realtime")
     };
 
@@ -112,6 +116,7 @@ export default function GoogleAnalyticsDashboard() {
       if (key === "realtime") {
         const activeUsers =
           data?.realtime?.rows?.[0]?.metricValues?.[0]?.value || 0;
+
         setRealtime(Number(activeUsers));
       }
     });
@@ -128,7 +133,7 @@ export default function GoogleAnalyticsDashboard() {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [dateRange]);
 
   const deviceChart = useMemo(
     () =>
@@ -150,6 +155,8 @@ export default function GoogleAnalyticsDashboard() {
 
   return (
     <main className="dash-pro ga-dashboard">
+      <DateRangePicker />
+
       <header className="dash-pro-header">
         <div>
           <span className="dash-badge">Google Analytics 4</span>
@@ -176,25 +183,33 @@ export default function GoogleAnalyticsDashboard() {
       <section className="ga-kpi-grid">
         <div className="ga-kpi-card">
           <span className="ga-kpi-label">Sessions</span>
-          <strong className="ga-kpi-value">{formatNumber(overview.sessions)}</strong>
-          <span className="ga-kpi-sub">Last 30 days</span>
+          <strong className="ga-kpi-value">
+            {formatNumber(overview.sessions)}
+          </strong>
+          <span className="ga-kpi-sub">Selected Date Range</span>
         </div>
 
         <div className="ga-kpi-card">
           <span className="ga-kpi-label">Users</span>
-          <strong className="ga-kpi-value">{formatNumber(overview.users)}</strong>
+          <strong className="ga-kpi-value">
+            {formatNumber(overview.users)}
+          </strong>
           <span className="ga-kpi-sub">Total users</span>
         </div>
 
         <div className="ga-kpi-card">
           <span className="ga-kpi-label">Page Views</span>
-          <strong className="ga-kpi-value">{formatNumber(overview.pageViews)}</strong>
+          <strong className="ga-kpi-value">
+            {formatNumber(overview.pageViews)}
+          </strong>
           <span className="ga-kpi-sub">Screen page views</span>
         </div>
 
         <div className="ga-kpi-card">
           <span className="ga-kpi-label">Conversions</span>
-          <strong className="ga-kpi-value">{formatNumber(overview.conversions)}</strong>
+          <strong className="ga-kpi-value">
+            {formatNumber(overview.conversions)}
+          </strong>
           <span className="ga-kpi-sub">Key events</span>
         </div>
 
@@ -212,7 +227,7 @@ export default function GoogleAnalyticsDashboard() {
           <div className="ga-card-header">
             <div>
               <h2>Traffic Performance Trend</h2>
-              <p>Sessions, users and conversions over the last 30 days.</p>
+              <p>Sessions, users and conversions for the selected date range.</p>
             </div>
             <span className="ga-pill">Live API</span>
           </div>
@@ -266,7 +281,9 @@ export default function GoogleAnalyticsDashboard() {
             Realtime Active Users
           </span>
           <strong className="ga-live-number">{formatNumber(realtime)}</strong>
-          <span className="ga-live-label">Auto-refreshing every 30 seconds</span>
+          <span className="ga-live-label">
+            Auto-refreshing every 30 seconds
+          </span>
         </div>
       </section>
 
@@ -282,9 +299,18 @@ export default function GoogleAnalyticsDashboard() {
           <div className="ga-chart-box">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={channelChart} dataKey="value" nameKey="name" outerRadius={115} label>
+                <Pie
+                  data={channelChart}
+                  dataKey="value"
+                  nameKey="name"
+                  outerRadius={115}
+                  label
+                >
                   {channelChart.map((entry, index) => (
-                    <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
+                    <Cell
+                      key={entry.name}
+                      fill={COLORS[index % COLORS.length]}
+                    />
                   ))}
                 </Pie>
                 <Tooltip
@@ -348,6 +374,7 @@ export default function GoogleAnalyticsDashboard() {
                   <th>Conversions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {countries.map((item) => (
                   <tr key={item.country}>
@@ -366,7 +393,7 @@ export default function GoogleAnalyticsDashboard() {
           <div className="ga-card-header">
             <div>
               <h2>Top Pages</h2>
-              <p>Most viewed pages over the last 30 days.</p>
+              <p>Most viewed pages by selected date range.</p>
             </div>
           </div>
 
@@ -379,6 +406,7 @@ export default function GoogleAnalyticsDashboard() {
                   <th>Sessions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {pages.slice(0, 10).map((item) => (
                   <tr key={item.page}>
@@ -412,6 +440,7 @@ export default function GoogleAnalyticsDashboard() {
                 <th>Conversions</th>
               </tr>
             </thead>
+
             <tbody>
               {sources.map((item, index) => (
                 <tr key={`${item.source}-${item.medium}-${index}`}>
