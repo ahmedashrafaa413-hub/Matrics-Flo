@@ -54,6 +54,10 @@ async function getJson(url) {
 export default function GoogleAnalyticsDashboard() {
   const { dateRange } = useDateRange();
 
+  const [properties, setProperties] = useState([]);
+  const [selectedProperty, setSelectedProperty] = useState("");
+  const [selectedPropertyName, setSelectedPropertyName] = useState("");
+
   const [overview, setOverview] = useState({
     sessions: 0,
     users: 0,
@@ -72,6 +76,34 @@ export default function GoogleAnalyticsDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState([]);
+
+  async function loadProperties() {
+    try {
+      const data = await getJson("/api/ga/properties");
+      setProperties(data.properties || []);
+      setSelectedProperty(data.selected_property_id || "");
+      setSelectedPropertyName(data.selected_property_name || "");
+    } catch (error) {
+      setErrors((prev) => [...prev, errorToText(error)]);
+    }
+  }
+
+  async function changeProperty(propertyId) {
+    const property = properties.find((item) => item.id === propertyId);
+    setSelectedProperty(propertyId);
+    setSelectedPropertyName(property?.name || "");
+    await fetch("/api/ga/select-property", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        property_id: propertyId,
+        property_name: property?.name || ""
+      })
+    });
+    await loadAll();
+  }
 
   async function loadAll() {
     setLoading(true);
@@ -105,7 +137,10 @@ export default function GoogleAnalyticsDashboard() {
 
       const { key, data } = result.value;
 
-      if (key === "overview") setOverview(data.metrics || {});
+      if (key === "overview") {
+        setOverview(data.metrics || {});
+        setSelectedPropertyName(data.property_name || selectedPropertyName);
+      }
       if (key === "timeseries") setTimeseries(data.rows || []);
       if (key === "channels") setChannels(data.channels || []);
       if (key === "devices") setDevices(data.devices || []);
@@ -135,6 +170,10 @@ export default function GoogleAnalyticsDashboard() {
     return () => clearInterval(interval);
   }, [dateRange]);
 
+  useEffect(() => {
+    loadProperties();
+  }, []);
+
   const deviceChart = useMemo(
     () =>
       devices.map((item) => ({
@@ -155,15 +194,29 @@ export default function GoogleAnalyticsDashboard() {
 
   return (
     <main className="dash-pro ga-dashboard">
-      <DateRangePicker />
+      <div className="ga-toolbar">
+        <DateRangePicker />
+        <div className="ga-property-switcher">
+          <label>GA4 Property</label>
+          <select
+            value={selectedProperty}
+            onChange={(e) => changeProperty(e.target.value)}
+          >
+            {properties.map((property) => (
+              <option key={property.id} value={property.id}>
+                {property.name} — {property.account_name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <header className="dash-pro-header">
         <div>
           <span className="dash-badge">Google Analytics 4</span>
           <h1>GA4 Executive Overview</h1>
           <p>
-            Live website analytics dashboard for sessions, users, conversions,
-            traffic sources, devices, countries and top pages.
+            Current Property: <strong>{selectedPropertyName || "Loading..."}</strong>
           </p>
         </div>
 
