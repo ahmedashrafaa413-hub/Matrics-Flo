@@ -557,3 +557,34 @@ body {
     font-size: 44px;
   }
 }
+.ga-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.ga-property-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ga-property-switcher label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ga-property-switcher select {
+  min-width: 340px;
+  background: #111827;
+  color: white;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+}
