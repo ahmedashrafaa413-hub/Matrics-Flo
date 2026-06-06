@@ -89,20 +89,37 @@ export default function GoogleAnalyticsDashboard() {
   }
 
   async function changeProperty(propertyId) {
-    const property = properties.find((item) => item.id === propertyId);
-    setSelectedProperty(propertyId);
-    setSelectedPropertyName(property?.name || "");
-    await fetch("/api/ga/select-property", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        property_id: propertyId,
-        property_name: property?.name || ""
-      })
-    });
-    await loadAll();
+    try {
+      const property = properties.find(
+        (item) => String(item.id) === String(propertyId)
+      );
+      setSelectedProperty(propertyId);
+      setSelectedPropertyName(property?.name || "");
+      const response = await fetch("/api/ga/select-property", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          property_id: propertyId,
+          property_name: property?.name || ""
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || result.success === false) {
+        throw new Error(
+          result.error?.message ||
+            result.error ||
+            "Failed to update GA4 property"
+        );
+      }
+      await loadProperties();
+      setTimeout(() => {
+        loadAll();
+      }, 800);
+    } catch (error) {
+      setErrors([error?.message || "Failed to switch GA4 property"]);
+    }
   }
 
   async function loadAll() {
