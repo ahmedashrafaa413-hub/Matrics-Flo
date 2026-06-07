@@ -118,25 +118,27 @@ export default function GoogleAnalyticsDashboard() {
             "Failed to update GA4 property"
         );
       }
-      window.location.reload();
+      await loadAll(propertyId);
     } catch (error) {
       setErrors([error?.message || "Failed to switch GA4 property"]);
     }
   }
 
-  async function loadAll() {
+  async function loadAll(propertyIdOverride) {
+    const propertyId = propertyIdOverride || selectedProperty;
+    const params = `range=${dateRange}&propertyId=${propertyId}`;
     setLoading(true);
     setErrors([]);
 
     const requests = {
-      overview: getJson(`/api/ga/overview?range=${dateRange}`),
-      timeseries: getJson(`/api/ga/timeseries?range=${dateRange}`),
-      channels: getJson(`/api/ga/channels?range=${dateRange}`),
-      devices: getJson(`/api/ga/devices?range=${dateRange}`),
-      countries: getJson(`/api/ga/countries?range=${dateRange}`),
-      pages: getJson(`/api/ga/pages?range=${dateRange}`),
-      sources: getJson(`/api/ga/sources?range=${dateRange}`),
-      realtime: getJson("/api/ga/realtime")
+      overview: getJson(`/api/ga/overview?${params}`),
+      timeseries: getJson(`/api/ga/timeseries?${params}`),
+      channels: getJson(`/api/ga/channels?${params}`),
+      devices: getJson(`/api/ga/devices?${params}`),
+      countries: getJson(`/api/ga/countries?${params}`),
+      pages: getJson(`/api/ga/pages?${params}`),
+      sources: getJson(`/api/ga/sources?${params}`),
+      realtime: getJson(`/api/ga/realtime?propertyId=${propertyId}`)
     };
 
     const results = await Promise.allSettled(
