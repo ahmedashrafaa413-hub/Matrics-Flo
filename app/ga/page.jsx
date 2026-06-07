@@ -160,7 +160,10 @@ export default function GoogleAnalyticsDashboard() {
 
       if (key === "overview") {
         setOverview(data.metrics || {});
-        setSelectedPropertyName(data.property_name || selectedPropertyName);
+        const currentProperty = properties.find(
+          (item) => String(item.id) === String(propertyId)
+        );
+        setSelectedPropertyName(currentProperty?.name || data.property_name || "");
       }
       if (key === "timeseries") setTimeseries(data.rows || []);
       if (key === "channels") setChannels(data.channels || []);
