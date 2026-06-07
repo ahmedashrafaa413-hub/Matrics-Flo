@@ -97,8 +97,6 @@ export default function GoogleAnalyticsDashboard() {
       const property = properties.find(
         (item) => String(item.id) === String(propertyId)
       );
-      setSelectedProperty(propertyId);
-      setSelectedPropertyName(property?.name || "");
       const response = await fetch("/api/ga/select-property", {
         method: "POST",
         headers: {
@@ -118,7 +116,8 @@ export default function GoogleAnalyticsDashboard() {
             "Failed to update GA4 property"
         );
       }
-      await loadAll(propertyId);
+      setSelectedProperty(propertyId);
+      setSelectedPropertyName(property?.name || "");
     } catch (error) {
       setErrors([error?.message || "Failed to switch GA4 property"]);
     }
@@ -185,18 +184,17 @@ export default function GoogleAnalyticsDashboard() {
   }
 
   useEffect(() => {
-    async function initDashboard() {
-      await loadProperties();
-      await loadAll();
-    }
-    initDashboard();
+    loadProperties();
+  }, []);
 
+  useEffect(() => {
+    if (!selectedProperty) return;
+    loadAll(selectedProperty);
     const interval = setInterval(() => {
-      loadAll();
+      loadAll(selectedProperty);
     }, 30000);
-
     return () => clearInterval(interval);
-  }, [dateRange]);
+  }, [dateRange, selectedProperty]);
 
   const deviceChart = useMemo(
     () =>
