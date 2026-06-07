@@ -37,8 +37,13 @@ function errorToText(error) {
 
 async function getJson(url) {
   const res = await fetch(url, { cache: "no-store" });
-  const data = await res.json();
-
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Invalid JSON response from ${url}`);
+  }
   if (!res.ok || data.success === false) {
     throw new Error(
       data.step ||
@@ -47,7 +52,6 @@ async function getJson(url) {
         `Failed to load ${url}`
     );
   }
-
   return data;
 }
 
@@ -93,7 +97,6 @@ export default function GoogleAnalyticsDashboard() {
       const property = properties.find(
         (item) => String(item.id) === String(propertyId)
       );
-      alert(`Changing to: ${property?.name} - ${propertyId}`);
       setSelectedProperty(propertyId);
       setSelectedPropertyName(property?.name || "");
       const response = await fetch("/api/ga/select-property", {
@@ -106,8 +109,8 @@ export default function GoogleAnalyticsDashboard() {
           property_name: property?.name || ""
         })
       });
-      const result = await response.json();
-      alert(JSON.stringify(result));
+      const text = await response.text();
+      const result = text ? JSON.parse(text) : {};
       if (!response.ok || result.success === false) {
         throw new Error(
           result.error?.message ||
@@ -117,7 +120,6 @@ export default function GoogleAnalyticsDashboard() {
       }
       window.location.reload();
     } catch (error) {
-      alert(error?.message || "Failed to switch GA4 property");
       setErrors([error?.message || "Failed to switch GA4 property"]);
     }
   }
