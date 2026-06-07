@@ -93,6 +93,7 @@ export default function GoogleAnalyticsDashboard() {
       const property = properties.find(
         (item) => String(item.id) === String(propertyId)
       );
+      alert(`Changing to: ${property?.name} - ${propertyId}`);
       setSelectedProperty(propertyId);
       setSelectedPropertyName(property?.name || "");
       const response = await fetch("/api/ga/select-property", {
@@ -101,11 +102,12 @@ export default function GoogleAnalyticsDashboard() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          property_id: propertyId,
+          property_id: String(propertyId),
           property_name: property?.name || ""
         })
       });
       const result = await response.json();
+      alert(JSON.stringify(result));
       if (!response.ok || result.success === false) {
         throw new Error(
           result.error?.message ||
@@ -113,11 +115,9 @@ export default function GoogleAnalyticsDashboard() {
             "Failed to update GA4 property"
         );
       }
-      await loadProperties();
-      setTimeout(() => {
-        loadAll();
-      }, 800);
+      window.location.reload();
     } catch (error) {
+      alert(error?.message || "Failed to switch GA4 property");
       setErrors([error?.message || "Failed to switch GA4 property"]);
     }
   }
