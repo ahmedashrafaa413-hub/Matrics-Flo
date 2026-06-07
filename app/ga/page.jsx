@@ -178,7 +178,11 @@ export default function GoogleAnalyticsDashboard() {
   }
 
   useEffect(() => {
-    loadAll();
+    async function initDashboard() {
+      await loadProperties();
+      await loadAll();
+    }
+    initDashboard();
 
     const interval = setInterval(() => {
       loadAll();
@@ -186,10 +190,6 @@ export default function GoogleAnalyticsDashboard() {
 
     return () => clearInterval(interval);
   }, [dateRange]);
-
-  useEffect(() => {
-    loadProperties();
-  }, []);
 
   const deviceChart = useMemo(
     () =>
