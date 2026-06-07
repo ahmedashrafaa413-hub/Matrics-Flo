@@ -37,13 +37,8 @@ function errorToText(error) {
 
 async function getJson(url) {
   const res = await fetch(url, { cache: "no-store" });
-  const text = await res.text();
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Invalid JSON response from ${url}`);
-  }
+  const data = await res.json();
+
   if (!res.ok || data.success === false) {
     throw new Error(
       data.step ||
@@ -52,6 +47,7 @@ async function getJson(url) {
         `Failed to load ${url}`
     );
   }
+
   return data;
 }
 
@@ -85,59 +81,39 @@ export default function GoogleAnalyticsDashboard() {
     try {
       const data = await getJson("/api/ga/properties");
       setProperties(data.properties || []);
-      setSelectedProperty(data.selected_property_id || "");
-      setSelectedPropertyName(data.selected_property_name || "");
+      if (!selectedProperty) {
+        setSelectedProperty(data.selected_property_id || "");
+        setSelectedPropertyName(data.selected_property_name || "");
+      }
     } catch (error) {
       setErrors((prev) => [...prev, errorToText(error)]);
     }
   }
 
   async function changeProperty(propertyId) {
-    try {
-      const property = properties.find(
-        (item) => String(item.id) === String(propertyId)
-      );
-      const response = await fetch("/api/ga/select-property", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          property_id: String(propertyId),
-          property_name: property?.name || ""
-        })
-      });
-      const text = await response.text();
-      const result = text ? JSON.parse(text) : {};
-      if (!response.ok || result.success === false) {
-        throw new Error(
-          result.error?.message ||
-            result.error ||
-            "Failed to update GA4 property"
-        );
-      }
-      setSelectedProperty(propertyId);
-      setSelectedPropertyName(property?.name || "");
-    } catch (error) {
-      setErrors([error?.message || "Failed to switch GA4 property"]);
-    }
+    const property = properties.find(
+      (item) => String(item.id) === String(propertyId)
+    );
+    setSelectedProperty(String(propertyId));
+    setSelectedPropertyName(property?.name || "");
+    await loadAll(String(propertyId));
   }
 
   async function loadAll(propertyIdOverride) {
-    const propertyId = propertyIdOverride || selectedProperty;
-    const params = `range=${dateRange}&propertyId=${propertyId}`;
+    const propertyId = String(propertyIdOverride || selectedProperty || "");
+    if (!propertyId) return;
     setLoading(true);
     setErrors([]);
 
     const requests = {
-      overview: getJson(`/api/ga/overview?${params}`),
-      timeseries: getJson(`/api/ga/timeseries?${params}`),
-      channels: getJson(`/api/ga/channels?${params}`),
-      devices: getJson(`/api/ga/devices?${params}`),
-      countries: getJson(`/api/ga/countries?${params}`),
-      pages: getJson(`/api/ga/pages?${params}`),
-      sources: getJson(`/api/ga/sources?${params}`),
-      realtime: getJson(`/api/ga/realtime?propertyId=${propertyId}`)
+      overview: getJson(`/api/ga/overview?range=${dateRange}`),
+      timeseries: getJson(`/api/ga/timeseries?range=${dateRange}`),
+      channels: getJson(`/api/ga/channels?range=${dateRange}`),
+      devices: getJson(`/api/ga/devices?range=${dateRange}`),
+      countries: getJson(`/api/ga/countries?range=${dateRange}`),
+      pages: getJson(`/api/ga/pages?range=${dateRange}`),
+      sources: getJson(`/api/ga/sources?range=${dateRange}`),
+      realtime: getJson("/api/ga/realtime")
     };
 
     const results = await Promise.allSettled(
@@ -159,10 +135,7 @@ export default function GoogleAnalyticsDashboard() {
 
       if (key === "overview") {
         setOverview(data.metrics || {});
-        const currentProperty = properties.find(
-          (item) => String(item.id) === String(propertyId)
-        );
-        setSelectedPropertyName(currentProperty?.name || data.property_name || "");
+        setSelectedPropertyName(data.property_name || selectedPropertyName);
       }
       if (key === "timeseries") setTimeseries(data.rows || []);
       if (key === "channels") setChannels(data.channels || []);
@@ -184,17 +157,18 @@ export default function GoogleAnalyticsDashboard() {
   }
 
   useEffect(() => {
-    loadProperties();
-  }, []);
+    loadAll();
+
+    const interval = setInterval(() => {
+      loadAll();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [dateRange]);
 
   useEffect(() => {
-    if (!selectedProperty) return;
-    loadAll(selectedProperty);
-    const interval = setInterval(() => {
-      loadAll(selectedProperty);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [dateRange, selectedProperty]);
+    loadProperties();
+  }, []);
 
   const deviceChart = useMemo(
     () =>
