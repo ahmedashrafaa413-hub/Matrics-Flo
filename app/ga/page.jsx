@@ -82,8 +82,12 @@ export default function GoogleAnalyticsDashboard() {
       const data = await getJson("/api/ga/properties");
       setProperties(data.properties || []);
       if (!selectedProperty) {
-        setSelectedProperty(data.selected_property_id || "");
-        setSelectedPropertyName(data.selected_property_name || "");
+        const defaultProperty =
+          data.properties?.find(
+            (item) => String(item.id) === String(data.selected_property_id)
+          ) || data.properties?.[0];
+        setSelectedProperty(String(defaultProperty?.id || ""));
+        setSelectedPropertyName(defaultProperty?.name || "");
       }
     } catch (error) {
       setErrors((prev) => [...prev, errorToText(error)]);
@@ -102,6 +106,7 @@ export default function GoogleAnalyticsDashboard() {
   async function loadAll(propertyIdOverride) {
     const propertyId = String(propertyIdOverride || selectedProperty || "");
     if (!propertyId) return;
+    const params = `range=${dateRange}&propertyId=${propertyId}`;
     setLoading(true);
     setErrors([]);
 
@@ -135,7 +140,12 @@ export default function GoogleAnalyticsDashboard() {
 
       if (key === "overview") {
         setOverview(data.metrics || {});
-        setSelectedPropertyName(data.property_name || selectedPropertyName);
+        const activeProperty = properties.find(
+          (item) => String(item.id) === String(propertyId)
+        );
+        setSelectedPropertyName(
+          activeProperty?.name || data.property_name || ""
+        );
       }
       if (key === "timeseries") setTimeseries(data.rows || []);
       if (key === "channels") setChannels(data.channels || []);
