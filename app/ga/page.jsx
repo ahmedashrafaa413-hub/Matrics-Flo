@@ -100,6 +100,13 @@ export default function GoogleAnalyticsDashboard() {
     );
     setSelectedProperty(String(propertyId));
     setSelectedPropertyName(property?.name || "");
+    setOverview({
+      sessions: 0,
+      users: 0,
+      pageViews: 0,
+      conversions: 0,
+      conversionRate: 0
+    });
     await loadAll(String(propertyId));
   }
 
@@ -111,14 +118,14 @@ export default function GoogleAnalyticsDashboard() {
     setErrors([]);
 
     const requests = {
-      overview: getJson(`/api/ga/overview?range=${dateRange}`),
-      timeseries: getJson(`/api/ga/timeseries?range=${dateRange}`),
-      channels: getJson(`/api/ga/channels?range=${dateRange}`),
-      devices: getJson(`/api/ga/devices?range=${dateRange}`),
-      countries: getJson(`/api/ga/countries?range=${dateRange}`),
-      pages: getJson(`/api/ga/pages?range=${dateRange}`),
-      sources: getJson(`/api/ga/sources?range=${dateRange}`),
-      realtime: getJson("/api/ga/realtime")
+      overview: getJson(`/api/ga/overview?${params}`),
+      timeseries: getJson(`/api/ga/timeseries?${params}`),
+      channels: getJson(`/api/ga/channels?${params}`),
+      devices: getJson(`/api/ga/devices?${params}`),
+      countries: getJson(`/api/ga/countries?${params}`),
+      pages: getJson(`/api/ga/pages?${params}`),
+      sources: getJson(`/api/ga/sources?${params}`),
+      realtime: getJson(`/api/ga/realtime?propertyId=${propertyId}`)
     };
 
     const results = await Promise.allSettled(
@@ -167,18 +174,17 @@ export default function GoogleAnalyticsDashboard() {
   }
 
   useEffect(() => {
-    loadAll();
-
-    const interval = setInterval(() => {
-      loadAll();
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [dateRange]);
-
-  useEffect(() => {
     loadProperties();
   }, []);
+
+  useEffect(() => {
+    if (!selectedProperty) return;
+    loadAll(selectedProperty);
+    const interval = setInterval(() => {
+      loadAll(selectedProperty);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [dateRange, selectedProperty]);
 
   const deviceChart = useMemo(
     () =>
@@ -196,6 +202,10 @@ export default function GoogleAnalyticsDashboard() {
         value: item.sessions
       })),
     [channels]
+  );
+
+  const currentProperty = properties.find(
+    (item) => String(item.id) === String(selectedProperty)
   );
 
   return (
@@ -222,11 +232,14 @@ export default function GoogleAnalyticsDashboard() {
           <span className="dash-badge">Google Analytics 4</span>
           <h1>GA4 Executive Overview</h1>
           <p>
-            Current Property: <strong>{selectedPropertyName || "Loading..."}</strong>
+            Current Property: <strong>{currentProperty?.name || selectedPropertyName || "Loading..."}</strong>
           </p>
         </div>
 
-        <button className="dash-refresh" onClick={loadAll}>
+        <button
+          className="dash-refresh"
+          onClick={() => loadAll(selectedProperty)}
+        >
           {loading ? "Refreshing..." : "Refresh GA4"}
         </button>
       </header>
