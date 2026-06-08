@@ -41,6 +41,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [dateRange, setDateRange] = useState("maximum");
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [alerts, setAlerts] = useState([]);
   const [sallaSummary, setSallaSummary] = useState(null);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
@@ -89,6 +90,108 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
     }
   }
 
+  function generateAlerts(summary) {
+    const nextAlerts = [];
+    if (!summary) return nextAlerts;
+    const roas = Number(summary.roas || 0);
+    const cpa = Number(summary.cpa || 0);
+    const ctr = Number(summary.ctr || 0);
+    const cpc = Number(summary.cpc || 0);
+    const cpm = Number(summary.cpm || 0);
+    const spend = Number(summary.spend || 0);
+    const revenue = Number(summary.purchase_value || 0);
+    const purchases = Number(summary.purchases || 0);
+    const addToCart = Number(summary.add_to_cart || 0);
+    const initiateCheckout = Number(summary.initiate_checkout || 0);
+    if (spend > 0 && revenue < spend) {
+      nextAlerts.push({
+        severity: "high",
+        title: "ROAS below profitability threshold",
+        message: "Ad spend is higher than tracked purchase value.",
+        cause: "Likely weak conversion rate, low AOV, poor offer, or tracking gap.",
+        action: "Pause the weakest campaigns and review funnel conversion before scaling.",
+        ice: 27
+      });
+    }
+    if (roas > 0 && roas < 1) {
+      nextAlerts.push({
+        severity: "high",
+        title: "ROAS below 1",
+        message: "Campaigns are likely unprofitable based on tracked revenue.",
+        cause: "Low purchase value, weak conversion rate, or expensive traffic.",
+        action: "Reduce budget on low ROAS campaigns and test stronger offer/landing page.",
+        ice: 26
+      });
+    }
+    if (ctr > 0 && ctr < 1) {
+      nextAlerts.push({
+        severity: "medium",
+        title: "CTR below 1%",
+        message: "Ads are not generating enough interest from the audience.",
+        cause: "Weak hook, creative fatigue, wrong audience, or unclear value proposition.",
+        action: "Launch 3 new creatives with stronger hooks and Saudi-market messaging.",
+        ice: 24
+      });
+    }
+    if (cpa > 0 && purchases > 0 && roas < 2) {
+      nextAlerts.push({
+        severity: "medium",
+        title: "CPA pressure detected",
+        message: "Cost per purchase is high compared to current return.",
+        cause: "Funnel inefficiency or campaign targeting is too broad.",
+        action: "Optimize campaigns with high CPA and prioritize best converting segments.",
+        ice: 22
+      });
+    }
+    if (addToCart > 0 && purchases > 0) {
+      const cartAbandonment = ((addToCart - purchases) / addToCart) * 100;
+      if (cartAbandonment > 80) {
+        nextAlerts.push({
+          severity: "medium",
+          title: "High cart abandonment",
+          message: `Cart abandonment is ${cartAbandonment.toFixed(1)}%.`,
+          cause: "Checkout friction, shipping cost, payment issue, or weak urgency.",
+          action: "Review checkout, payment options, delivery promise, and retarget cart abandoners.",
+          ice: 23
+        });
+      }
+    }
+    if (addToCart > 0 && initiateCheckout > 0) {
+      const checkoutDrop = ((addToCart - initiateCheckout) / addToCart) * 100;
+      if (checkoutDrop > 60) {
+        nextAlerts.push({
+          severity: "medium",
+          title: "Drop-off before checkout",
+          message: `Only ${((initiateCheckout / addToCart) * 100).toFixed(1)}% of carts start checkout.`,
+          cause: "Product page trust, price objection, unclear offer, or delivery concerns.",
+          action: "Improve product page proof, offer visibility, reviews, and CTA clarity.",
+          ice: 21
+        });
+      }
+    }
+    if (roas >= 3 && ctr >= 1 && purchases >= 5) {
+      nextAlerts.push({
+        severity: "success",
+        title: "Scaling opportunity",
+        message: "ROAS, CTR, and purchase volume indicate possible scaling potential.",
+        cause: "Strong offer-market fit and healthy acquisition performance.",
+        action: "Increase budget gradually by 15–20% while monitoring CPA and frequency.",
+        ice: 25
+      });
+    }
+    if (nextAlerts.length === 0) {
+      nextAlerts.push({
+        severity: "neutral",
+        title: "No critical alerts",
+        message: "Performance is stable based on current available data.",
+        cause: "No major profitability, acquisition, or funnel risk detected.",
+        action: "Continue monitoring and test new creatives proactively.",
+        ice: 10
+      });
+    }
+    return nextAlerts.sort((a, b) => b.ice - a.ice);
+  }
+
   async function loadInsights(
     selectedAccount = accountId,
     selectedLevel = level,
@@ -112,10 +215,12 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
       }
       setRows(data.data || []);
       setSummary(data.summary || null);
+      setAlerts(generateAlerts(data.summary));
       setStatus(`${data.data?.length || 0} rows loaded successfully`);
     } catch (err) {
       setRows([]);
       setSummary(null);
+      setAlerts([]);
       setError(err.message || "Failed to load insights");
       setStatus("Failed to load data");
     }
@@ -257,6 +362,37 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
       <div className={error ? "dash-message error" : "dash-message success"}>
         {error || status}
       </div>
+
+      {alerts.length > 0 && (
+        <section className="dash-insights-grid">
+          {alerts.slice(0, 3).map((alert, index) => (
+            <div className="dash-insight-card" key={index}>
+              <h3>
+                {alert.severity === "high"
+                  ? "🔴"
+                  : alert.severity === "medium"
+                  ? "🟠"
+                  : alert.severity === "success"
+                  ? "🟢"
+                  : "⚪"}{" "}
+                {alert.title}
+              </h3>
+              <p>
+                <strong>What happened:</strong> {alert.message}
+              </p>
+              <p>
+                <strong>Likely cause:</strong> {alert.cause}
+              </p>
+              <p>
+                <strong>Recommended action:</strong> {alert.action}
+              </p>
+              <p>
+                <strong>ICE Score:</strong> {alert.ice}/30
+              </p>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="dash-kpi-grid">
         {metricCards.map((item) => (
