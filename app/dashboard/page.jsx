@@ -42,6 +42,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [funnelDiagnosis, setFunnelDiagnosis] = useState([]);
   const [sallaSummary, setSallaSummary] = useState(null);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
@@ -192,6 +193,65 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
     return nextAlerts.sort((a, b) => b.ice - a.ice);
   }
 
+  function diagnoseFunnel(summary) {
+    const issues = [];
+    if (!summary) return issues;
+    const lpvRate = Number(summary.lpv_rate || 0);
+    const atcRate = Number(summary.atc_rate || 0);
+    const checkoutRate = Number(summary.checkout_rate || 0);
+    const purchaseRate = Number(summary.purchase_rate || 0);
+    const cartAbandonmentRate = Number(summary.cart_abandonment_rate || 0);
+    if (lpvRate > 0 && lpvRate < 70) {
+      issues.push({
+        stage: "Link Clicks → Landing Page Views",
+        problem: "Users click the ad but do not reach the landing page.",
+        cause: "Slow loading speed, redirect issue, tracking issue, or poor mobile experience.",
+        action: "Run PageSpeed test, check mobile loading, test links, and compare Meta clicks with GA4 sessions."
+      });
+    }
+    if (atcRate > 0 && atcRate < 8) {
+      issues.push({
+        stage: "Landing Page / Content View → Add To Cart",
+        problem: "Users arrive but do not add products to cart.",
+        cause: "Weak offer, poor product page trust, unclear pricing, weak CTA, or product mismatch.",
+        action: "Improve product page, add reviews/social proof, clarify offer, shipping, guarantees, and CTA."
+      });
+    }
+    if (checkoutRate > 0 && checkoutRate < 40) {
+      issues.push({
+        stage: "Add To Cart → Initiate Checkout",
+        problem: "Users add to cart but do not start checkout.",
+        cause: "Cart UX issue, shipping surprise, weak urgency, or lack of payment clarity.",
+        action: "Audit cart page, show delivery/payment info earlier, and add cart abandonment retargeting."
+      });
+    }
+    if (purchaseRate > 0 && purchaseRate < 30) {
+      issues.push({
+        stage: "Initiate Checkout → Purchase",
+        problem: "Users start checkout but do not complete purchase.",
+        cause: "Payment failure, coupon issue, hidden costs, delivery concerns, or checkout friction.",
+        action: "Test full purchase flow, payment methods, discount codes, shipping fees, and checkout UX."
+      });
+    }
+    if (cartAbandonmentRate > 80) {
+      issues.push({
+        stage: "Cart Abandonment",
+        problem: `Cart abandonment is high at ${cartAbandonmentRate.toFixed(1)}%.`,
+        cause: "Price objection, shipping cost, payment friction, or weak urgency.",
+        action: "Launch ATC retargeting, improve offer clarity, add urgency, and test free shipping threshold."
+      });
+    }
+    if (issues.length === 0) {
+      issues.push({
+        stage: "Funnel Health",
+        problem: "No major funnel bottleneck detected from available data.",
+        cause: "The funnel appears stable based on current thresholds.",
+        action: "Keep monitoring and compare results by campaign, ad set, and ad level."
+      });
+    }
+    return issues;
+  }
+
   async function loadInsights(
     selectedAccount = accountId,
     selectedLevel = level,
@@ -216,11 +276,13 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
       setRows(data.data || []);
       setSummary(data.summary || null);
       setAlerts(generateAlerts(data.summary));
+      setFunnelDiagnosis(diagnoseFunnel(data.summary));
       setStatus(`${data.data?.length || 0} rows loaded successfully`);
     } catch (err) {
       setRows([]);
       setSummary(null);
       setAlerts([]);
+      setFunnelDiagnosis([]);
       setError(err.message || "Failed to load insights");
       setStatus("Failed to load data");
     }
@@ -526,6 +588,70 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
             <strong>{formatValue(totals.cost_per_initiate_checkout, "money")}</strong>
           </p>
         </div>
+      </section>
+
+      <section className="dash-table-card">
+        <div className="dash-table-head">
+          <div>
+            <h2>Funnel Analysis</h2>
+            <p>
+              Link Clicks → Landing Page Views → Add To Cart → Checkout → Purchase
+            </p>
+          </div>
+        </div>
+        <section className="dash-kpi-grid">
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>LPV Rate</span>
+              <div>⚡</div>
+            </div>
+            <strong>{formatValue(totals.lpv_rate, "percent")}</strong>
+          </div>
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>ATC Rate</span>
+              <div>🛒</div>
+            </div>
+            <strong>{formatValue(totals.atc_rate, "percent")}</strong>
+          </div>
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>Checkout Rate</span>
+              <div>💳</div>
+            </div>
+            <strong>{formatValue(totals.checkout_rate, "percent")}</strong>
+          </div>
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>Purchase Rate</span>
+              <div>✅</div>
+            </div>
+            <strong>{formatValue(totals.purchase_rate, "percent")}</strong>
+          </div>
+          <div className="dash-kpi-card">
+            <div className="dash-kpi-top">
+              <span>Cart Abandonment</span>
+              <div>⚠️</div>
+            </div>
+            <strong>{formatValue(totals.cart_abandonment_rate, "percent")}</strong>
+          </div>
+        </section>
+        <section className="dash-insights-grid">
+          {funnelDiagnosis.map((item, index) => (
+            <div className="dash-insight-card" key={index}>
+              <h3>{item.stage}</h3>
+              <p>
+                <strong>Problem:</strong> {item.problem}
+              </p>
+              <p>
+                <strong>Likely Cause:</strong> {item.cause}
+              </p>
+              <p>
+                <strong>Recommended Action:</strong> {item.action}
+              </p>
+            </div>
+          ))}
+        </section>
       </section>
 
       <section className="dash-table-card">
