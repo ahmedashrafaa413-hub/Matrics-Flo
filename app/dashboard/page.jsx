@@ -35,7 +35,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
   const [level, setLevel] = useState(defaultLevel);
-  const [dateRange, setDateRange] = useState("last_30d");
+  const [dateRange, setDateRange] = useState("maximum");
   const [rows, setRows] = useState([]);
   const [sallaSummary, setSallaSummary] = useState(null);
   const [status, setStatus] = useState("Loading dashboard...");
@@ -89,17 +89,25 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
     selectedDateRange = dateRange
   ) {
     if (!selectedAccount) return;
-
     try {
       setError("");
       setStatus("Loading performance data...");
-
-      const data = await apiGet(
+      let data = await apiGet(
         `/api/meta/insights?account_id=${selectedAccount}&level=${selectedLevel}&date_preset=${selectedDateRange}`
       );
-
+      if (
+        (!data.data || data.data.length === 0) &&
+        selectedDateRange !== "maximum"
+      ) {
+        data = await apiGet(
+          `/api/meta/insights?account_id=${selectedAccount}&level=${selectedLevel}&date_preset=maximum`
+        );
+        setDateRange("maximum");
+      }
       setRows(data.data || []);
-      setStatus("Dashboard updated successfully");
+      setStatus(
+        `${data.data?.length || 0} rows loaded successfully`
+      );
     } catch (err) {
       setRows([]);
       setError(err.message || "Failed to load insights");
@@ -208,12 +216,13 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
           <label>Date Range</label>
 
           <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
-            <option value="today">Today</option>
-            <option value="yesterday">Yesterday</option>
-            <option value="last_7d">Last 7 Days</option>
-            <option value="last_30d">Last 30 Days</option>
-            <option value="this_month">This Month</option>
-          </select>
+              <option value="maximum">Maximum</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="last_7d">Last 7 Days</option>
+              <option value="last_30d">Last 30 Days</option>
+              <option value="this_month">This Month</option>
+            </select>
         </div>
       </section>
 
