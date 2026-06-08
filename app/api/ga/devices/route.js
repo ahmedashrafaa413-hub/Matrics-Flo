@@ -42,7 +42,9 @@ async function refreshGoogleToken(refreshToken) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
+
   const range = searchParams.get("range") || "30daysAgo";
+  const propertyIdFromQuery = searchParams.get("propertyId");
   const dateRange = getDateRange(range);
 
   const supabase = createClient(
@@ -85,8 +87,10 @@ export async function GET(request) {
     })
     .eq("user_id", "default_user");
 
+  const propertyId = propertyIdFromQuery || connection.property_id;
+
   const response = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/properties/${connection.property_id}:runReport`,
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
     {
       method: "POST",
       headers: {
@@ -144,8 +148,10 @@ export async function GET(request) {
 
   return NextResponse.json({
     success: true,
-    property_id: connection.property_id,
-    property_name: connection.property_name,
+    property_id: propertyId,
+    property_name: propertyIdFromQuery
+      ? null
+      : connection.property_name,
     range,
     dateRange,
     devices
