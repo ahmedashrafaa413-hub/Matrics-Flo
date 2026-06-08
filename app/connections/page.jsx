@@ -4,219 +4,370 @@ import { useEffect, useState } from "react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
+const COMING_SOON = [
+  { name: "Google Ads",    icon: "G", iconBg: "#4285F4", desc: "Search, Performance Max, YouTube" },
+  { name: "TikTok Ads",   icon: "T", iconBg: "#010101", desc: "Campaigns, ad groups, creatives"   },
+  { name: "Snapchat Ads", icon: "S", iconBg: "#FFFC00", desc: "Campaigns, ad squads, ads"         },
+  { name: "Shopify",      icon: "S", iconBg: "#96BF48", desc: "Revenue, orders, products"          },
+];
+
 export default function ConnectionsPage() {
-  const [accounts, setAccounts] = useState([]);
+  const [accounts,        setAccounts]        = useState([]);
   const [selectedAccount, setSelectedAccount] = useState("");
-  const [status, setStatus] = useState("Checking connection...");
-  const [loading, setLoading] = useState(false);
+  const [metaStatus,      setMetaStatus]      = useState("");
+  const [metaLoading,     setMetaLoading]     = useState(false);
+  const [metaConnected,   setMetaConnected]   = useState(false);
 
-  const [gaStatus, setGaStatus] = useState("Checking Google Analytics...");
-  const [gaConnected, setGaConnected] = useState(false);
-  const [gaProperty, setGaProperty] = useState("");
+  const [gaStatus,        setGaStatus]        = useState("");
+  const [gaConnected,     setGaConnected]     = useState(false);
+  const [gaProperty,      setGaProperty]      = useState("");
 
-  async function loadAccounts() {
-    setLoading(true);
-    setStatus("Loading Meta accounts...");
-
-    try {
-      const data = await apiGet("/api/meta/accounts");
-      const list = data.data || [];
-
-      setAccounts(list);
-
-      const saved = getSetting("primary_meta_account", "");
-      const defaultId = saved || list?.[0]?.id || "";
-
-      setSelectedAccount(defaultId);
-
-      if (defaultId) {
-        saveSetting("primary_meta_account", defaultId);
-      }
-
-      setStatus("Meta connected successfully");
-    } catch (error) {
-      setAccounts([]);
-      setStatus(error.message || "Not connected to Meta");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function checkGoogleAnalytics() {
-    setGaStatus("Checking Google Analytics...");
-
-    try {
-      const data = await apiGet("/api/ga/overview");
-
-      if (data?.success && data?.property_name) {
-        setGaConnected(true);
-        setGaProperty(data.property_name);
-        setGaStatus("Google Analytics connected successfully");
-      } else {
-        setGaConnected(false);
-        setGaStatus("Google Analytics is not connected");
-      }
-    } catch (error) {
-      setGaConnected(false);
-      setGaStatus(error.message || "Google Analytics is not connected");
-    }
-  }
+  const [sallaConnected,  setSallaConnected]  = useState(false);
 
   useEffect(() => {
     loadAccounts();
-    checkGoogleAnalytics();
+    checkGA4();
+    checkSalla();
   }, []);
+
+  async function loadAccounts() {
+    setMetaLoading(true);
+    try {
+      const data = await apiGet("/api/meta/accounts");
+      const list = data.data || [];
+      setAccounts(list);
+      const saved = getSetting("primary_meta_account", "");
+      const def   = saved || list?.[0]?.id || "";
+      setSelectedAccount(def);
+      if (def) saveSetting("primary_meta_account", def);
+      setMetaConnected(list.length > 0);
+      setMetaStatus(list.length ? "Connected successfully" : "No accounts found");
+    } catch (e) {
+      setMetaConnected(false);
+      setMetaStatus(e.message || "Not connected");
+    } finally {
+      setMetaLoading(false);
+    }
+  }
+
+  async function checkGA4() {
+    try {
+      const data = await apiGet("/api/ga/overview");
+      if (data?.success && data?.property_name) {
+        setGaConnected(true);
+        setGaProperty(data.property_name);
+        setGaStatus("Connected successfully");
+      } else {
+        setGaConnected(false);
+        setGaStatus("Not connected");
+      }
+    } catch {
+      setGaConnected(false);
+      setGaStatus("Not connected");
+    }
+  }
+
+  async function checkSalla() {
+    try {
+      const data = await apiGet("/api/salla/orders?date_range=last_7d");
+      setSallaConnected(data?.success === true);
+    } catch {
+      setSallaConnected(false);
+    }
+  }
 
   function handleSelect(value) {
     setSelectedAccount(value);
     saveSetting("primary_meta_account", value);
-    setStatus("Primary Meta account saved");
-  }
-
-  function disconnectLocal() {
-    removeSetting("primary_meta_account");
-    setSelectedAccount("");
-    setAccounts([]);
-    setStatus("Local Meta account selection removed");
+    setMetaStatus("Primary account saved");
   }
 
   return (
-    <div className="page-shell">
-      <div className="dashboard-header">
-        <div>
-          <span className="eyebrow">Connections</span>
-          <h1>Platform Connections</h1>
-          <p>Connect your marketing platforms and choose your main data sources.</p>
-        </div>
+    <div className="page-shell" dir="ltr">
 
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <a className="primary-btn" href="/api/meta/auth">
-            Connect Meta
-          </a>
-
-          <a className="primary-btn" href="/api/salla/auth">
-            Connect Salla
-          </a>
-
-          <a className="primary-btn" href="/api/ga/auth">
-            Connect GA4
-          </a>
-        </div>
-      </div>
-
-      <div className="chart-card">
-        <h2>Meta Ads</h2>
-        <p>Facebook, Instagram, campaigns, ad sets, ads and insights.</p>
-
-        <div style={{ marginTop: 20 }}>
-          <span className={accounts.length ? "badge connected" : "badge"}>
-            {accounts.length ? "Connected" : "Not Connected"}
-          </span>
-        </div>
-
-        <div className="form-row">
-          <label>Primary Meta Ad Account</label>
-          <select
-            value={selectedAccount}
-            onChange={(e) => handleSelect(e.target.value)}
-            disabled={!accounts.length}
-          >
-            <option value="">
-              {accounts.length ? "Select ad account" : "No accounts loaded"}
-            </option>
-
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name} - {account.currency}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button className="primary-btn" onClick={loadAccounts} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh Accounts"}
-          </button>
-
-          <button className="primary-btn" onClick={disconnectLocal}>
-            Clear Local Selection
-          </button>
-        </div>
-
-        <p className={accounts.length ? "dash-status" : "dash-error"}>{status}</p>
-      </div>
-
-      <div className="chart-card">
-        <h2>Google Analytics 4</h2>
-        <p>
-          Connect GA4 to import sessions, users, page views, conversions, traffic
-          sources, devices, countries, top pages and realtime active users.
-        </p>
-
-        <div style={{ marginTop: 20 }}>
-          <span className={gaConnected ? "badge connected" : "badge"}>
-            {gaConnected ? "Connected" : "Not Connected"}
-          </span>
-        </div>
-
-        {gaProperty && (
-          <p className="dash-status">
-            Active Property: {gaProperty}
-          </p>
-        )}
-
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 20 }}>
-          <a className="primary-btn" href="/api/ga/auth">
-            {gaConnected ? "Reconnect Google Analytics" : "Connect Google Analytics"}
-          </a>
-
-          <a className="primary-btn" href="/ga">
-            Open GA4 Dashboard
-          </a>
-
-          <button className="primary-btn" onClick={checkGoogleAnalytics}>
-            Refresh GA4 Status
-          </button>
-        </div>
-
-        <p className={gaConnected ? "dash-status" : "dash-error"}>
-          {gaStatus}
+      {/* ── Header ── */}
+      <div style={{ marginBottom: 32 }}>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+          letterSpacing: "0.8px", color: "var(--accent)",
+          background: "rgba(6,214,160,0.08)", border: "1px solid rgba(6,214,160,0.2)",
+          padding: "5px 12px", borderRadius: 999, marginBottom: 12
+        }}>
+          <span style={{ width: 6, height: 6, background: "var(--accent)", borderRadius: "50%" }} />
+          Integrations
+        </span>
+        <h1 style={{
+          fontFamily: "'Space Grotesk', sans-serif", fontSize: 30,
+          fontWeight: 700, letterSpacing: "-0.5px", color: "var(--text)", marginBottom: 8
+        }}>
+          Platform Connections
+        </h1>
+        <p style={{ color: "var(--muted)", fontSize: 14 }}>
+          Connect your marketing platforms and data sources to unlock full analytics.
         </p>
       </div>
 
-      <div className="chart-card">
-        <h2>Salla Store</h2>
-        <p>Connect Salla to import orders, revenue, customers and real sales data.</p>
+      {/* ── Active Platforms ── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 24 }}>
 
-        <div style={{ marginTop: 20 }}>
-          <span className="badge">Ready to Connect</span>
+        {/* META */}
+        <div style={{
+          background: "var(--card)", backdropFilter: "blur(16px)",
+          border: metaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "22px 24px", borderBottom: metaConnected ? "1px solid var(--border)" : "none"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: "#1877F2",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 20, fontWeight: 900, color: "white", flexShrink: 0,
+                boxShadow: "0 0 16px rgba(24,119,242,0.3)"
+              }}>f</div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
+                    Meta Ads
+                  </h2>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                    background: metaConnected ? "rgba(6,214,160,0.1)" : "rgba(244,63,94,0.1)",
+                    border: metaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid rgba(244,63,94,0.25)",
+                    color: metaConnected ? "var(--accent)" : "var(--red)"
+                  }}>
+                    {metaConnected ? "● Connected" : "○ Not Connected"}
+                  </span>
+                </div>
+                <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
+                  Facebook & Instagram — campaigns, ad sets, ads, insights
+                </p>
+              </div>
+            </div>
+            <a href="/api/meta/auth" style={{
+              background: "linear-gradient(135deg, #1877F2, #0d5bb5)",
+              color: "white", border: "none", padding: "10px 18px",
+              borderRadius: "var(--radius-md)", fontWeight: 700, fontSize: 13,
+              cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap",
+              boxShadow: "0 0 16px rgba(24,119,242,0.25)"
+            }}>
+              {metaConnected ? "Reconnect" : "Connect Meta"}
+            </a>
+          </div>
+
+          {metaConnected && (
+            <div style={{ padding: "20px 24px" }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={{
+                    display: "block", fontSize: 11, fontWeight: 700,
+                    color: "var(--muted)", textTransform: "uppercase",
+                    letterSpacing: "1px", marginBottom: 8
+                  }}>Primary Ad Account</label>
+                  <select
+                    value={selectedAccount}
+                    onChange={(e) => handleSelect(e.target.value)}
+                    style={{
+                      width: "100%", background: "rgba(255,255,255,0.04)",
+                      color: "var(--text)", border: "1px solid var(--border-2)",
+                      borderRadius: "var(--radius-md)", padding: "11px 14px",
+                      fontSize: 14, fontWeight: 500, fontFamily: "inherit",
+                      outline: "none", cursor: "pointer"
+                    }}
+                  >
+                    <option value="">Select account</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name} — {a.currency}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={loadAccounts} disabled={metaLoading} style={{
+                    background: "var(--glass-2)", color: "var(--text)",
+                    border: "1px solid var(--border-2)", padding: "11px 16px",
+                    borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 600,
+                    cursor: "pointer", fontFamily: "inherit"
+                  }}>
+                    {metaLoading ? "Loading..." : "↺ Refresh"}
+                  </button>
+                  <button onClick={() => { removeSetting("primary_meta_account"); setSelectedAccount(""); }} style={{
+                    background: "transparent", color: "var(--muted)",
+                    border: "1px solid var(--border)", padding: "11px 16px",
+                    borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 600,
+                    cursor: "pointer", fontFamily: "inherit"
+                  }}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+              {metaStatus && (
+                <p style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: metaConnected ? "var(--accent)" : "var(--red)" }}>
+                  {metaConnected ? "✓" : "✗"} {metaStatus}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 20 }}>
-          <a className="primary-btn" href="/api/salla/auth">
-            Connect Salla
-          </a>
+        {/* GA4 */}
+        <div style={{
+          background: "var(--card)", backdropFilter: "blur(16px)",
+          border: gaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "22px 24px", borderBottom: gaConnected ? "1px solid var(--border)" : "none"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: "#E37400",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 18, fontWeight: 900, color: "white", flexShrink: 0,
+                boxShadow: "0 0 16px rgba(227,116,0,0.3)"
+              }}>G</div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
+                    Google Analytics 4
+                  </h2>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                    background: gaConnected ? "rgba(6,214,160,0.1)" : "rgba(244,63,94,0.1)",
+                    border: gaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid rgba(244,63,94,0.25)",
+                    color: gaConnected ? "var(--accent)" : "var(--red)"
+                  }}>
+                    {gaConnected ? "● Connected" : "○ Not Connected"}
+                  </span>
+                </div>
+                <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
+                  {gaConnected && gaProperty ? `Active: ${gaProperty}` : "Sessions, conversions, traffic sources, realtime"}
+                </p>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {gaConnected && (
+                <a href="/ga" style={{
+                  background: "var(--glass-2)", color: "var(--text)",
+                  border: "1px solid var(--border-2)", padding: "10px 16px",
+                  borderRadius: "var(--radius-md)", fontWeight: 600, fontSize: 13,
+                  cursor: "pointer", textDecoration: "none"
+                }}>
+                  Open Dashboard
+                </a>
+              )}
+              <a href="/api/ga/auth" style={{
+                background: "linear-gradient(135deg, #E37400, #b85c00)",
+                color: "white", border: "none", padding: "10px 18px",
+                borderRadius: "var(--radius-md)", fontWeight: 700, fontSize: 13,
+                cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap",
+                boxShadow: "0 0 16px rgba(227,116,0,0.25)"
+              }}>
+                {gaConnected ? "Reconnect" : "Connect GA4"}
+              </a>
+            </div>
+          </div>
+          {gaConnected && (
+            <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", gap: 12 }}>
+              <button onClick={checkGA4} style={{
+                background: "var(--glass-2)", color: "var(--text)",
+                border: "1px solid var(--border-2)", padding: "9px 16px",
+                borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit"
+              }}>↺ Refresh Status</button>
+              <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>
+                ✓ {gaStatus}
+              </span>
+            </div>
+          )}
         </div>
 
-        <p className="dash-status">
-          After connection, MetricsFlo will use Salla revenue to calculate real ROAS.
-        </p>
+        {/* SALLA */}
+        <div style={{
+          background: "var(--card)", backdropFilter: "blur(16px)",
+          border: sallaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "22px 24px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: "linear-gradient(135deg,#7C3AED,#5B21B6)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 16, fontWeight: 900, color: "white", flexShrink: 0,
+                boxShadow: "0 0 16px rgba(124,58,237,0.3)"
+              }}>س</div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
+                    Salla Store
+                  </h2>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                    background: sallaConnected ? "rgba(6,214,160,0.1)" : "rgba(99,102,241,0.1)",
+                    border: sallaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid rgba(99,102,241,0.25)",
+                    color: sallaConnected ? "var(--accent)" : "#a5b4fc"
+                  }}>
+                    {sallaConnected ? "● Connected" : "○ Ready to Connect"}
+                  </span>
+                </div>
+                <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
+                  Orders, revenue, customers — enables real ROAS calculation
+                </p>
+              </div>
+            </div>
+            <a href="/api/salla/auth" style={{
+              background: "linear-gradient(135deg, #7C3AED, #5B21B6)",
+              color: "white", border: "none", padding: "10px 18px",
+              borderRadius: "var(--radius-md)", fontWeight: 700, fontSize: 13,
+              cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap",
+              boxShadow: "0 0 16px rgba(124,58,237,0.25)"
+            }}>
+              {sallaConnected ? "Reconnect" : "Connect Salla"}
+            </a>
+          </div>
+        </div>
       </div>
 
-      <div className="chart-card">
-        <h2>Next Platforms</h2>
-        <div className="platform-grid">
-          {[
-            ["Google Ads", "Search, Performance Max, YouTube and conversions"],
-            ["TikTok Ads", "Campaigns, ad groups, ads and creatives"],
-            ["Snapchat Ads", "Campaigns, ad squads and ads"],
-            ["Shopify", "Revenue, orders, products and customers"]
-          ].map(([name, desc]) => (
-            <div className="platform-card" key={name}>
-              <div className="platform-icon">{name[0]}</div>
-              <h3>{name}</h3>
-              <p>{desc}</p>
-              <span className="badge">Coming Soon</span>
+      {/* ── Coming Soon ── */}
+      <div>
+        <p style={{
+          fontSize: 11, fontWeight: 700, color: "var(--muted-2)",
+          textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: 14
+        }}>Coming Soon</p>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(200px,1fr))",
+          gap: 12
+        }}>
+          {COMING_SOON.map((p) => (
+            <div key={p.name} style={{
+              background: "var(--card)", backdropFilter: "blur(12px)",
+              border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
+              padding: "20px", display: "flex", flexDirection: "column",
+              gap: 10, opacity: 0.6
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 10, background: p.iconBg,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 16, fontWeight: 900,
+                color: p.iconBg === "#FFFC00" ? "#000" : "white"
+              }}>{p.icon}</div>
+              <div>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>{p.name}</h3>
+                <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>{p.desc}</p>
+              </div>
+              <span style={{
+                fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                background: "var(--glass-2)", border: "1px solid var(--border)",
+                color: "var(--muted)", width: "fit-content"
+              }}>Coming Soon</span>
             </div>
           ))}
         </div>
