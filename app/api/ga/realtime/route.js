@@ -3,26 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-function getDateRange(range) {
-  if (range === "today") {
-    return { startDate: "today", endDate: "today" };
-  }
-
-  if (range === "yesterday") {
-    return { startDate: "yesterday", endDate: "yesterday" };
-  }
-
-  if (range === "7daysAgo") {
-    return { startDate: "7daysAgo", endDate: "today" };
-  }
-
-  if (range === "90daysAgo") {
-    return { startDate: "90daysAgo", endDate: "today" };
-  }
-
-  return { startDate: "30daysAgo", endDate: "today" };
-}
-
 async function refreshGoogleToken(refreshToken) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -42,10 +22,7 @@ async function refreshGoogleToken(refreshToken) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-
-  const range = searchParams.get("range") || "30daysAgo";
   const propertyIdFromQuery = searchParams.get("propertyId");
-  const dateRange = getDateRange(range);
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -76,11 +53,21 @@ export async function GET(request) {
     });
   }
 
-  const propertyId =
-    propertyIdFromQuery || connection.property_id;
+  await supabase
+    .from("ga_connections")
+    .update({
+      access_token: refreshed.access_token,
+      expires_at: new Date(
+        Date.now() + Number(refreshed.expires_in || 3600) * 1000
+      ).toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .eq("user_id", "default_user");
+
+  const propertyId = propertyIdFromQuery || connection.property_id;
 
   const response = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runRealtimeReport`,
     {
       method: "POST",
       headers: {
@@ -88,35 +75,11 @@ export async function GET(request) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        dateRanges: [dateRange],
-        dimensions: [
-          {
-            name: "sessionSource"
-          },
-          {
-            name: "sessionMedium"
-          }
-        ],
         metrics: [
           {
-            name: "sessions"
-          },
-          {
-            name: "totalUsers"
-          },
-          {
-            name: "conversions"
+            name: "activeUsers"
           }
-        ],
-        orderBys: [
-          {
-            metric: {
-              metricName: "sessions"
-            },
-            desc: true
-          }
-        ],
-        limit: 20
+        ]
       })
     }
   );
@@ -126,27 +89,16 @@ export async function GET(request) {
   if (!response.ok) {
     return NextResponse.json({
       success: false,
-      step: "ga_sources",
+      step: "ga_realtime",
+      property_id: propertyId,
       status: response.status,
       error: data
     });
   }
 
-  const sources =
-    data.rows?.map((row) => ({
-      source: row.dimensionValues?.[0]?.value || "Unknown",
-      medium: row.dimensionValues?.[1]?.value || "Unknown",
-      sessions: Number(row.metricValues?.[0]?.value || 0),
-      users: Number(row.metricValues?.[1]?.value || 0),
-      conversions: Number(row.metricValues?.[2]?.value || 0)
-    })) || [];
-
   return NextResponse.json({
     success: true,
     property_id: propertyId,
-    property_name: connection.property_name,
-    range,
-    dateRange,
-    sources
+    realtime: data
   });
 }
