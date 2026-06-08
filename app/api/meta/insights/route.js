@@ -120,6 +120,18 @@ export async function GET(request) {
           "offsite_conversion.fb_pixel_initiate_checkout"
         ]
       );
+      const viewContent = getActionValue(
+        row.actions || [],
+        [
+          "view_content",
+          "omni_view_content",
+          "offsite_conversion.fb_pixel_view_content"
+        ]
+      );
+      const landingPageViews = getActionValue(
+        row.actions || [],
+        ["landing_page_view"]
+      );
       const purchaseValue = getActionValueAmount(
         row.action_values || [],
         [
@@ -141,6 +153,8 @@ export async function GET(request) {
         purchase_value: purchaseValue,
         add_to_cart: addToCart,
         initiate_checkout: initiateCheckout,
+        view_content: viewContent,
+        landing_page_views: landingPageViews,
         roas: Number(roas.toFixed(2)),
         cpa: Number(cpa.toFixed(2)),
         cost_per_add_to_cart: Number(costPerATC.toFixed(2)),
@@ -156,6 +170,8 @@ export async function GET(request) {
         acc.purchase_value += Number(row.purchase_value || 0);
         acc.add_to_cart += Number(row.add_to_cart || 0);
         acc.initiate_checkout += Number(row.initiate_checkout || 0);
+        acc.view_content += Number(row.view_content || 0);
+        acc.landing_page_views += Number(row.landing_page_views || 0);
         return acc;
       },
       {
@@ -165,13 +181,47 @@ export async function GET(request) {
         purchases: 0,
         purchase_value: 0,
         add_to_cart: 0,
-        initiate_checkout: 0
+        initiate_checkout: 0,
+        view_content: 0,
+        landing_page_views: 0
       }
     );
     summary.roas = Number(safeDivide(summary.purchase_value, summary.spend).toFixed(2));
     summary.cpa = Number(safeDivide(summary.spend, summary.purchases).toFixed(2));
     summary.cost_per_add_to_cart = Number(safeDivide(summary.spend, summary.add_to_cart).toFixed(2));
     summary.cost_per_initiate_checkout = Number(safeDivide(summary.spend, summary.initiate_checkout).toFixed(2));
+    summary.lpv_rate = Number(
+      (safeDivide(summary.landing_page_views, summary.clicks) * 100).toFixed(2)
+    );
+    summary.view_content_rate = Number(
+      (
+        safeDivide(
+          summary.view_content,
+          summary.landing_page_views || summary.clicks
+        ) * 100
+      ).toFixed(2)
+    );
+    summary.atc_rate = Number(
+      (
+        safeDivide(
+          summary.add_to_cart,
+          summary.view_content || summary.landing_page_views || summary.clicks
+        ) * 100
+      ).toFixed(2)
+    );
+    summary.checkout_rate = Number(
+      (safeDivide(summary.initiate_checkout, summary.add_to_cart) * 100).toFixed(2)
+    );
+    summary.purchase_rate = Number(
+      (safeDivide(summary.purchases, summary.initiate_checkout) * 100).toFixed(2)
+    );
+    summary.cart_abandonment_rate = Number(
+      (
+        summary.add_to_cart > 0
+          ? ((summary.add_to_cart - summary.purchases) / summary.add_to_cart) * 100
+          : 0
+      ).toFixed(2)
+    );
 
     return NextResponse.json({
       success: true,
