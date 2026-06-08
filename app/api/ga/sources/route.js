@@ -4,31 +4,17 @@ import { createClient } from "@supabase/supabase-js";
 export const dynamic = "force-dynamic";
 
 function getDateRange(range) {
-  if (range === "today") {
-    return { startDate: "today", endDate: "today" };
-  }
-
-  if (range === "yesterday") {
-    return { startDate: "yesterday", endDate: "yesterday" };
-  }
-
-  if (range === "7daysAgo") {
-    return { startDate: "7daysAgo", endDate: "today" };
-  }
-
-  if (range === "90daysAgo") {
-    return { startDate: "90daysAgo", endDate: "today" };
-  }
-
+  if (range === "today") return { startDate: "today", endDate: "today" };
+  if (range === "yesterday") return { startDate: "yesterday", endDate: "yesterday" };
+  if (range === "7daysAgo") return { startDate: "7daysAgo", endDate: "today" };
+  if (range === "90daysAgo") return { startDate: "90daysAgo", endDate: "today" };
   return { startDate: "30daysAgo", endDate: "today" };
 }
 
 async function refreshGoogleToken(refreshToken) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
@@ -43,6 +29,7 @@ async function refreshGoogleToken(refreshToken) {
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const range = searchParams.get("range") || "30daysAgo";
+  const propertyIdFromQuery = searchParams.get("propertyId");
   const dateRange = getDateRange(range);
 
   const supabase = createClient(
@@ -74,19 +61,10 @@ export async function GET(request) {
     });
   }
 
-  await supabase
-    .from("ga_connections")
-    .update({
-      access_token: refreshed.access_token,
-      expires_at: new Date(
-        Date.now() + Number(refreshed.expires_in || 3600) * 1000
-      ).toISOString(),
-      updated_at: new Date().toISOString()
-    })
-    .eq("user_id", "default_user");
+  const propertyId = propertyIdFromQuery || connection.property_id;
 
   const response = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/properties/${connection.property_id}:runReport`,
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
     {
       method: "POST",
       headers: {
@@ -96,29 +74,17 @@ export async function GET(request) {
       body: JSON.stringify({
         dateRanges: [dateRange],
         dimensions: [
-          {
-            name: "sessionSource"
-          },
-          {
-            name: "sessionMedium"
-          }
+          { name: "sessionSource" },
+          { name: "sessionMedium" }
         ],
         metrics: [
-          {
-            name: "sessions"
-          },
-          {
-            name: "totalUsers"
-          },
-          {
-            name: "conversions"
-          }
+          { name: "sessions" },
+          { name: "totalUsers" },
+          { name: "conversions" }
         ],
         orderBys: [
           {
-            metric: {
-              metricName: "sessions"
-            },
+            metric: { metricName: "sessions" },
             desc: true
           }
         ],
@@ -133,6 +99,7 @@ export async function GET(request) {
     return NextResponse.json({
       success: false,
       step: "ga_sources",
+      property_id: propertyId,
       status: response.status,
       error: data
     });
@@ -149,8 +116,7 @@ export async function GET(request) {
 
   return NextResponse.json({
     success: true,
-    property_id: connection.property_id,
-    property_name: connection.property_name,
+    property_id: propertyId,
     range,
     dateRange,
     sources
