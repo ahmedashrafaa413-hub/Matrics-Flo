@@ -66,8 +66,10 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
 
       setAccounts(list);
 
-      const saved = getSetting("primary_meta_account", "");
-      const selected = saved || list[0]?.id || "";
+      const selected =
+        list.find((account) => account.id === getSetting("primary_meta_account", ""))?.id ||
+        list[0]?.id ||
+        "";
 
       if (!selected) {
         setStatus("No Meta ad account selected");
@@ -118,6 +120,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   function changeAccount(value) {
     setAccountId(value);
     saveSetting("primary_meta_account", value);
+    loadInsights(value, level, dateRange);
   }
 
   async function loadSallaSummary() {
