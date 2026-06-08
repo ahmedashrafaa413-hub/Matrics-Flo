@@ -3,6 +3,26 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+function getDateRange(range) {
+  if (range === "today") {
+    return { startDate: "today", endDate: "today" };
+  }
+
+  if (range === "yesterday") {
+    return { startDate: "yesterday", endDate: "yesterday" };
+  }
+
+  if (range === "7daysAgo") {
+    return { startDate: "7daysAgo", endDate: "today" };
+  }
+
+  if (range === "90daysAgo") {
+    return { startDate: "90daysAgo", endDate: "today" };
+  }
+
+  return { startDate: "30daysAgo", endDate: "today" };
+}
+
 async function refreshGoogleToken(refreshToken) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -20,31 +40,47 @@ async function refreshGoogleToken(refreshToken) {
   return res.json();
 }
 
-export async function GET() {
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+
+  const range = searchParams.get("range") || "30daysAgo";
+  const propertyIdFromQuery = searchParams.get("propertyId");
+  const dateRange = getDateRange(range);
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
-  const { data: connection } = await supabase
+  const { data: connection, error } = await supabase
     .from("ga_connections")
     .select("*")
     .eq("user_id", "default_user")
     .single();
 
-  if (!connection?.refresh_token || !connection?.property_id) {
+  if (error || !connection?.refresh_token || !connection?.property_id) {
     return NextResponse.json({
       success: false,
-      error: "GA not connected"
+      step: "missing_connection",
+      error
     });
   }
 
-  const refreshed = await refreshGoogleToken(
-    connection.refresh_token
-  );
+  const refreshed = await refreshGoogleToken(connection.refresh_token);
+
+  if (!refreshed.access_token) {
+    return NextResponse.json({
+      success: false,
+      step: "refresh_token",
+      error: refreshed
+    });
+  }
+
+  const propertyId =
+    propertyIdFromQuery || connection.property_id;
 
   const response = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/properties/${connection.property_id}:runRealtimeReport`,
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
     {
       method: "POST",
       headers: {
@@ -52,11 +88,35 @@ export async function GET() {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
+        dateRanges: [dateRange],
+        dimensions: [
+          {
+            name: "sessionSource"
+          },
+          {
+            name: "sessionMedium"
+          }
+        ],
         metrics: [
           {
-            name: "activeUsers"
+            name: "sessions"
+          },
+          {
+            name: "totalUsers"
+          },
+          {
+            name: "conversions"
           }
-        ]
+        ],
+        orderBys: [
+          {
+            metric: {
+              metricName: "sessions"
+            },
+            desc: true
+          }
+        ],
+        limit: 20
       })
     }
   );
@@ -66,14 +126,27 @@ export async function GET() {
   if (!response.ok) {
     return NextResponse.json({
       success: false,
+      step: "ga_sources",
+      status: response.status,
       error: data
     });
   }
 
+  const sources =
+    data.rows?.map((row) => ({
+      source: row.dimensionValues?.[0]?.value || "Unknown",
+      medium: row.dimensionValues?.[1]?.value || "Unknown",
+      sessions: Number(row.metricValues?.[0]?.value || 0),
+      users: Number(row.metricValues?.[1]?.value || 0),
+      conversions: Number(row.metricValues?.[2]?.value || 0)
+    })) || [];
+
   return NextResponse.json({
     success: true,
-    property_id: connection.property_id,
+    property_id: propertyId,
     property_name: connection.property_name,
-    realtime: data
+    range,
+    dateRange,
+    sources
   });
 }
