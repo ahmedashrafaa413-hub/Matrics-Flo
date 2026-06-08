@@ -23,6 +23,12 @@ function getDateRange(range) {
   return { startDate: "30daysAgo", endDate: "today" };
 }
 
+function formatDate(value) {
+  if (!value || value.length !== 8) return value;
+
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+}
+
 async function refreshGoogleToken(refreshToken) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -40,19 +46,12 @@ async function refreshGoogleToken(refreshToken) {
   return res.json();
 }
 
-function formatDate(value) {
-  if (!value || value.length !== 8) return value;
-
-  const year = value.slice(0, 4);
-  const month = value.slice(4, 6);
-  const day = value.slice(6, 8);
-
-  return `${year}-${month}-${day}`;
-}
-
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
+
   const range = searchParams.get("range") || "30daysAgo";
+  const propertyIdFromQuery = searchParams.get("propertyId");
+
   const dateRange = getDateRange(range);
 
   const supabase = createClient(
@@ -66,7 +65,7 @@ export async function GET(request) {
     .eq("user_id", "default_user")
     .single();
 
-  if (error || !connection?.refresh_token || !connection?.property_id) {
+  if (error || !connection?.refresh_token) {
     return NextResponse.json({
       success: false,
       step: "missing_connection",
@@ -84,19 +83,11 @@ export async function GET(request) {
     });
   }
 
-  await supabase
-    .from("ga_connections")
-    .update({
-      access_token: refreshed.access_token,
-      expires_at: new Date(
-        Date.now() + Number(refreshed.expires_in || 3600) * 1000
-      ).toISOString(),
-      updated_at: new Date().toISOString()
-    })
-    .eq("user_id", "default_user");
+  const propertyId =
+    propertyIdFromQuery || connection.property_id;
 
   const response = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/properties/${connection.property_id}:runReport`,
+    `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
     {
       method: "POST",
       headers: {
@@ -144,21 +135,24 @@ export async function GET(request) {
   }
 
   const rows =
-    data.rows?.map((row) => {
-      const date = formatDate(row.dimensionValues?.[0]?.value);
-
-      return {
-        date,
-        sessions: Number(row.metricValues?.[0]?.value || 0),
-        users: Number(row.metricValues?.[1]?.value || 0),
-        conversions: Number(row.metricValues?.[2]?.value || 0)
-      };
-    }) || [];
+    data.rows?.map((row) => ({
+      date: formatDate(
+        row.dimensionValues?.[0]?.value
+      ),
+      sessions: Number(
+        row.metricValues?.[0]?.value || 0
+      ),
+      users: Number(
+        row.metricValues?.[1]?.value || 0
+      ),
+      conversions: Number(
+        row.metricValues?.[2]?.value || 0
+      )
+    })) || [];
 
   return NextResponse.json({
     success: true,
-    property_id: connection.property_id,
-    property_name: connection.property_name,
+    property_id: propertyId,
     range,
     dateRange,
     rows
