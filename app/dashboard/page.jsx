@@ -15,19 +15,22 @@ import {
 
 const metricCards = [
   { key: "spend", label: "Spend", icon: "💰", format: "money" },
-  { key: "impressions", label: "Impressions", icon: "👁️", format: "number" },
-  { key: "clicks", label: "Clicks", icon: "🖱️", format: "number" },
-  { key: "ctr", label: "CTR", icon: "📈", format: "percent" },
-  { key: "cpc", label: "CPC", icon: "🎯", format: "money" },
-  { key: "cpm", label: "CPM", icon: "📊", format: "money" }
+  { key: "purchase_value", label: "Revenue", icon: "💵", format: "money" },
+  { key: "roas", label: "ROAS", icon: "📈", format: "number" },
+  { key: "purchases", label: "Purchases", icon: "🛒", format: "number" },
+  { key: "cpa", label: "CPA", icon: "🎯", format: "money" },
+  { key: "add_to_cart", label: "Add To Cart", icon: "🛍️", format: "number" },
+  { key: "initiate_checkout", label: "Checkout", icon: "💳", format: "number" },
+  { key: "cost_per_add_to_cart", label: "Cost / ATC", icon: "📦", format: "money" },
+  { key: "cost_per_initiate_checkout", label: "Cost / IC", icon: "⚡", format: "money" },
+  { key: "ctr", label: "CTR", icon: "📊", format: "percent" }
 ];
 
 function formatValue(value, type) {
   const num = Number(value || 0);
-
   if (type === "money") return `$${num.toFixed(2)}`;
   if (type === "percent") return `${num.toFixed(2)}%`;
-
+  if (type === "number") return num.toLocaleString();
   return num.toLocaleString();
 }
 
@@ -37,6 +40,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [level, setLevel] = useState(defaultLevel);
   const [dateRange, setDateRange] = useState("maximum");
   const [rows, setRows] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [sallaSummary, setSallaSummary] = useState(null);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
@@ -107,11 +111,11 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
         setDateRange("maximum");
       }
       setRows(data.data || []);
-      setStatus(
-        `${data.data?.length || 0} rows loaded successfully`
-      );
+      setSummary(data.summary || null);
+      setStatus(`${data.data?.length || 0} rows loaded successfully`);
     } catch (err) {
       setRows([]);
+      setSummary(null);
       setError(err.message || "Failed to load insights");
       setStatus("Failed to load data");
     }
@@ -132,25 +136,46 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
     }
   }
 
-  const totals = useMemo(() => {
+  const rowTotals = useMemo(() => {
     const total = rows.reduce(
       (acc, row) => {
         acc.spend += Number(row.spend || 0);
         acc.impressions += Number(row.impressions || 0);
         acc.clicks += Number(row.clicks || 0);
         acc.reach += Number(row.reach || 0);
+        acc.purchase_value += Number(row.purchase_value || 0);
+        acc.purchases += Number(row.purchases || 0);
+        acc.add_to_cart += Number(row.add_to_cart || 0);
+        acc.initiate_checkout += Number(row.initiate_checkout || 0);
         return acc;
       },
-      { spend: 0, impressions: 0, clicks: 0, reach: 0 }
+      {
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        purchase_value: 0,
+        purchases: 0,
+        add_to_cart: 0,
+        initiate_checkout: 0
+      }
     );
-
     return {
       ...total,
       ctr: total.impressions ? (total.clicks / total.impressions) * 100 : 0,
       cpc: total.clicks ? total.spend / total.clicks : 0,
-      cpm: total.impressions ? (total.spend / total.impressions) * 1000 : 0
+      cpm: total.impressions ? (total.spend / total.impressions) * 1000 : 0,
+      roas: total.spend ? total.purchase_value / total.spend : 0,
+      cpa: total.purchases ? total.spend / total.purchases : 0,
+      cost_per_add_to_cart: total.add_to_cart
+        ? total.spend / total.add_to_cart
+        : 0,
+      cost_per_initiate_checkout: total.initiate_checkout
+        ? total.spend / total.initiate_checkout
+        : 0
     };
   }, [rows]);
+  const totals = summary || rowTotals;
 
   const nameKey =
     level === "ad"
@@ -289,19 +314,23 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
 
       <section className="dash-insights-grid">
         <div className="dash-insight-card">
-          <h3>Quick Read</h3>
+          <h3>Growth Read</h3>
           <p>
-            إجمالي الإنفاق الحالي هو{" "}
-            <strong>{formatValue(totals.spend, "money")}</strong> مع CTR قدره{" "}
-            <strong>{formatValue(totals.ctr, "percent")}</strong>.
+            Revenue: <strong>{formatValue(totals.purchase_value, "money")}</strong>{" "}
+            | ROAS: <strong>{Number(totals.roas || 0).toFixed(2)}x</strong>{" "}
+            | CPA: <strong>{formatValue(totals.cpa, "money")}</strong>{" "}
+            | Purchases: <strong>{formatValue(totals.purchases, "number")}</strong>
           </p>
         </div>
 
         <div className="dash-insight-card">
-          <h3>Media Buyer Note</h3>
+          <h3>Decision Signal</h3>
           <p>
-            راقب الحملات ذات CPC مرتفع وCTR منخفض لأنها غالبًا تحتاج تعديل Creative
-            أو Audience.
+            {Number(totals.roas || 0) >= 3
+              ? "SCALE: ROAS قوي. راقب Frequency و CPA قبل زيادة الميزانية."
+              : Number(totals.roas || 0) >= 1.5
+              ? "OPTIMIZE: الأداء متوسط. حسّن الكريتيف والفانل قبل التوسع."
+              : "PAUSE / FIX: ROAS ضعيف. راجع العرض، الصفحة، والكريتيف قبل الصرف الإضافي."}
           </p>
         </div>
       </section>
@@ -342,6 +371,27 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
         </div>
       </section>
 
+      <section className="dash-insights-grid">
+        <div className="dash-insight-card">
+          <h3>Funnel Health</h3>
+          <p>
+            Clicks: <strong>{formatValue(totals.clicks, "number")}</strong> → ATC:{" "}
+            <strong>{formatValue(totals.add_to_cart, "number")}</strong> → IC:{" "}
+            <strong>{formatValue(totals.initiate_checkout, "number")}</strong> →
+            Purchases: <strong>{formatValue(totals.purchases, "number")}</strong>
+          </p>
+        </div>
+        <div className="dash-insight-card">
+          <h3>Cost Efficiency</h3>
+          <p>
+            Cost / ATC:{" "}
+            <strong>{formatValue(totals.cost_per_add_to_cart, "money")}</strong> |
+            Cost / IC:{" "}
+            <strong>{formatValue(totals.cost_per_initiate_checkout, "money")}</strong>
+          </p>
+        </div>
+      </section>
+
       <section className="dash-table-card">
         <div className="dash-table-head">
           <div>
@@ -362,37 +412,33 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
                 <tr>
                   <th>Name</th>
                   <th>Spend</th>
-                  <th>Impressions</th>
-                  <th>Reach</th>
-                  <th>Clicks</th>
+                  <th>Revenue</th>
+                  <th>ROAS</th>
+                  <th>Purchases</th>
+                  <th>CPA</th>
+                  <th>ATC</th>
+                  <th>IC</th>
                   <th>CTR</th>
-                  <th>CPC</th>
-                  <th>CPM</th>
+                  <th>Decision</th>
                 </tr>
               </thead>
 
               <tbody>
                 {rows.map((row, index) => {
-                  const impressions = Number(row.impressions || 0);
-                  const clicks = Number(row.clicks || 0);
-                  const spend = Number(row.spend || 0);
-
-                  const ctr = impressions ? (clicks / impressions) * 100 : 0;
-                  const cpc = clicks ? spend / clicks : 0;
-                  const cpm = impressions ? (spend / impressions) * 1000 : 0;
-
                   return (
                     <tr key={index}>
                       <td className="dash-name-cell">
                         {row[nameKey] || "Unknown"}
                       </td>
-                      <td>{formatValue(spend, "money")}</td>
-                      <td>{formatValue(impressions, "number")}</td>
-                      <td>{formatValue(row.reach, "number")}</td>
-                      <td>{formatValue(clicks, "number")}</td>
-                      <td>{formatValue(ctr, "percent")}</td>
-                      <td>{formatValue(cpc, "money")}</td>
-                      <td>{formatValue(cpm, "money")}</td>
+                      <td>{formatValue(row.spend, "money")}</td>
+                      <td>{formatValue(row.purchase_value, "money")}</td>
+                      <td>{Number(row.roas || 0).toFixed(2)}x</td>
+                      <td>{formatValue(row.purchases, "number")}</td>
+                      <td>{formatValue(row.cpa, "money")}</td>
+                      <td>{formatValue(row.add_to_cart, "number")}</td>
+                      <td>{formatValue(row.initiate_checkout, "number")}</td>
+                      <td>{formatValue(row.ctr, "percent")}</td>
+                      <td>{row.decision || "MAINTAIN"}</td>
                     </tr>
                   );
                 })}
