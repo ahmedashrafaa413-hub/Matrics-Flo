@@ -35,6 +35,35 @@ function formatValue(value, type) {
   return num.toLocaleString();
 }
 
+function StatusDot({ effectiveStatus }) {
+  if (!effectiveStatus) return null;
+
+  const st = effectiveStatus.toUpperCase();
+
+  const cfg =
+    st === "ACTIVE"           ? { color: "#06d6a0", label: "Active",   bg: "rgba(6,214,160,0.1)"   } :
+    st === "PAUSED"           ? { color: "#f59e0b", label: "Paused",   bg: "rgba(245,158,11,0.1)"  } :
+    st === "CAMPAIGN_PAUSED"  ? { color: "#f59e0b", label: "Camp. Paused", bg: "rgba(245,158,11,0.08)" } :
+    st === "ADSET_PAUSED"     ? { color: "#f59e0b", label: "AdSet Paused", bg: "rgba(245,158,11,0.08)" } :
+    st === "ARCHIVED"         ? { color: "#6b7ba4", label: "Archived", bg: "rgba(107,123,164,0.1)" } :
+    st === "DELETED"          ? { color: "#f43f5e", label: "Deleted",  bg: "rgba(244,63,94,0.1)"   } :
+    st === "DISAPPROVED"      ? { color: "#f43f5e", label: "Disapproved", bg: "rgba(244,63,94,0.1)" } :
+    st === "PENDING_REVIEW"   ? { color: "#6366f1", label: "In Review", bg: "rgba(99,102,241,0.1)" } :
+                                { color: "#6b7ba4", label: effectiveStatus, bg: "rgba(107,123,164,0.1)" };
+
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+      color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.color}30`,
+      whiteSpace: "nowrap"
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.color, flexShrink: 0 }} />
+      {cfg.label}
+    </span>
+  );
+}
+
 export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
@@ -45,6 +74,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [alerts, setAlerts] = useState([]);
   const [funnelDiagnosis, setFunnelDiagnosis] = useState([]);
   const [creativeDiagnosis, setCreativeDiagnosis] = useState([]);
+  const [statusMap, setStatusMap] = useState({});
   const [sallaSummary, setSallaSummary] = useState(null);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
@@ -371,12 +401,18 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
       setFunnelDiagnosis(diagnoseFunnel(data.summary));
       setCreativeDiagnosis(diagnoseCreatives(data.data || [], selectedLevel));
       setStatus(`${data.data?.length || 0} rows loaded successfully`);
+
+      // Load statuses in background (non-blocking)
+      apiGet(`/api/meta/statuses?account_id=${selectedAccount}&level=${selectedLevel}`)
+        .then(s => setStatusMap(s.statusMap || {}))
+        .catch(() => {});
     } catch (err) {
       setRows([]);
       setSummary(null);
       setAlerts([]);
       setFunnelDiagnosis([]);
       setCreativeDiagnosis([]);
+      setStatusMap({});
       setError(err.message || "Failed to load insights");
       setStatus("Failed to load data");
     }
@@ -445,11 +481,12 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   }, [rows, level]);
 
   const nameKey =
-    level === "ad"
-      ? "ad_name"
-      : level === "adset"
-      ? "adset_name"
-      : "campaign_name";
+    level === "ad"     ? "ad_name"       :
+    level === "adset"  ? "adset_name"    : "campaign_name";
+
+  const idKey =
+    level === "ad"     ? "ad_id"         :
+    level === "adset"  ? "adset_id"      : "campaign_id";
 
   const title =
     level === "ad"
@@ -896,6 +933,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Status</th>
                   <th>Spend</th>
                   <th>Revenue</th>
                   <th>ROAS</th>
@@ -910,10 +948,15 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
 
               <tbody>
                 {rows.map((row, index) => {
+                  const rowId     = row[idKey] || "";
+                  const rowStatus = statusMap[rowId];
                   return (
                     <tr key={index}>
                       <td className="dash-name-cell">
                         {row[nameKey] || "Unknown"}
+                      </td>
+                      <td>
+                        <StatusDot effectiveStatus={rowStatus?.effective_status} />
                       </td>
                       <td>{formatValue(row.spend, "money")}</td>
                       <td>{formatValue(row.purchase_value, "money")}</td>
