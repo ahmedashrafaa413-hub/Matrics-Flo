@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
+import { rankCreatives, scoringSummary } from "../../lib/creativeScoring";
 import {
   ResponsiveContainer,
   BarChart,
@@ -344,6 +345,12 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   }, [rows]);
   const totals = summary || rowTotals;
 
+  const creativeSummary = useMemo(() => {
+    if (level !== "ad" || !rows.length) return null;
+    const ranked = rankCreatives(rows, "ad_name");
+    return scoringSummary(ranked);
+  }, [rows, level]);
+
   const nameKey =
     level === "ad"
       ? "ad_name"
@@ -653,6 +660,43 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
           ))}
         </section>
       </section>
+
+      {creativeSummary && (
+        <section className="dash-table-card" style={{ marginBottom: 18 }}>
+          <div className="dash-table-head">
+            <div>
+              <h2>Creative Intelligence</h2>
+              <p>تحليل تلقائي لأداء الإعلانات — اضغط Ads من القائمة للتفاصيل الكاملة</p>
+            </div>
+            <a href="/ads" style={{
+              background: "linear-gradient(135deg, var(--primary), #4f46e5)",
+              color: "white", border: "none", padding: "10px 18px",
+              borderRadius: "var(--radius-md)", fontWeight: 700, fontSize: 13,
+              cursor: "pointer", textDecoration: "none"
+            }}>View Ads Scoring →</a>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
+            {[
+              { label: "Winners 🏆", count: creativeSummary.winners.length,  color: "#f59e0b" },
+              { label: "Scale ↑",    count: creativeSummary.scalable.length, color: "#06d6a0" },
+              { label: "Test 🧪",    count: creativeSummary.tests.length,    color: "#6366f1" },
+              { label: "Kill ✕",     count: creativeSummary.kills.length,    color: "#f43f5e" },
+            ].map(item => (
+              <div key={item.label} style={{
+                background: `${item.color}10`, border: `1px solid ${item.color}25`,
+                borderRadius: "var(--radius-lg)", padding: "16px 18px"
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: item.color, textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 8 }}>
+                  {item.label}
+                </div>
+                <strong style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 28, fontWeight: 700, color: item.color }}>
+                  {item.count}
+                </strong>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="dash-table-card">
         <div className="dash-table-head">
