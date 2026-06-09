@@ -44,6 +44,7 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
   const [summary, setSummary] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [funnelDiagnosis, setFunnelDiagnosis] = useState([]);
+  const [creativeDiagnosis, setCreativeDiagnosis] = useState([]);
   const [sallaSummary, setSallaSummary] = useState(null);
   const [status, setStatus] = useState("Loading dashboard...");
   const [error, setError] = useState("");
@@ -253,6 +254,96 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
     return issues;
   }
 
+  function diagnoseCreatives(rows, selectedLevel) {
+    if (selectedLevel !== "ad") return [];
+
+    const SEVERITY_ORDER = { success: 0, high: 1, medium: 2, neutral: 3 };
+
+    const diagnosed = rows.map((row) => {
+      const spend          = Number(row.spend          || 0);
+      const purchases      = Number(row.purchases       || 0);
+      const purchaseValue  = Number(row.purchase_value  || 0);
+      const roas           = Number(row.roas            || 0);
+      const cpa            = Number(row.cpa             || 0);
+      const ctr            = Number(row.ctr             || 0);
+      const frequency      = Number(row.frequency       || 0);
+      const hookRate       = Number(row.hook_rate       || 0);
+      const holdRate       = Number(row.hold_rate       || 0);
+      const completionRate = Number(row.completion_rate || 0);
+      const addToCart      = Number(row.add_to_cart     || 0);
+      const lpv            = Number(row.landing_page_views || 0);
+      const clicks         = Number(row.clicks          || 0);
+      const lpvRate        = clicks > 0 ? (lpv / clicks) * 100 : 0;
+
+      let diagnosis, severity, problem, action;
+
+      if (roas >= 3 && purchases >= 3 && hookRate >= 30 && frequency < 4) {
+        diagnosis = "Winner Creative";
+        severity  = "success";
+        problem   = "This creative is generating profitable purchases.";
+        action    = "Duplicate this creative, create 3 variations from the same angle, and increase budget gradually by 15–20%.";
+      } else if (hookRate > 0 && hookRate < 20) {
+        diagnosis = "Creative Hook Problem";
+        severity  = "high";
+        problem   = "The first seconds are not stopping users.";
+        action    = "Test 3 new hooks. Show the outcome, pain point, or bold claim in the first 2 seconds.";
+      } else if (hookRate >= 30 && holdRate > 0 && holdRate < 10) {
+        diagnosis = "Hold Problem";
+        severity  = "medium";
+        problem   = "The hook gets attention, but users drop quickly.";
+        action    = "Shorten the video, improve pacing, show proof earlier, and introduce the offer before the drop-off.";
+      } else if (hookRate >= 25 && holdRate >= 10 && ctr < 1) {
+        diagnosis = "Offer / CTA Problem";
+        severity  = "medium";
+        problem   = "Users are watching but not clicking.";
+        action    = "Test a stronger CTA, clearer offer, guarantee, price angle, urgency, or social proof.";
+      } else if (frequency > 4 && ctr < 1) {
+        diagnosis = "Creative Fatigue";
+        severity  = "medium";
+        problem   = "Audience may have seen this creative too many times.";
+        action    = "Refresh the creative, test new angles, and exclude saturated audiences.";
+      } else if (ctr >= 1 && lpv > 0 && lpvRate < 70) {
+        diagnosis = "Landing Page Problem";
+        severity  = "medium";
+        problem   = "People click but many do not reach the landing page.";
+        action    = "Run PageSpeed test, check mobile loading, test links, and compare Meta LPV with GA4 sessions.";
+      } else if (addToCart > 0 && purchases / addToCart < 0.2) {
+        diagnosis = "Checkout Problem";
+        severity  = "medium";
+        problem   = "Users add to cart but do not complete purchase.";
+        action    = "Audit checkout flow, payment methods, coupon codes, shipping fees, and cart abandonment retargeting.";
+      } else if (spend > 0 && roas < 1 && purchases === 0) {
+        diagnosis = "Losing Creative";
+        severity  = "high";
+        problem   = "This ad is spending without generating purchases.";
+        action    = "Pause or reduce spend. Review hook, offer, targeting, and landing page before relaunching.";
+      } else {
+        diagnosis = "Monitor";
+        severity  = "neutral";
+        problem   = "No clear winner or critical issue detected.";
+        action    = "Keep monitoring until more spend and purchase volume are available.";
+      }
+
+      return {
+        adId:           row.ad_id        || "",
+        adName:         row.ad_name      || "Unknown",
+        campaignName:   row.campaign_name || "",
+        adsetName:      row.adset_name   || "",
+        spend, purchases, purchaseValue, roas, cpa,
+        ctr, frequency, hookRate, holdRate, completionRate,
+        diagnosis, severity, problem, action
+      };
+    });
+
+    return diagnosed.sort((a, b) => {
+      const so = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+      if (so !== 0) return so;
+      const spendDiff = b.spend - a.spend;
+      if (spendDiff !== 0) return spendDiff;
+      return b.roas - a.roas;
+    });
+  }
+
   async function loadInsights(
     selectedAccount = accountId,
     selectedLevel = level,
@@ -278,12 +369,14 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
       setSummary(data.summary || null);
       setAlerts(generateAlerts(data.summary));
       setFunnelDiagnosis(diagnoseFunnel(data.summary));
+      setCreativeDiagnosis(diagnoseCreatives(data.data || [], selectedLevel));
       setStatus(`${data.data?.length || 0} rows loaded successfully`);
     } catch (err) {
       setRows([]);
       setSummary(null);
       setAlerts([]);
       setFunnelDiagnosis([]);
+      setCreativeDiagnosis([]);
       setError(err.message || "Failed to load insights");
       setStatus("Failed to load data");
     }
@@ -660,6 +753,92 @@ export default function DashboardPage({ defaultLevel = "campaign" }) {
           ))}
         </section>
       </section>
+
+      {creativeDiagnosis.length > 0 && (
+        <section className="dash-table-card" style={{ marginBottom: 18 }}>
+          <div className="dash-table-head">
+            <div>
+              <h2>Creative Diagnosis</h2>
+              <p>تشخيص تلقائي لكل إعلان — مرتب حسب الأولوية</p>
+            </div>
+          </div>
+          <div className="dash-table-scroll">
+            <table className="dash-data-table">
+              <thead>
+                <tr>
+                  <th>Ad Name</th>
+                  <th>Spend</th>
+                  <th>Purchases</th>
+                  <th>ROAS</th>
+                  <th>CPA</th>
+                  <th>Hook</th>
+                  <th>Hold</th>
+                  <th>Completion</th>
+                  <th>CTR</th>
+                  <th>Freq.</th>
+                  <th>Diagnosis</th>
+                  <th>Problem</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {creativeDiagnosis.map((item, i) => {
+                  const severityColor =
+                    item.severity === "success" ? "#f59e0b"
+                    : item.severity === "high"    ? "#f43f5e"
+                    : item.severity === "medium"  ? "#f59e0b"
+                    : "var(--muted)";
+                  const severityBg =
+                    item.severity === "success" ? "rgba(245,158,11,0.1)"
+                    : item.severity === "high"    ? "rgba(244,63,94,0.1)"
+                    : item.severity === "medium"  ? "rgba(245,158,11,0.08)"
+                    : "rgba(148,163,184,0.08)";
+                  return (
+                    <tr key={i}>
+                      <td className="dash-name-cell" style={{ maxWidth: 200 }}>{item.adName}</td>
+                      <td>{formatValue(item.spend, "money")}</td>
+                      <td>{item.purchases}</td>
+                      <td style={{ color: item.roas >= 3 ? "var(--accent)" : item.roas >= 1 ? "var(--gold)" : "var(--red)", fontWeight: 700 }}>
+                        {item.roas.toFixed(2)}x
+                      </td>
+                      <td>{formatValue(item.cpa, "money")}</td>
+                      <td style={{ color: item.hookRate >= 25 ? "var(--accent)" : item.hookRate > 0 ? "var(--gold)" : "var(--muted)" }}>
+                        {item.hookRate > 0 ? `${item.hookRate.toFixed(1)}%` : "—"}
+                      </td>
+                      <td style={{ color: item.holdRate >= 40 ? "var(--accent)" : item.holdRate > 0 ? "var(--gold)" : "var(--muted)" }}>
+                        {item.holdRate > 0 ? `${item.holdRate.toFixed(1)}%` : "—"}
+                      </td>
+                      <td style={{ color: item.completionRate > 0 ? "var(--text-2)" : "var(--muted)" }}>
+                        {item.completionRate > 0 ? `${item.completionRate.toFixed(1)}%` : "—"}
+                      </td>
+                      <td style={{ color: item.ctr >= 1 ? "var(--accent)" : item.ctr >= 0.5 ? "var(--gold)" : "var(--red)", fontWeight: 700 }}>
+                        {item.ctr.toFixed(2)}%
+                      </td>
+                      <td style={{ color: item.frequency >= 4 ? "var(--red)" : item.frequency >= 3 ? "var(--gold)" : "var(--text-2)" }}>
+                        {item.frequency.toFixed(1)}
+                      </td>
+                      <td>
+                        <span style={{
+                          display: "inline-flex", alignItems: "center",
+                          padding: "4px 10px", borderRadius: 999,
+                          fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+                          color: severityColor, background: severityBg,
+                          border: `1px solid ${severityColor}30`
+                        }}>
+                          {item.severity === "success" ? "🏆 " : item.severity === "high" ? "🔴 " : item.severity === "medium" ? "🟠 " : "⚪ "}
+                          {item.diagnosis}
+                        </span>
+                      </td>
+                      <td style={{ color: "var(--text-2)", fontSize: 12, maxWidth: 200 }}>{item.problem}</td>
+                      <td style={{ color: "var(--muted)", fontSize: 12, maxWidth: 220 }}>{item.action}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {creativeSummary && (
         <section className="dash-table-card" style={{ marginBottom: 18 }}>
