@@ -79,6 +79,7 @@ export async function GET(request) {
       "video_p95_watched_actions",
       "video_p100_watched_actions",
       "video_thruplay_watched_actions",
+      "video_3_sec_watched_actions",
       "purchase_roas",
       "date_start",
       "date_stop"
@@ -158,14 +159,15 @@ export async function GET(request) {
       const impressions = Number(row.impressions || 0);
       const videoPlays = getVideoMetric(row, "video_play_actions");
       const thruplays  = getVideoMetric(row, "video_thruplay_watched_actions");
+      const video3Sec  = getVideoMetric(row, "video_3_sec_watched_actions");
       const video25    = getVideoMetric(row, "video_p25_watched_actions");
       const video50    = getVideoMetric(row, "video_p50_watched_actions");
       const video75    = getVideoMetric(row, "video_p75_watched_actions");
       const video95    = getVideoMetric(row, "video_p95_watched_actions");
       const video100   = getVideoMetric(row, "video_p100_watched_actions");
-      const hookRate       = safeDivide(videoPlays, impressions) * 100;
-      const holdRate       = safeDivide(thruplays,  videoPlays)  * 100;
-      const completionRate = safeDivide(video100,   videoPlays)  * 100;
+      const hookRate       = safeDivide(video3Sec, impressions) * 100;
+      const holdRate       = safeDivide(thruplays, videoPlays)  * 100;
+      const completionRate = safeDivide(video100,  videoPlays)  * 100;
       const roas = safeDivide(purchaseValue, spend);
       const cpa = safeDivide(spend, purchases);
       const costPerATC = safeDivide(spend, addToCart);
@@ -180,6 +182,7 @@ export async function GET(request) {
         landing_page_views: landingPageViews,
         video_plays: videoPlays,
         thruplays,
+        video_3_sec: video3Sec,
         video_25: video25,
         video_50: video50,
         video_75: video75,
