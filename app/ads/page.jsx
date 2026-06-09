@@ -69,6 +69,32 @@ function SummaryCard({ label, count, color, icon }) {
   );
 }
 
+function StatusDot({ effectiveStatus }) {
+  if (!effectiveStatus) return <span style={{ color: "var(--muted-2)", fontSize: 11 }}>—</span>;
+  const st = effectiveStatus.toUpperCase();
+  const cfg =
+    st === "ACTIVE"          ? { color: "#06d6a0", label: "Active",        bg: "rgba(6,214,160,0.1)"   } :
+    st === "PAUSED"          ? { color: "#f59e0b", label: "Paused",        bg: "rgba(245,158,11,0.1)"  } :
+    st === "CAMPAIGN_PAUSED" ? { color: "#f59e0b", label: "Camp. Paused",  bg: "rgba(245,158,11,0.08)" } :
+    st === "ADSET_PAUSED"    ? { color: "#f59e0b", label: "AdSet Paused",  bg: "rgba(245,158,11,0.08)" } :
+    st === "ARCHIVED"        ? { color: "#6b7ba4", label: "Archived",      bg: "rgba(107,123,164,0.1)" } :
+    st === "DISAPPROVED"     ? { color: "#f43f5e", label: "Disapproved",   bg: "rgba(244,63,94,0.1)"   } :
+    st === "PENDING_REVIEW"  ? { color: "#6366f1", label: "In Review",     bg: "rgba(99,102,241,0.1)"  } :
+                               { color: "#6b7ba4", label: effectiveStatus,  bg: "rgba(107,123,164,0.1)" };
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+      color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.color}30`,
+      whiteSpace: "nowrap"
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.color, flexShrink: 0,
+        boxShadow: st === "ACTIVE" ? `0 0 6px ${cfg.color}` : "none" }} />
+      {cfg.label}
+    </span>
+  );
+}
+
 export default function AdsPage() {
   const [accounts,       setAccounts]       = useState([]);
   const [accountId,      setAccountId]      = useState("");
@@ -80,6 +106,8 @@ export default function AdsPage() {
   const [filterDecision, setFilterDecision] = useState("all");
   const [sortBy,         setSortBy]         = useState("score");
   const [expandedAd,     setExpandedAd]     = useState(null);
+  const [statusMap,      setStatusMap]      = useState({});
+  const [filterStatus,   setFilterStatus]   = useState("all");
 
   useEffect(() => { loadAccounts(); }, []);
   useEffect(() => { if (accountId) loadAds(); }, [accountId, datePreset]);
@@ -104,9 +132,15 @@ export default function AdsPage() {
       );
       setRows(data.data || []);
       setStatus(`${data.data?.length || 0} ads loaded`);
+
+      // جلب الـ statuses في الخلفية
+      apiGet(`/api/meta/statuses?account_id=${accountId}&level=ad`)
+        .then(s => setStatusMap(s.statusMap || {}))
+        .catch(() => {});
     } catch (e) {
       setError(e.message);
       setStatus("Failed to load");
+      setStatusMap({});
     } finally { setLoading(false); }
   }
 
@@ -118,12 +152,20 @@ export default function AdsPage() {
     if (filterDecision !== "all") {
       list = list.filter(r => r._scoring.decision.toLowerCase().startsWith(filterDecision.toLowerCase()));
     }
+    if (filterStatus !== "all") {
+      list = list.filter(r => {
+        const st = (statusMap[r.ad_id || ""]?.effective_status || "").toUpperCase();
+        if (filterStatus === "active") return st === "ACTIVE";
+        if (filterStatus === "paused") return ["PAUSED","CAMPAIGN_PAUSED","ADSET_PAUSED"].includes(st);
+        return true;
+      });
+    }
     if (sortBy === "score") list.sort((a,b) => b._scoring.score - a._scoring.score);
     if (sortBy === "spend") list.sort((a,b) => Number(b.spend||0)     - Number(a.spend||0));
     if (sortBy === "roas")  list.sort((a,b) => Number(b.roas||0)      - Number(a.roas||0));
     if (sortBy === "hook")  list.sort((a,b) => Number(b.hook_rate||0) - Number(a.hook_rate||0));
     return list;
-  }, [ranked, filterDecision, sortBy]);
+  }, [ranked, filterDecision, filterStatus, sortBy, statusMap]);
 
   const DATE_OPTIONS = [
     { value: "maximum",   label: "Maximum"     },
@@ -196,7 +238,7 @@ export default function AdsPage() {
       )}
 
       {ranked.length > 0 && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
           {[
             { key: "all",    label: `All (${ranked.length})`,              color: "var(--muted)" },
             { key: "winner", label: `Winners (${summary.winners.length})`, color: "#f59e0b" },
@@ -209,6 +251,25 @@ export default function AdsPage() {
               border: `1px solid ${filterDecision === f.key ? f.color : "var(--border)"}`,
               background: filterDecision === f.key ? `${f.color}15` : "transparent",
               color: filterDecision === f.key ? f.color : "var(--muted)",
+              cursor: "pointer", fontFamily: "inherit"
+            }}>{f.label}</button>
+          ))}
+        </div>
+      )}
+
+      {Object.keys(statusMap).length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "1px" }}>Status:</span>
+          {[
+            { key: "all",    label: "All",    color: "var(--muted)" },
+            { key: "active", label: "🟢 Active",  color: "#06d6a0" },
+            { key: "paused", label: "🟡 Paused",  color: "#f59e0b" },
+          ].map(f => (
+            <button key={f.key} onClick={() => setFilterStatus(f.key)} style={{
+              padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+              border: `1px solid ${filterStatus === f.key ? f.color : "var(--border)"}`,
+              background: filterStatus === f.key ? `${f.color}15` : "transparent",
+              color: filterStatus === f.key ? f.color : "var(--muted)",
               cursor: "pointer", fontFamily: "inherit"
             }}>{f.label}</button>
           ))}
@@ -237,7 +298,7 @@ export default function AdsPage() {
                   onClick={() => setExpandedAd(isExpanded ? null : i)}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "2fr 80px 90px 90px 90px 90px 90px 120px 28px",
+                    gridTemplateColumns: "2fr 100px 80px 90px 90px 90px 90px 90px 120px 28px",
                     alignItems: "center", gap: 12, padding: "16px 20px", cursor: "pointer"
                   }}
                 >
@@ -255,6 +316,12 @@ export default function AdsPage() {
                         ✓ {s.diagnosis.primaryWin}
                       </div>
                     )}
+                  </div>
+
+                  {/* Status */}
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4 }}>Status</div>
+                    <StatusDot effectiveStatus={statusMap[row.ad_id || ""]?.effective_status} />
                   </div>
 
                   {[
