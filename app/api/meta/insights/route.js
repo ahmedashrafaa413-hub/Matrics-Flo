@@ -22,6 +22,12 @@ function safeDivide(a, b) {
   return x / y;
 }
 
+function getVideoMetric(row, key) {
+  return Number(
+    row?.[key]?.[0]?.value || 0
+  );
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -66,6 +72,13 @@ export async function GET(request) {
       "cpm",
       "actions",
       "action_values",
+      "video_play_actions",
+      "video_p25_watched_actions",
+      "video_p50_watched_actions",
+      "video_p75_watched_actions",
+      "video_p95_watched_actions",
+      "video_p100_watched_actions",
+      "video_thruplay_watched_actions",
       "purchase_roas",
       "date_start",
       "date_stop"
@@ -143,6 +156,16 @@ export async function GET(request) {
       const spend = Number(row.spend || 0);
       const clicks = Number(row.clicks || 0);
       const impressions = Number(row.impressions || 0);
+      const videoPlays = getVideoMetric(row, "video_play_actions");
+      const thruplays  = getVideoMetric(row, "video_thruplay_watched_actions");
+      const video25    = getVideoMetric(row, "video_p25_watched_actions");
+      const video50    = getVideoMetric(row, "video_p50_watched_actions");
+      const video75    = getVideoMetric(row, "video_p75_watched_actions");
+      const video95    = getVideoMetric(row, "video_p95_watched_actions");
+      const video100   = getVideoMetric(row, "video_p100_watched_actions");
+      const hookRate       = safeDivide(videoPlays, impressions) * 100;
+      const holdRate       = safeDivide(thruplays,  videoPlays)  * 100;
+      const completionRate = safeDivide(video100,   videoPlays)  * 100;
       const roas = safeDivide(purchaseValue, spend);
       const cpa = safeDivide(spend, purchases);
       const costPerATC = safeDivide(spend, addToCart);
@@ -155,6 +178,16 @@ export async function GET(request) {
         initiate_checkout: initiateCheckout,
         view_content: viewContent,
         landing_page_views: landingPageViews,
+        video_plays: videoPlays,
+        thruplays,
+        video_25: video25,
+        video_50: video50,
+        video_75: video75,
+        video_95: video95,
+        video_100: video100,
+        hook_rate:       Number(hookRate.toFixed(2)),
+        hold_rate:       Number(holdRate.toFixed(2)),
+        completion_rate: Number(completionRate.toFixed(2)),
         roas: Number(roas.toFixed(2)),
         cpa: Number(cpa.toFixed(2)),
         cost_per_add_to_cart: Number(costPerATC.toFixed(2)),
