@@ -36,9 +36,11 @@ export async function GET(request) {
       searchParams.get("token") ||
       cookies().get("meta_token")?.value;
 
-    const accountId = searchParams.get("account_id");
-    const level = searchParams.get("level") || "campaign";
-    const datePreset = searchParams.get("date_preset") || "maximum";
+    const accountId  = searchParams.get("account_id");
+    const level      = searchParams.get("level")      || "campaign";
+    const datePreset = searchParams.get("date_preset")|| "maximum";
+    const sinceParam = searchParams.get("since");
+    const untilParam = searchParams.get("until");
 
     if (!token) {
       return NextResponse.json(
@@ -87,10 +89,16 @@ export async function GET(request) {
     const params = new URLSearchParams({
       fields,
       level,
-      date_preset: datePreset,
       limit: "200",
       access_token: token
     });
+
+    // Custom date range takes priority over date_preset
+    if (sinceParam && untilParam) {
+      params.append("time_range", JSON.stringify({ since: sinceParam, until: untilParam }));
+    } else {
+      params.append("date_preset", datePreset);
+    }
 
     const url = `https://graph.facebook.com/v19.0/${accountId}/insights?${params.toString()}`;
 
@@ -99,63 +107,24 @@ export async function GET(request) {
 
     if (data.error) {
       return NextResponse.json(
-        {
-          success: false,
-          error: data.error
-        },
+        { success: false, error: data.error },
         { status: 400 }
       );
     }
 
     const rows = data.data || [];
     const enriched = rows.map((row) => {
-      const purchases = getActionValue(
-        row.actions || [],
-        [
-          "purchase",
-          "omni_purchase",
-          "offsite_conversion.fb_pixel_purchase"
-        ]
-      );
-      const addToCart = getActionValue(
-        row.actions || [],
-        [
-          "add_to_cart",
-          "omni_add_to_cart",
-          "offsite_conversion.fb_pixel_add_to_cart"
-        ]
-      );
-      const initiateCheckout = getActionValue(
-        row.actions || [],
-        [
-          "initiate_checkout",
-          "omni_initiated_checkout",
-          "offsite_conversion.fb_pixel_initiate_checkout"
-        ]
-      );
-      const viewContent = getActionValue(
-        row.actions || [],
-        [
-          "view_content",
-          "omni_view_content",
-          "offsite_conversion.fb_pixel_view_content"
-        ]
-      );
-      const landingPageViews = getActionValue(
-        row.actions || [],
-        ["landing_page_view"]
-      );
-      const purchaseValue = getActionValueAmount(
-        row.action_values || [],
-        [
-          "purchase",
-          "omni_purchase",
-          "offsite_conversion.fb_pixel_purchase"
-        ]
-      );
-      const spend = Number(row.spend || 0);
-      const clicks = Number(row.clicks || 0);
-      const impressions = Number(row.impressions || 0);
+      const purchases = getActionValue(row.actions || [], ["purchase","omni_purchase","offsite_conversion.fb_pixel_purchase"]);
+      const addToCart = getActionValue(row.actions || [], ["add_to_cart","omni_add_to_cart","offsite_conversion.fb_pixel_add_to_cart"]);
+      const initiateCheckout = getActionValue(row.actions || [], ["initiate_checkout","omni_initiated_checkout","offsite_conversion.fb_pixel_initiate_checkout"]);
+      const viewContent = getActionValue(row.actions || [], ["view_content","omni_view_content","offsite_conversion.fb_pixel_view_content"]);
+      const landingPageViews = getActionValue(row.actions || [], ["landing_page_view"]);
+      const purchaseValue = getActionValueAmount(row.action_values || [], ["purchase","omni_purchase","offsite_conversion.fb_pixel_purchase"]);
+
+      const spend       = Number(row.spend       || 0);
+      const clicks      = Number(row.clicks      || 0);
+      const impressions = Number(row.impressions  || 0);
+
       const videoPlays = getVideoMetric(row, "video_play_actions");
       const thruplays  = getVideoMetric(row, "video_thruplay_watched_actions");
       const videoViews = getActionValue(row.actions || [], ["video_view"]);
@@ -164,117 +133,53 @@ export async function GET(request) {
       const video75    = getVideoMetric(row, "video_p75_watched_actions");
       const video95    = getVideoMetric(row, "video_p95_watched_actions");
       const video100   = getVideoMetric(row, "video_p100_watched_actions");
+
       const hookRate       = safeDivide(videoViews, impressions) * 100;
-      const holdRate       = safeDivide(thruplays, videoPlays)  * 100;
-      const completionRate = safeDivide(video100,  videoPlays)  * 100;
-      const roas = safeDivide(purchaseValue, spend);
-      const cpa = safeDivide(spend, purchases);
-      const costPerATC = safeDivide(spend, addToCart);
-      const costPerIC = safeDivide(spend, initiateCheckout);
+      const holdRate       = safeDivide(thruplays,  videoPlays)  * 100;
+      const completionRate = safeDivide(video100,   videoPlays)  * 100;
+      const roas           = safeDivide(purchaseValue, spend);
+      const cpa            = safeDivide(spend, purchases);
+      const costPerATC     = safeDivide(spend, addToCart);
+      const costPerIC      = safeDivide(spend, initiateCheckout);
+
       return {
         ...row,
         purchases,
-        purchase_value: purchaseValue,
-        add_to_cart: addToCart,
-        initiate_checkout: initiateCheckout,
-        view_content: viewContent,
-        landing_page_views: landingPageViews,
-        video_plays: videoPlays,
+        purchase_value:            purchaseValue,
+        add_to_cart:               addToCart,
+        initiate_checkout:         initiateCheckout,
+        view_content:              viewContent,
+        landing_page_views:        landingPageViews,
+        video_plays:               videoPlays,
         thruplays,
-        video_views: videoViews,
-        video_25: video25,
-        video_50: video50,
-        video_75: video75,
-        video_95: video95,
-        video_100: video100,
-        hook_rate:       Number(hookRate.toFixed(2)),
-        hold_rate:       Number(holdRate.toFixed(2)),
-        completion_rate: Number(completionRate.toFixed(2)),
-        roas: Number(roas.toFixed(2)),
-        cpa: Number(cpa.toFixed(2)),
-        cost_per_add_to_cart: Number(costPerATC.toFixed(2)),
-        cost_per_initiate_checkout: Number(costPerIC.toFixed(2))
+        video_views:               videoViews,
+        video_25:                  video25,
+        video_50:                  video50,
+        video_75:                  video75,
+        video_95:                  video95,
+        video_100:                 video100,
+        hook_rate:                 Number(hookRate.toFixed(2)),
+        hold_rate:                 Number(holdRate.toFixed(2)),
+        completion_rate:           Number(completionRate.toFixed(2)),
+        roas:                      Number(roas.toFixed(2)),
+        cpa:                       Number(cpa.toFixed(2)),
+        cost_per_add_to_cart:      Number(costPerATC.toFixed(2)),
+        cost_per_initiate_checkout:Number(costPerIC.toFixed(2))
       };
     });
+
     const summary = enriched.reduce(
       (acc, row) => {
-        acc.spend += Number(row.spend || 0);
-        acc.impressions += Number(row.impressions || 0);
-        acc.clicks += Number(row.clicks || 0);
-        acc.purchases += Number(row.purchases || 0);
-        acc.purchase_value += Number(row.purchase_value || 0);
-        acc.add_to_cart += Number(row.add_to_cart || 0);
-        acc.initiate_checkout += Number(row.initiate_checkout || 0);
-        acc.view_content += Number(row.view_content || 0);
+        acc.spend              += Number(row.spend              || 0);
+        acc.impressions        += Number(row.impressions        || 0);
+        acc.clicks             += Number(row.clicks             || 0);
+        acc.purchases          += Number(row.purchases          || 0);
+        acc.purchase_value     += Number(row.purchase_value     || 0);
+        acc.add_to_cart        += Number(row.add_to_cart        || 0);
+        acc.initiate_checkout  += Number(row.initiate_checkout  || 0);
+        acc.view_content       += Number(row.view_content       || 0);
         acc.landing_page_views += Number(row.landing_page_views || 0);
         return acc;
       },
-      {
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        purchases: 0,
-        purchase_value: 0,
-        add_to_cart: 0,
-        initiate_checkout: 0,
-        view_content: 0,
-        landing_page_views: 0
-      }
-    );
-    summary.roas = Number(safeDivide(summary.purchase_value, summary.spend).toFixed(2));
-    summary.cpa = Number(safeDivide(summary.spend, summary.purchases).toFixed(2));
-    summary.cost_per_add_to_cart = Number(safeDivide(summary.spend, summary.add_to_cart).toFixed(2));
-    summary.cost_per_initiate_checkout = Number(safeDivide(summary.spend, summary.initiate_checkout).toFixed(2));
-    summary.lpv_rate = Number(
-      (safeDivide(summary.landing_page_views, summary.clicks) * 100).toFixed(2)
-    );
-    summary.view_content_rate = Number(
-      (
-        safeDivide(
-          summary.view_content,
-          summary.landing_page_views || summary.clicks
-        ) * 100
-      ).toFixed(2)
-    );
-    summary.atc_rate = Number(
-      (
-        safeDivide(
-          summary.add_to_cart,
-          summary.view_content || summary.landing_page_views || summary.clicks
-        ) * 100
-      ).toFixed(2)
-    );
-    summary.checkout_rate = Number(
-      (safeDivide(summary.initiate_checkout, summary.add_to_cart) * 100).toFixed(2)
-    );
-    summary.purchase_rate = Number(
-      (safeDivide(summary.purchases, summary.initiate_checkout) * 100).toFixed(2)
-    );
-    summary.cart_abandonment_rate = Number(
-      (
-        summary.add_to_cart > 0
-          ? ((summary.add_to_cart - summary.purchases) / summary.add_to_cart) * 100
-          : 0
-      ).toFixed(2)
-    );
-
-    return NextResponse.json({
-      success: true,
-      provider: "Meta Ads",
-      account_id: accountId,
-      level,
-      date_preset: datePreset,
-      data: enriched,
-      summary,
-      paging: data.paging || null
-    });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: error?.message || "Internal server error"
-      },
-      { status: 500 }
-    );
-  }
-}
+      { spend:0, impressions:0, clicks:0, purchases:0, purchase_value:0,
+        add_to_cart:0, initiate_checkout:0, view_c
