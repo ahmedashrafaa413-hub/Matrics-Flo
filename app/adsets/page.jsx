@@ -1,6 +1,8 @@
 "use client";
-import DashboardPage from "../dashboard/page";
-
-export default function AdSetsPage() {
-  return <DashboardPage defaultLevel="adset" />;
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+export default function Redirect() {
+  const router = useRouter();
+  useEffect(() => { router.replace("/meta"); }, []);
+  return null;
 }
