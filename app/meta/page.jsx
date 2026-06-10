@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 import { rankCreatives, scoringSummary } from "../../lib/creativeScoring";
@@ -18,12 +18,86 @@ const fmt = {
 };
 
 const DATE_OPTIONS = [
-  { value:"maximum",    label:"Maximum"      },
+  { value:"today",      label:"Today"        },
+  { value:"yesterday",  label:"Yesterday"    },
   { value:"last_7d",    label:"Last 7 Days"  },
   { value:"last_30d",   label:"Last 30 Days" },
   { value:"this_month", label:"This Month"   },
-  { value:"yesterday",  label:"Yesterday"    },
+  { value:"last_90d",   label:"Last 90 Days" },
+  { value:"maximum",    label:"Maximum"      },
+  { value:"custom",     label:"Custom Range" },
 ];
+
+// ── Date Picker Component ──────────────────────────────────────────────────
+function DateRangePicker({ since, until, onApply }) {
+  const [from, setFrom] = useState(since || "");
+  const [to,   setTo]   = useState(until || "");
+  const today = new Date().toISOString().split("T")[0];
+
+  return (
+    <div style={{
+      background: "var(--card)", border: "1px solid var(--border-2)",
+      borderRadius: "var(--radius-lg)", padding: "14px 16px",
+      display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap"
+    }}>
+      <div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 5 }}>From</div>
+        <input
+          type="date" value={from} max={to || today}
+          onChange={e => setFrom(e.target.value)}
+          style={{ background: "var(--glass)", border: "1px solid var(--border-2)", borderRadius: "var(--radius-md)", padding: "8px 12px", color: "var(--text)", fontSize: 13, fontFamily: "inherit", outline: "none", colorScheme: "dark" }}
+        />
+      </div>
+      <div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 5 }}>To</div>
+        <input
+          type="date" value={to} min={from} max={today}
+          onChange={e => setTo(e.target.value)}
+          style={{ background: "var(--glass)", border: "1px solid var(--border-2)", borderRadius: "var(--radius-md)", padding: "8px 12px", color: "var(--text)", fontSize: 13, fontFamily: "inherit", outline: "none", colorScheme: "dark" }}
+        />
+      </div>
+      <button
+        disabled={!from || !to}
+        onClick={() => onApply(from, to)}
+        style={{ background: from && to ? "linear-gradient(135deg,var(--primary),#4f46e5)" : "var(--glass2)", color: from && to ? "#fff" : "var(--muted)", border: "none", padding: "9px 16px", borderRadius: "var(--radius-md)", fontSize: 12, fontWeight: 700, cursor: from && to ? "pointer" : "not-allowed", fontFamily: "inherit" }}
+      >
+        Apply ↗
+      </button>
+    </div>
+  );
+}
+
+// ── diagnoseCreative ───────────────────────────────────────────────────────
+function diagnoseCreative(row) {
+  const roas      = Number(row.roas       || 0);
+  const purchases = Number(row.purchases  || 0);
+  const hookRate  = Number(row.hook_rate  || 0);
+  const holdRate  = Number(row.hold_rate  || 0);
+  const frequency = Number(row.frequency  || 0);
+  const ctr       = Number(row.ctr        || 0);
+  const spend     = Number(row.spend      || 0);
+  const addToCart = Number(row.add_to_cart|| 0);
+  const lpv       = Number(row.landing_page_views || 0);
+  const lpvRate   = Number(row.lpv_rate   || 0);
+
+  if (roas >= 3 && purchases >= 3 && hookRate >= 30 && frequency < 4)
+    return { label:"Winner Creative",     severity:"success", badge:"🏆 Winner",        problem:"This creative is driving profitable purchases.",                cause:"Strong hook, acceptable frequency, and strong business outcome.",                    action:"Duplicate, create 3 variations from same angle, increase budget 15–20%." };
+  if (hookRate > 0 && hookRate < 20)
+    return { label:"Creative Problem",    severity:"high",    badge:"🎬 Hook Issue",     problem:"The first seconds are not stopping users.",                    cause:"Weak opening, unclear promise, slow start, or poor scroll-stopper.",              action:"Test 3 new hooks. Show outcome or pain in first 2s. Try UGC, before/after, problem-first, or bold claim." };
+  if (hookRate >= 30 && holdRate > 0 && holdRate < 10)
+    return { label:"Hold Problem",        severity:"medium",  badge:"⏱ Hold Issue",     problem:"Hook gets attention but users drop quickly.",                  cause:"Middle of video is slow, unclear, or doesn't build enough interest.",            action:"Shorten video, improve pacing, show proof earlier, introduce offer before drop-off." };
+  if (hookRate >= 25 && holdRate >= 10 && ctr < 1)
+    return { label:"Offer / CTA Problem", severity:"medium",  badge:"💬 Offer Issue",   problem:"Users are watching but not clicking.",                         cause:"Offer, CTA, or value proposition is not compelling enough.",                     action:"Test stronger CTA, clearer offer, price angle, guarantee, urgency, or social proof." };
+  if (frequency > 4 && ctr < 1)
+    return { label:"Creative Fatigue",    severity:"medium",  badge:"🔁 Fatigue",       problem:"Audience may have seen this creative too many times.",          cause:"Frequency is high and CTR is weak.",                                             action:"Refresh creative, test new angles, exclude saturated audiences." };
+  if (ctr >= 1 && lpv > 0 && lpvRate < 70)
+    return { label:"Landing Page Problem",severity:"medium",  badge:"⚡ LP Issue",      problem:"People click but many don't reach the landing page.",           cause:"Slow loading, redirect issue, tracking problem, or poor mobile experience.",    action:"Run PageSpeed test, check link, compare Meta LPV with GA4 sessions." };
+  if (addToCart > 0 && purchases / addToCart < 0.2)
+    return { label:"Checkout Problem",    severity:"medium",  badge:"🛒 Checkout Issue",problem:"Users add to cart but don't complete purchase.",               cause:"Shipping cost, payment issue, hidden fees, weak urgency, or checkout friction.", action:"Audit checkout, payment methods, coupon codes, shipping fees, cart retargeting." };
+  if (spend > 0 && roas < 1 && purchases === 0)
+    return { label:"Losing Creative",     severity:"high",    badge:"🔴 Loser",         problem:"This ad is spending without generating purchases.",             cause:"Creative, offer, audience, or landing page may be misaligned.",                 action:"Pause or reduce spend. Review hook, offer, targeting, and LP before relaunch." };
+  return   { label:"Monitor",            severity:"neutral", badge:"⚪ Monitor",        problem:"No clear winner or critical issue detected.",                   cause:"Performance is inconclusive based on current data.",                            action:"Keep monitoring until more spend and purchase volume are available." };
+}
 
 const TABS = [
   { key:"overview",   label:"Overview",   icon:"⬡" },
@@ -155,7 +229,10 @@ export default function MetaPage() {
   const [activeTab,    setActiveTab]    = useState("overview");
   const [accounts,     setAccounts]     = useState([]);
   const [accountId,    setAccountId]    = useState("");
-  const [datePreset,   setDatePreset]   = useState("maximum");
+  const [datePreset,   setDatePreset]   = useState("yesterday");
+  const [customSince,  setCustomSince]  = useState("");
+  const [customUntil,  setCustomUntil]  = useState("");
+  const [showCustom,   setShowCustom]   = useState(false);
 
   // Campaign data
   const [campRows,     setCampRows]     = useState([]);
@@ -179,6 +256,8 @@ export default function MetaPage() {
 
   // Salla summary for real ROAS
   const [sallaSummary, setSallaSummary] = useState(null);
+  const [creativeMap,  setCreativeMap]  = useState({});
+  const [creativeFilter, setCreativeFilter] = useState("all");
 
   const [error,        setError]        = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -216,11 +295,18 @@ export default function MetaPage() {
     } catch {}
   }
 
+  function buildDateParam() {
+    if (datePreset === "custom" && customSince && customUntil) {
+      return `since=${customSince}&until=${customUntil}`;
+    }
+    return `date_preset=${datePreset}`;
+  }
+
   async function loadCampaigns() {
     if (!accountId) return;
     setCampLoading(true); setError("");
     try {
-      const data = await apiGet(`/api/meta/insights?account_id=${accountId}&level=campaign&date_preset=${datePreset}`);
+      const data = await apiGet(`/api/meta/insights?account_id=${accountId}&level=campaign&${buildDateParam()}`);
       setCampRows(data.data||[]); setCampSummary(data.summary||null);
       apiGet(`/api/meta/statuses?account_id=${accountId}&level=campaign`).then(s=>setCampStatus(s.statusMap||{})).catch(()=>{});
     } catch(e) { setError(e.message); }
@@ -231,7 +317,7 @@ export default function MetaPage() {
     if (!accountId) return;
     setAdsetLoading(true);
     try {
-      const data = await apiGet(`/api/meta/insights?account_id=${accountId}&level=adset&date_preset=${datePreset}`);
+      const data = await apiGet(`/api/meta/insights?account_id=${accountId}&level=adset&${buildDateParam()}`);
       setAdsetRows(data.data||[]); setAdsetLoaded(true);
       apiGet(`/api/meta/statuses?account_id=${accountId}&level=adset`).then(s=>setAdsetStatus(s.statusMap||{})).catch(()=>{});
     } catch(e) { setError(e.message); }
@@ -242,9 +328,20 @@ export default function MetaPage() {
     if (!accountId) return;
     setAdLoading(true);
     try {
-      const data = await apiGet(`/api/meta/insights?account_id=${accountId}&level=ad&date_preset=${datePreset}`);
+      const data = await apiGet(`/api/meta/insights?account_id=${accountId}&level=ad&${buildDateParam()}`);
       setAdRows(data.data||[]); setAdLoaded(true);
       apiGet(`/api/meta/statuses?account_id=${accountId}&level=ad`).then(s=>setAdStatus(s.statusMap||{})).catch(()=>{});
+      // Fetch creative thumbnails in background
+      const adIds = (data.data||[]).map(r=>r.ad_id).filter(Boolean);
+      if (adIds.length) {
+        apiGet(`/api/meta/creatives?ad_ids=${adIds.join(",")}`)
+          .then(r => {
+            const map = {};
+            (r.data||[]).forEach(c => { map[c.ad_id] = c; });
+            setCreativeMap(map);
+          })
+          .catch(() => {});
+      }
     } catch(e) { setError(e.message); }
     finally { setAdLoading(false); }
   }
@@ -300,14 +397,37 @@ export default function MetaPage() {
               {accounts.map(a=><option key={a.id} value={a.id}>{a.name} — {a.currency}</option>)}
             </select>
           )}
-          <select value={datePreset} onChange={e=>setDatePreset(e.target.value)} style={{ background:"var(--card)", color:"var(--text)", border:"1px solid var(--border-2)", borderRadius:"var(--radius-md)", padding:"8px 12px", fontSize:12, fontWeight:600, fontFamily:"inherit", outline:"none", cursor:"pointer" }}>
+          <select value={datePreset} onChange={e => {
+            const v = e.target.value;
+            setDatePreset(v);
+            setShowCustom(v === "custom");
+            if (v !== "custom") { setCustomSince(""); setCustomUntil(""); }
+          }} style={{ background:"var(--card)", color:"var(--text)", border:"1px solid var(--border-2)", borderRadius:"var(--radius-md)", padding:"8px 12px", fontSize:12, fontWeight:600, fontFamily:"inherit", outline:"none", cursor:"pointer" }}>
             {DATE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <button className="dash-refresh" onClick={refresh} disabled={campLoading}>{campLoading?"⏳":"↺"} Refresh</button>
         </div>
       </div>
 
-      {/* ── Tabs ── */}
+      {showCustom && (
+        <DateRangePicker
+          since={customSince}
+          until={customUntil}
+          onApply={(from, to) => {
+            setCustomSince(from);
+            setCustomUntil(to);
+            resetData();
+            loadCampaigns();
+          }}
+        />
+      )}
+
+      {/* Active date label */}
+      {datePreset === "custom" && customSince && customUntil && (
+        <div style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>
+          📅 Custom range: {customSince} → {customUntil}
+        </div>
+      )}
       <div style={{ display:"flex", gap:4, background:"var(--card)", border:"1px solid var(--border)", borderRadius:"var(--radius-lg)", padding:4 }}>
         {TABS.map(tab=>(
           <button key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{ flex:1, padding:"8px 12px", borderRadius:"var(--radius-md)", border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:activeTab===tab.key?700:500, display:"flex", alignItems:"center", justifyContent:"center", gap:5, transition:"all 0.15s",
@@ -567,40 +687,195 @@ export default function MetaPage() {
         </>
       )}
 
-      {/* ══ CREATIVE TAB ══ */}
+      {/* ══ CREATIVE GALLERY TAB ══ */}
       {activeTab==="creative" && (
         <>
           {!adLoaded && <div className="dash-empty"><h3>{adLoading?"⏳ Loading ads...":"Switch to this tab to load creative data."}</h3></div>}
-          {adLoaded && (
-            <div className="dash-table-card">
-              <div className="dash-table-head"><div><h2>Creative Diagnosis</h2><p>{creativeDiag.length} ads — sorted by priority</p></div></div>
-              <div className="dash-table-scroll">
-                <table className="dash-data-table">
-                  <thead><tr><th>Ad</th><th>Spend</th><th>Purchases</th><th>ROAS</th><th>CTR</th><th>Hook</th><th>Hold</th><th>Freq.</th><th>Diagnosis</th><th>Action</th></tr></thead>
-                  <tbody>
-                    {creativeDiag.map((item,i)=>{
-                      const sc=item.severity==="success"?"#f59e0b":item.severity==="high"?"#f43f5e":item.severity==="medium"?"#f59e0b":"var(--muted)";
-                      const sb=item.severity==="success"?"rgba(245,158,11,0.1)":item.severity==="high"?"rgba(244,63,94,0.1)":item.severity==="medium"?"rgba(245,158,11,0.08)":"rgba(148,163,184,0.08)";
-                      return (
-                        <tr key={i}>
-                          <td className="dash-name-cell" style={{ maxWidth:180 }}>{item.adName}</td>
-                          <td>{fmt.money(item.spend)}</td>
-                          <td>{item.purchases}</td>
-                          <td style={{ color:item.roas>=2?"var(--accent)":item.roas>=1?"var(--gold)":"var(--red)", fontWeight:700 }}>{fmt.x(item.roas)}</td>
-                          <td style={{ color:ctrColor(item.ctr), fontWeight:700 }}>{fmt.percent(item.ctr)}</td>
-                          <td style={{ color:item.hookRate>=25?"var(--accent)":item.hookRate>0?"var(--gold)":"var(--muted)" }}>{item.hookRate>0?fmt.percent(item.hookRate):"—"}</td>
-                          <td style={{ color:item.holdRate>=40?"var(--accent)":item.holdRate>0?"var(--gold)":"var(--muted)" }}>{item.holdRate>0?fmt.percent(item.holdRate):"—"}</td>
-                          <td style={{ color:item.frequency>=4?"var(--red)":item.frequency>=3?"var(--gold)":"var(--text-2)", fontWeight:item.frequency>=4?700:400 }}>{item.frequency.toFixed(1)}</td>
-                          <td><span style={{ padding:"3px 9px", borderRadius:999, fontSize:10, fontWeight:700, color:sc, background:sb, border:`1px solid ${sc}25`, whiteSpace:"nowrap" }}>{item.severity==="success"?"🏆 ":item.severity==="high"?"🔴 ":item.severity==="medium"?"🟠 ":"⚪ "}{item.diagnosis}</span></td>
-                          <td style={{ fontSize:11, color:"var(--muted)", maxWidth:200 }} dir="ltr">{item.action}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {adLoaded && (() => {
+            // Sort: winners → highest ROAS → purchases → spend
+            const SEVERITY_ORDER = { success:0, high:1, medium:2, neutral:3 };
+            const diagnosed = adRows.map(row => ({ ...row, _diag: diagnoseCreative(row) }))
+              .sort((a,b) => {
+                const so = SEVERITY_ORDER[a._diag.severity] - SEVERITY_ORDER[b._diag.severity];
+                if (so!==0) return so;
+                const rd = Number(b.roas||0) - Number(a.roas||0);
+                if (rd!==0) return rd;
+                const pd = Number(b.purchases||0) - Number(a.purchases||0);
+                if (pd!==0) return pd;
+                return Number(b.spend||0) - Number(a.spend||0);
+              });
+
+            const filtered = diagnosed.filter(row => {
+              if (creativeFilter==="all")        return true;
+              if (creativeFilter==="winners")    return row._diag.severity==="success";
+              if (creativeFilter==="problems")   return row._diag.severity==="high";
+              if (creativeFilter==="fatigue")    return row._diag.label==="Creative Fatigue";
+              if (creativeFilter==="no_purchase")return Number(row.purchases||0)===0;
+              return true;
+            });
+
+            const totalSpend   = adRows.reduce((s,r)=>s+Number(r.spend||0),0);
+            const totalPur     = adRows.reduce((s,r)=>s+Number(r.purchases||0),0);
+            const totalRev     = adRows.reduce((s,r)=>s+Number(r.purchase_value||0),0);
+            const avgROAS      = totalSpend ? totalRev/totalSpend : 0;
+            const avgCPA       = totalPur   ? totalSpend/totalPur : 0;
+            const winnersCount = diagnosed.filter(r=>r._diag.severity==="success").length;
+            const problemsCount= diagnosed.filter(r=>r._diag.severity==="high").length;
+
+            return (
+              <>
+                {/* Summary KPIs */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:10 }}>
+                  {[
+                    { label:"Total Spend",    val:fmt.money(totalSpend),       color:"#6366f1" },
+                    { label:"Purchases",      val:fmt.number(totalPur),        color:"#f59e0b" },
+                    { label:"Revenue",        val:fmt.money(totalRev),         color:"#06d6a0" },
+                    { label:"Avg ROAS",       val:fmt.x(avgROAS),              color:"#06d6a0" },
+                    { label:"Avg CPA",        val:fmt.money(avgCPA),           color:"#f43f5e" },
+                    { label:"Winners 🏆",     val:winnersCount,                color:"#f59e0b" },
+                    { label:"Problems 🔴",    val:problemsCount,               color:"#f43f5e" },
+                  ].map(k=>(
+                    <div key={k.label} className="dash-kpi-card" style={{ padding:"14px 16px" }}>
+                      <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:k.color, borderRadius:"20px 20px 0 0" }} />
+                      <div style={{ fontSize:9, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", letterSpacing:"0.8px", marginBottom:8 }}>{k.label}</div>
+                      <strong style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:18, fontWeight:700, color:k.color }}>{k.val}</strong>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Filter pills */}
+                <div style={{ display:"flex", gap:7, flexWrap:"wrap", alignItems:"center" }}>
+                  {[
+                    { key:"all",        label:`All (${diagnosed.length})`,                              color:"var(--muted)"  },
+                    { key:"winners",    label:`🏆 Winners (${winnersCount})`,                            color:"#f59e0b"       },
+                    { key:"problems",   label:`🔴 Problems (${problemsCount})`,                          color:"#f43f5e"       },
+                    { key:"fatigue",    label:`🔁 Fatigue (${diagnosed.filter(r=>r._diag.label==="Creative Fatigue").length})`, color:"#f59e0b" },
+                    { key:"no_purchase",label:`💸 No Purchase (${diagnosed.filter(r=>Number(r.purchases||0)===0).length})`, color:"#6366f1" },
+                  ].map(f=>(
+                    <button key={f.key} onClick={()=>setCreativeFilter(f.key)} style={{ padding:"6px 13px", borderRadius:999, fontSize:11, fontWeight:700, border:`1px solid ${creativeFilter===f.key?f.color:"var(--border)"}`, background:creativeFilter===f.key?`${f.color}15`:"transparent", color:creativeFilter===f.key?f.color:"var(--muted)", cursor:"pointer", fontFamily:"inherit" }}>{f.label}</button>
+                  ))}
+                </div>
+
+                {/* Gallery Grid */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
+                  {filtered.map((row, i) => {
+                    const diag    = row._diag;
+                    const creative= creativeMap[row.ad_id || ""] || {};
+                    const thumb   = creative.thumbnail_url || creative.image_url || null;
+                    const mType   = creative.media_type || (Number(row.hook_rate||0)>0 ? "video" : null);
+
+                    const sevColor =
+                      diag.severity==="success" ? "#f59e0b" :
+                      diag.severity==="high"    ? "#f43f5e" :
+                      diag.severity==="medium"  ? "#f59e0b" : "var(--muted)";
+                    const sevBg =
+                      diag.severity==="success" ? "rgba(245,158,11,0.1)" :
+                      diag.severity==="high"    ? "rgba(244,63,94,0.1)"  :
+                      diag.severity==="medium"  ? "rgba(245,158,11,0.08)": "rgba(148,163,184,0.08)";
+
+                    return (
+                      <div key={i} style={{ background:"var(--card)", border:`1px solid ${diag.severity==="success"?"rgba(245,158,11,0.3)":diag.severity==="high"?"rgba(244,63,94,0.2)":"var(--border)"}`, borderRadius:"var(--radius-xl)", overflow:"hidden", transition:"transform 0.2s", display:"flex", flexDirection:"column" }}
+                        onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"}
+                        onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}
+                      >
+                        {/* Preview */}
+                        <div style={{ height:140, background:"var(--glass)", position:"relative", overflow:"hidden", flexShrink:0 }}>
+                          {thumb
+                            ? <img src={thumb} alt={row.ad_name} style={{ width:"100%", height:"100%", objectFit:"cover" }} onError={e=>{e.target.style.display="none"}} />
+                            : <div style={{ width:"100%", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:8 }}>
+                                <span style={{ fontSize:28, opacity:0.3 }}>🖼</span>
+                                <span style={{ fontSize:11, color:"var(--muted2)" }}>No Creative Preview</span>
+                              </div>
+                          }
+                          {/* Media type badge */}
+                          {mType && (
+                            <div style={{ position:"absolute", top:8, right:8, padding:"3px 9px", borderRadius:999, fontSize:10, fontWeight:700, background:"rgba(0,0,0,0.7)", color:"#fff", backdropFilter:"blur(4px)" }}>
+                              {mType==="video" ? "🎬 Video" : mType==="image" ? "🖼 Image" : "❓ Unknown"}
+                            </div>
+                          )}
+                          {/* Status overlay */}
+                          <div style={{ position:"absolute", top:8, left:8 }}>
+                            <StatusDot effectiveStatus={adStatus[row.ad_id||""]?.effective_status} />
+                          </div>
+                        </div>
+
+                        <div style={{ padding:"14px", display:"flex", flexDirection:"column", gap:10, flex:1 }}>
+                          {/* Ad identity */}
+                          <div>
+                            <div style={{ fontSize:13, fontWeight:700, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }} title={row.ad_name}>{row.ad_name || "Unknown"}</div>
+                            <div style={{ fontSize:10, color:"var(--muted)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{row.campaign_name}</div>
+                            <div style={{ fontSize:10, color:"var(--muted2)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{row.adset_name}</div>
+                          </div>
+
+                          {/* Core decision metrics */}
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
+                            {[
+                              { label:"Spend",     val:fmt.money(row.spend) },
+                              { label:"Purchases", val:fmt.number(row.purchases) },
+                              { label:"Revenue",   val:fmt.money(row.purchase_value) },
+                              { label:"ROAS",      val:fmt.x(row.roas),    color:Number(row.roas||0)>=2?"var(--accent)":Number(row.roas||0)>=1?"var(--gold)":"var(--red)" },
+                              { label:"CPA",       val:fmt.money(row.cpa) },
+                              { label:"CTR",       val:fmt.percent(row.ctr), color:Number(row.ctr||0)>=1?"var(--accent)":Number(row.ctr||0)>=0.5?"var(--gold)":"var(--red)" },
+                            ].map(m=>(
+                              <div key={m.label} style={{ background:"var(--glass)", borderRadius:"var(--radius-sm)", padding:"7px 8px" }}>
+                                <div style={{ fontSize:9, color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:2 }}>{m.label}</div>
+                                <div style={{ fontSize:13, fontWeight:700, color:m.color||"var(--text)" }}>{m.val}</div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Creative metrics — only if video */}
+                          {(Number(row.hook_rate||0) > 0 || Number(row.hold_rate||0) > 0) && (
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
+                              {[
+                                { label:"Hook Rate",   val:fmt.percent(row.hook_rate),       color:Number(row.hook_rate||0)>=25?"var(--accent)":"var(--text)" },
+                                { label:"Hold Rate",   val:fmt.percent(row.hold_rate),       color:Number(row.hold_rate||0)>=40?"var(--accent)":"var(--text)" },
+                                { label:"Completion",  val:fmt.percent(row.completion_rate), color:"var(--text)" },
+                              ].map(m=>(
+                                <div key={m.label} style={{ background:"rgba(99,102,241,0.06)", border:"1px solid rgba(99,102,241,0.12)", borderRadius:"var(--radius-sm)", padding:"7px 8px" }}>
+                                  <div style={{ fontSize:9, color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:2 }}>{m.label}</div>
+                                  <div style={{ fontSize:13, fontWeight:700, color:m.color }}>{m.val}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Funnel */}
+                          <div style={{ display:"flex", gap:4, fontSize:10, color:"var(--muted)", flexWrap:"wrap" }}>
+                            {[
+                              { label:"LPV", val:fmt.compact(row.landing_page_views||0) },
+                              { label:"ATC", val:fmt.compact(row.add_to_cart||0) },
+                              { label:"IC",  val:fmt.compact(row.initiate_checkout||0) },
+                              { label:"Buy", val:fmt.compact(row.purchases||0) },
+                            ].map((f,fi)=>(
+                              <span key={f.label} style={{ display:"flex", alignItems:"center", gap:3 }}>
+                                {fi>0 && <span style={{ color:"var(--muted2)" }}>›</span>}
+                                <span style={{ color:"var(--muted2)" }}>{f.label}</span>
+                                <span style={{ color:"var(--text)", fontWeight:600 }}>{f.val}</span>
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Diagnosis */}
+                          <div style={{ background:sevBg, border:`1px solid ${sevColor}25`, borderRadius:"var(--radius-md)", padding:"10px 12px" }}>
+                            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
+                              <span style={{ fontSize:11, fontWeight:700, color:sevColor }}>{diag.badge}</span>
+                            </div>
+                            <div style={{ fontSize:11, color:"var(--text2)", marginBottom:4 }}><strong style={{ color:"var(--text)" }}>Problem:</strong> {diag.problem}</div>
+                            <div style={{ fontSize:11, color:"var(--muted)" }}><strong>Action:</strong> {diag.action}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {filtered.length === 0 && (
+                  <div className="dash-empty"><h3>No ads match this filter</h3></div>
+                )}
+              </>
+            );
+          })()}
         </>
       )}
     </main>
