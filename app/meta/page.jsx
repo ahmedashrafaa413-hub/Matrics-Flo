@@ -217,10 +217,10 @@ function diagnoseCreatives(rows) {
     else if (hookRate>=30&&holdRate>0&&holdRate<10) { diagnosis="Hold Problem"; severity="medium"; problem="Hook works but users drop quickly."; action="Shorten video, improve pacing, show proof earlier."; }
     else if (hookRate>=25&&holdRate>=10&&ctr<1) { diagnosis="Offer/CTA Problem"; severity="medium"; problem="Watching but not clicking."; action="Test stronger CTA, clearer offer, urgency, or social proof."; }
     else if (frequency>4&&ctr<1) { diagnosis="Creative Fatigue"; severity="medium"; problem="Audience seen this too many times."; action="Refresh creative, test new angles, exclude saturated audiences."; }
-    else if (ctr>=1&&lpv>0&&lpvRate<70) { diagnosis="Landing Page Problem"; severity:"medium"; problem:"Clicks but few reach LP."; action:"Run PageSpeed, check mobile, compare Meta LPV with GA4."; }
+    else if (ctr>=1&&lpv>0&&lpvRate<70) { diagnosis="Landing Page Problem"; severity="medium"; problem="Clicks but few reach LP."; action="Run PageSpeed, check mobile, compare Meta LPV with GA4."; }
     else if (addToCart>0&&purchases/addToCart<0.2) { diagnosis="Checkout Problem"; severity="medium"; problem="Add to cart but don't purchase."; action:"Audit checkout, payment methods, shipping, cart abandonment."; }
     else if (spend>0&&roas<1&&purchases===0) { diagnosis="Losing Creative"; severity="high"; problem="Spending without generating purchases."; action="Pause. Review hook, offer, targeting, and LP before relaunch."; }
-    else { diagnosis="Monitor"; severity="neutral"; problem="No clear winner or critical issue."; action:"Keep monitoring until more spend and purchase data available."; }
+    else { diagnosis="Monitor"; severity="neutral"; problem="No clear winner or critical issue."; action="Keep monitoring until more spend and purchase data available."; }
     return { adName:row.ad_name||"Unknown", campaignName:row.campaign_name||"", adsetName:row.adset_name||"", spend, purchases, roas, ctr, frequency, hookRate, holdRate, diagnosis, severity, problem, action };
   }).sort((a,b)=>ORDER[a.severity]-ORDER[b.severity]||b.spend-a.spend);
 }
