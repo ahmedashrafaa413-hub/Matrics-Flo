@@ -14,21 +14,23 @@ async function snap(path, token) {
   return res.json();
 }
 
+// Build date params — Snapchat uses ISO 8601
 function buildDateParams(datePreset, since, until) {
-  const today = new Date().toISOString().split("T")[0];
+  const now   = new Date();
+  const today = now.toISOString().split("T")[0];
 
   if (since && until) {
     return { start_time: `${since}T00:00:00.000Z`, end_time: `${until}T23:59:59.000Z` };
   }
 
   const presets = {
-    today:      { start: today,                     end: today      },
-    yesterday:  { start: daysAgo(1),                end: daysAgo(1) },
-    last_7d:    { start: daysAgo(7),                end: today      },
-    last_30d:   { start: daysAgo(30),               end: today      },
-    this_month: { start: `${today.slice(0,7)}-01`,  end: today      },
-    last_90d:   { start: daysAgo(90),               end: today      },
-    maximum:    { start: daysAgo(365),              end: today      },
+    today:      { start: today,                              end: today },
+    yesterday:  { start: daysAgo(1),                        end: daysAgo(1) },
+    last_7d:    { start: daysAgo(7),                        end: today },
+    last_30d:   { start: daysAgo(30),                       end: today },
+    this_month: { start: `${today.slice(0,7)}-01`,          end: today },
+    last_90d:   { start: daysAgo(90),                       end: today },
+    maximum:    { start: daysAgo(365),                      end: today },
   };
 
   const range = presets[datePreset] || presets["last_30d"];
@@ -49,38 +51,51 @@ function safeDivide(a, b) {
   return y ? x / y : 0;
 }
 
+const STATS_FIELDS = [
+  "impressions",
+  "swipes",
+  "swipe_up_rate",
+  "spend",
+  "video_views",
+  "view_completion_1_quarter",
+  "view_completion_2_quarter",
+  "view_completion_3_quarter",
+  "view_completion_4_quarter",
+  "frequency",
+  "reach",
+  "conversion_purchases",
+  "conversion_purchases_value",
+].join(",");
+
+// Fetch stats — manual URL to avoid comma encoding
 async function fetchStats(entityPath, ids, dateParams, token) {
   const statsMap = {};
-  await Promise.allSettled(
-    ids.map(async (id) => {
-      try {
-        const params = new URLSearchParams({
-          granularity: "LIFETIME",
-          fields: [
-            "impressions",
-            "swipes",
-            "swipe_up_rate",
-            "spend",
-            "video_views",
-            "screen_time_millis",
-            "view_completion_1_quarter",
-            "view_completion_2_quarter",
-            "view_completion_3_quarter",
-            "view_completion_4_quarter",
-            "frequency",
-            "reach",
-            "total_installs",
-            "conversion_purchases",
-            "conversion_purchases_value",
-          ].join(","),
-          ...dateParams,
-        });
-        const data = await snap(`${entityPath}/${id}/stats?${params}`, token);
-        const row  = data.total_stats?.[0]?.total_stat?.stats || {};
-        statsMap[id] = row;
-      } catch { statsMap[id] = {}; }
-    })
-  );
+
+  // Batch into chunks of 10 to avoid rate limits
+  const chunkSize = 10;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    await Promise.allSettled(
+      chunk.map(async (id) => {
+        try {
+          const url = `${BASE}${entityPath}/${id}/stats`
+            + `?granularity=LIFETIME`
+            + `&fields=${STATS_FIELDS}`
+            + `&start_time=${encodeURIComponent(dateParams.start_time)}`
+            + `&end_time=${encodeURIComponent(dateParams.end_time)}`;
+
+          const res  = await fetch(url, {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          });
+          const data = await res.json();
+          statsMap[id] = data.total_stats?.[0]?.total_stat?.stats || {};
+        } catch {
+          statsMap[id] = {};
+        }
+      })
+    );
+  }
   return statsMap;
 }
 
@@ -93,8 +108,8 @@ export async function GET(request) {
   const since      = searchParams.get("since");
   const until      = searchParams.get("until");
 
-  if (!token)     return NextResponse.json({ success: false, error: "Not connected to Snapchat" }, { status: 401 });
-  if (!accountId) return NextResponse.json({ success: false, error: "account_id is required"    }, { status: 400 });
+  if (!token) return NextResponse.json({ success: false, error: "Not connected to Snapchat" }, { status: 401 });
+  if (!accountId) return NextResponse.json({ success: false, error: "account_id is required" }, { status: 400 });
 
   const dateParams = buildDateParams(datePreset, since, until);
 
@@ -121,34 +136,39 @@ export async function GET(request) {
       statsMap   = await fetchStats(`/adaccounts/${accountId}/ads`, ids, dateParams, token);
     }
 
+    // Enrich each entity with stats + computed metrics
     const enriched = entities.map(entity => {
       const s = statsMap[entity.id] || {};
 
-      const spend       = Number(s.spend        || 0) / 1_000_000;
+      const spend       = Number(s.spend        || 0) / 1_000_000; // micro to dollars
       const impressions = Number(s.impressions   || 0);
-      const swipes      = Number(s.swipes        || 0);
+      const swipes      = Number(s.swipes        || 0); // link clicks
       const videoViews  = Number(s.video_views   || 0);
       const reach       = Number(s.reach         || 0);
       const frequency   = safeDivide(impressions, reach);
-      const ctr         = Number(s.swipe_up_rate || 0) * 100;
+      const ctr         = Number(s.swipe_up_rate || 0) * 100; // already ratio → percent
       const cpm         = impressions > 0 ? (spend / impressions) * 1000 : 0;
       const cpc         = swipes > 0 ? spend / swipes : 0;
 
+      // Conversions
       const purchases     = Number(s.conversion_purchases       || 0);
       const purchaseValue = Number(s.conversion_purchases_value || 0) / 1_000_000;
       const roas          = safeDivide(purchaseValue, spend);
       const cpa           = safeDivide(spend, purchases);
 
+      // Video funnel — Snapchat % quartiles
       const v25  = Number(s.view_completion_1_quarter || 0);
       const v50  = Number(s.view_completion_2_quarter || 0);
       const v75  = Number(s.view_completion_3_quarter || 0);
       const v100 = Number(s.view_completion_4_quarter || 0);
 
+      // Hook Rate: 2s views / impressions — approximated via video_views
       const hookRate       = impressions > 0 ? safeDivide(videoViews, impressions) * 100 : 0;
-      const completionRate = videoViews > 0  ? v100 * 100 : 0;
-      const holdRate       = videoViews > 0  ? (v50 / (v25 || 1)) * 100 : 0;
+      const completionRate = videoViews > 0  ? v100 * 100 : 0; // already decimal
+      const holdRate       = videoViews > 0  ? (v50 / (v25 || 1)) * 100 : 0; // p50/p25
 
       return {
+        // Identity
         id:            entity.id,
         name:          entity.name,
         status:        entity.status,
@@ -156,21 +176,27 @@ export async function GET(request) {
         campaign_name: entity.campaign_name || entity.name,
         adsquad_id:    entity.adsquad_id,
         adsquad_name:  entity.ad_squad_name,
-        ad_id:         level === "ad" ? entity.id   : null,
+        ad_id:         level === "ad" ? entity.id : null,
         ad_name:       level === "ad" ? entity.name : null,
-        spend:           +spend.toFixed(2),
+
+        // Core metrics
+        spend:         +spend.toFixed(2),
         impressions,
         swipes,
-        clicks:          swipes,
+        clicks:        swipes,
         reach,
-        frequency:       +frequency.toFixed(2),
-        ctr:             +ctr.toFixed(2),
-        cpm:             +cpm.toFixed(2),
-        cpc:             +cpc.toFixed(2),
+        frequency:     +frequency.toFixed(2),
+        ctr:           +ctr.toFixed(2),
+        cpm:           +cpm.toFixed(2),
+        cpc:           +cpc.toFixed(2),
+
+        // Conversions
         purchases,
         purchase_value:  +purchaseValue.toFixed(2),
         roas:            +roas.toFixed(2),
         cpa:             +cpa.toFixed(2),
+
+        // Video
         video_views:     videoViews,
         video_25:        v25,
         video_50:        v50,
@@ -179,10 +205,13 @@ export async function GET(request) {
         hook_rate:       +hookRate.toFixed(2),
         hold_rate:       +holdRate.toFixed(2),
         completion_rate: +completionRate.toFixed(2),
+
+        // Raw
         _raw: s,
       };
     });
 
+    // Summary totals
     const summary = enriched.reduce((acc, r) => {
       acc.spend          += r.spend;
       acc.impressions    += r.impressions;
@@ -197,9 +226,9 @@ export async function GET(request) {
     summary.ctr  = +safeDivide(summary.clicks, summary.impressions * 100).toFixed(2);
 
     return NextResponse.json({
-      success:     true,
-      provider:    "Snapchat Ads",
-      account_id:  accountId,
+      success:    true,
+      provider:   "Snapchat Ads",
+      account_id: accountId,
       level,
       date_preset: since && until ? "custom" : datePreset,
       data:        enriched,
