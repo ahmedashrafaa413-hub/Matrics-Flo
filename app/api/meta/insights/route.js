@@ -285,5 +285,4 @@ export async function GET(request) {
       },
       { status: 500 }
     );
-  }
-}
+
