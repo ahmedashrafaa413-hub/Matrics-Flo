@@ -69,7 +69,7 @@ function buildDateParams(datePreset, since, until) {
     },
 
     maximum: {
-      start: daysAgo(365),
+      start: daysAgo(1095),
       end: today
     }
   };
@@ -118,7 +118,6 @@ async function snap(path, token) {
 const STATS_FIELDS = [
   "impressions",
   "swipes",
-  "swipe_up_rate",
   "spend",
   "video_views",
   "view_completion_1_quarter",
@@ -143,10 +142,12 @@ async function fetchStats(entityType, ids, dateParams, token) {
         try {
           const url =
             `${BASE}/${entityType}/${id}/stats` +
-            `?granularity=LIFETIME` +
+            `?granularity=DAY` +
             `&fields=${encodeURIComponent(STATS_FIELDS)}` +
             `&start_time=${encodeURIComponent(dateParams.start_time)}` +
-            `&end_time=${encodeURIComponent(dateParams.end_time)}`;
+            `&end_time=${encodeURIComponent(dateParams.end_time)}` +
+            `&swipe_up_attribution_window=28_DAY` +
+            `&view_attribution_window=7_DAY`;
 
           const response = await fetch(url, {
             headers: {
@@ -172,6 +173,7 @@ async function fetchStats(entityType, ids, dateParams, token) {
                 id,
                 status: response.status,
                 error: "Non JSON response",
+                url,
                 response: text.slice(0, 500)
               };
             }
@@ -184,22 +186,64 @@ async function fetchStats(entityType, ids, dateParams, token) {
               entityType,
               id,
               status: response.status,
-              response: data
+              url,
+              dateParams,
+              raw_response: data
             };
           }
 
           if (!response.ok) {
             statsMap[id] = {};
+
+            if (statsMap.__debug__?.id === id) {
+              statsMap.__debug__.api_error = data;
+            }
+
             return;
           }
 
-          statsMap[id] =
-            data.total_stats?.[0]?.total_stat?.stats ||
-            data.timeseries_stats?.[0]?.timeseries_stat?.timeseries?.[0]
-              ?.stats ||
-            {};
+          const totalStats =
+            data.total_stats?.[0]?.total_stat?.stats || null;
+
+          if (totalStats) {
+            statsMap[id] = totalStats;
+
+            if (statsMap.__debug__?.id === id) {
+              statsMap.__debug__.parsed_stats = totalStats;
+            }
+
+            return;
+          }
+
+          const timeseries =
+            data.timeseries_stats?.[0]?.timeseries_stat?.timeseries || [];
+
+          const merged = {};
+
+          timeseries.forEach((point) => {
+            const stats = point.stats || {};
+
+            Object.entries(stats).forEach(([key, value]) => {
+              merged[key] = Number(merged[key] || 0) + Number(value || 0);
+            });
+          });
+
+          statsMap[id] = merged;
+
+          if (statsMap.__debug__?.id === id) {
+            statsMap.__debug__.parsed_timeseries_count = timeseries.length;
+            statsMap.__debug__.parsed_stats = merged;
+          }
         } catch (error) {
           statsMap[id] = {};
+
+          if (!statsMap.__debug__) {
+            statsMap.__debug__ = {
+              entityType,
+              id,
+              error: error?.message || "Unknown stats error"
+            };
+          }
         }
       })
     );
@@ -266,15 +310,13 @@ function enrichEntity(entity, stats, level) {
   const video100 = Number(stats.view_completion_4_quarter || 0);
 
   const purchases = Number(stats.conversion_purchases || 0);
-  const purchaseValue = Number(stats.conversion_purchases_value || 0) / 1_000_000;
+  const purchaseValue =
+    Number(stats.conversion_purchases_value || 0) / 1_000_000;
 
   const frequency =
     Number(stats.frequency || 0) || safeDivide(impressions, reach);
 
-  const ctr =
-    Number(stats.swipe_up_rate || 0) * 100 ||
-    safeDivide(swipes, impressions) * 100;
-
+  const ctr = safeDivide(swipes, impressions) * 100;
   const cpc = safeDivide(spend, swipes);
   const cpm = safeDivide(spend, impressions) * 1000;
   const roas = safeDivide(purchaseValue, spend);
