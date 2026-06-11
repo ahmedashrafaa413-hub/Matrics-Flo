@@ -5,8 +5,8 @@ export const dynamic = "force-dynamic";
 
 const BASE = "https://adsapi.snapchat.com/v1";
 
-const SERVER_CACHE = globalThis.__snapchatCache || new Map();
-globalThis.__snapchatCache = SERVER_CACHE;
+const SERVER_CACHE = globalThis.__snapchatBasicStatsCache || new Map();
+globalThis.__snapchatBasicStatsCache = SERVER_CACHE;
 
 function getCache(key) {
   const item = SERVER_CACHE.get(key);
@@ -28,7 +28,7 @@ function setCache(key, value, ttlMs = 120000) {
   });
 }
 
-function clearSnapchatCache() {
+function clearCache() {
   SERVER_CACHE.clear();
 }
 
@@ -130,7 +130,7 @@ async function readJsonResponse(response) {
 }
 
 async function snap(path, token, cacheTtl = 120000) {
-  const cacheKey = `snap:${path}`;
+  const cacheKey = `snap:list:${path}`;
   const cached = getCache(cacheKey);
 
   if (cached) return cached;
@@ -169,46 +169,20 @@ async function snap(path, token, cacheTtl = 120000) {
   return result.data;
 }
 
-const STATS_FIELDS = [
-  "impressions",
-  "swipes",
-  "spend",
-  "video_views",
-  "view_completion_1_quarter",
-  "view_completion_2_quarter",
-  "view_completion_3_quarter",
-  "view_completion_4_quarter",
-  "frequency",
-  "reach",
-  "conversion_purchases",
-  "conversion_purchases_value"
-].join(",");
+/**
+ * IMPORTANT:
+ * Keep fields basic for now.
+ * These fields were confirmed working in debug:
+ * impressions, spend, swipes
+ */
+const STATS_FIELDS = ["impressions", "spend", "swipes"].join(",");
 
-function mergeStatsFromResponse(data) {
-  const totalStats =
-    data?.total_stats?.[0]?.total_stat?.stats || null;
-
-  if (totalStats) return totalStats;
-
-  const timeseries =
-    data?.timeseries_stats?.[0]?.timeseries_stat?.timeseries || [];
-
-  const merged = {};
-
-  timeseries.forEach((point) => {
-    const stats = point.stats || {};
-
-    Object.entries(stats).forEach(([key, value]) => {
-      merged[key] =
-        Number(merged[key] || 0) + Number(value || 0);
-    });
-  });
-
-  return merged;
+function getStatsFromResponse(data) {
+  return data?.total_stats?.[0]?.total_stat?.stats || {};
 }
 
 async function fetchSingleStat(entityType, id, dateParams, token) {
-  const cacheKey = `snap:stats-total-v2:${entityType}:${id}:${dateParams.start_time}:${dateParams.end_time}`;
+  const cacheKey = `snap:basic-stats-v1:${entityType}:${id}:${dateParams.start_time}:${dateParams.end_time}`;
   const cached = getCache(cacheKey);
 
   if (cached) return cached;
@@ -230,23 +204,6 @@ async function fetchSingleStat(entityType, id, dateParams, token) {
   const result = await readJsonResponse(response);
 
   if (!result.ok) {
-    if (
-      result.status === 429 ||
-      String(result.raw || "").includes("Too Many Requests")
-    ) {
-      return {
-        stats: {},
-        debug: {
-          entityType,
-          id,
-          status: 429,
-          url,
-          error:
-            "Snapchat API rate limit reached. Please wait 5 minutes before refreshing again."
-        }
-      };
-    }
-
     return {
       stats: {},
       debug: {
@@ -254,12 +211,15 @@ async function fetchSingleStat(entityType, id, dateParams, token) {
         id,
         status: result.status,
         url,
-        error: result.data || result.raw
+        error:
+          result.status === 429
+            ? "Snapchat API rate limit reached. Please wait 5 minutes."
+            : result.data || result.raw
       }
     };
   }
 
-  const stats = mergeStatsFromResponse(result.data);
+  const stats = getStatsFromResponse(result.data);
 
   const output = {
     stats,
@@ -285,7 +245,7 @@ async function fetchStats(entityType, ids, dateParams, token) {
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
 
-    const settled = await Promise.allSettled(
+    await Promise.allSettled(
       chunk.map(async (id) => {
         const result = await fetchSingleStat(
           entityType,
@@ -302,9 +262,9 @@ async function fetchStats(entityType, ids, dateParams, token) {
       })
     );
 
-    const has429 = settled.some(() => statsMap.__debug__?.status === 429);
-
-    if (has429) break;
+    if (statsMap.__debug__?.status === 429) {
+      break;
+    }
 
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -360,31 +320,10 @@ function enrichEntity(entity, stats, level) {
   const spend = Number(stats.spend || 0) / 1_000_000;
   const impressions = Number(stats.impressions || 0);
   const swipes = Number(stats.swipes || 0);
-  const reach = Number(stats.reach || 0);
-
-  const videoViews = Number(stats.video_views || 0);
-
-  const video25 = Number(stats.view_completion_1_quarter || 0);
-  const video50 = Number(stats.view_completion_2_quarter || 0);
-  const video75 = Number(stats.view_completion_3_quarter || 0);
-  const video100 = Number(stats.view_completion_4_quarter || 0);
-
-  const purchases = Number(stats.conversion_purchases || 0);
-  const purchaseValue =
-    Number(stats.conversion_purchases_value || 0) / 1_000_000;
-
-  const frequency =
-    Number(stats.frequency || 0) || safeDivide(impressions, reach);
 
   const ctr = safeDivide(swipes, impressions) * 100;
   const cpc = safeDivide(spend, swipes);
   const cpm = safeDivide(spend, impressions) * 1000;
-  const roas = safeDivide(purchaseValue, spend);
-  const cpa = safeDivide(spend, purchases);
-
-  const hookRate = safeDivide(videoViews, impressions) * 100;
-  const holdRate = safeDivide(video50, video25 || videoViews) * 100;
-  const completionRate = safeDivide(video100, videoViews) * 100;
 
   return {
     ...identity,
@@ -393,27 +332,28 @@ function enrichEntity(entity, stats, level) {
     impressions,
     swipes,
     clicks: swipes,
-    reach,
-    frequency: Number(frequency.toFixed(2)),
 
     ctr: Number(ctr.toFixed(2)),
     cpc: Number(cpc.toFixed(2)),
     cpm: Number(cpm.toFixed(2)),
 
-    purchases,
-    purchase_value: Number(purchaseValue.toFixed(2)),
-    roas: Number(roas.toFixed(2)),
-    cpa: Number(cpa.toFixed(2)),
+    purchases: 0,
+    purchase_value: 0,
+    roas: 0,
+    cpa: 0,
 
-    video_views: videoViews,
-    video_25: video25,
-    video_50: video50,
-    video_75: video75,
-    video_100: video100,
+    reach: 0,
+    frequency: 0,
 
-    hook_rate: Number(hookRate.toFixed(2)),
-    hold_rate: Number(holdRate.toFixed(2)),
-    completion_rate: Number(completionRate.toFixed(2)),
+    video_views: 0,
+    video_25: 0,
+    video_50: 0,
+    video_75: 0,
+    video_100: 0,
+
+    hook_rate: 0,
+    hold_rate: 0,
+    completion_rate: 0,
 
     _raw: stats
   };
@@ -425,10 +365,7 @@ function buildSummary(rows) {
       acc.spend += Number(row.spend || 0);
       acc.impressions += Number(row.impressions || 0);
       acc.clicks += Number(row.clicks || 0);
-      acc.reach += Number(row.reach || 0);
-      acc.purchases += Number(row.purchases || 0);
-      acc.purchase_value += Number(row.purchase_value || 0);
-      acc.video_views += Number(row.video_views || 0);
+      acc.swipes += Number(row.swipes || 0);
 
       return acc;
     },
@@ -436,32 +373,28 @@ function buildSummary(rows) {
       spend: 0,
       impressions: 0,
       clicks: 0,
-      reach: 0,
-      purchases: 0,
-      purchase_value: 0,
-      video_views: 0
+      swipes: 0
     }
   );
 
-  summary.roas = Number(
-    safeDivide(summary.purchase_value, summary.spend).toFixed(2)
-  );
-
-  summary.cpa = Number(
-    safeDivide(summary.spend, summary.purchases).toFixed(2)
-  );
-
   summary.ctr = Number(
-    (safeDivide(summary.clicks, summary.impressions) * 100).toFixed(2)
+    (safeDivide(summary.swipes, summary.impressions) * 100).toFixed(2)
   );
 
-  summary.cpc = Number(
-    safeDivide(summary.spend, summary.clicks).toFixed(2)
-  );
+  summary.cpc = Number(safeDivide(summary.spend, summary.swipes).toFixed(2));
 
   summary.cpm = Number(
     (safeDivide(summary.spend, summary.impressions) * 1000).toFixed(2)
   );
+
+  summary.purchases = 0;
+  summary.purchase_value = 0;
+  summary.roas = 0;
+  summary.cpa = 0;
+  summary.reach = 0;
+  summary.video_views = 0;
+
+  summary.spend = Number(summary.spend.toFixed(2));
 
   return summary;
 }
@@ -472,7 +405,7 @@ export async function GET(request) {
   const noCache = searchParams.get("no_cache") === "1";
 
   if (noCache) {
-    clearSnapchatCache();
+    clearCache();
   }
 
   const token = searchParams.get("token") || (await getSnapchatToken());
@@ -569,7 +502,7 @@ export async function GET(request) {
     return NextResponse.json({
       success: true,
       provider: "Snapchat Ads",
-      version: "snapchat-insights-total-v2",
+      version: "snapchat-basic-stats-v1",
       account_id: accountId,
       level,
       date_preset: since && until ? "custom" : datePreset,
@@ -583,7 +516,8 @@ export async function GET(request) {
     return NextResponse.json(
       {
         success: false,
-        version: "snapchat-insights-total-v2",
+        provider: "Snapchat Ads",
+        version: "snapchat-basic-stats-v1",
         error: error?.message || "Internal server error"
       },
       { status: 500 }
