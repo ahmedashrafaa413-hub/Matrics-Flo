@@ -67,35 +67,70 @@ function setCachedResult(key, data) {
   });
 }
 
+function startOfHourUTC(date) {
+  const d = new Date(date);
+  d.setUTCMinutes(0, 0, 0);
+  return d;
+}
+
+function startOfDayUTC(date) {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
 function getDateRange(datePreset) {
   const now = new Date();
 
-  const end = new Date(now);
-  end.setDate(end.getDate() + 1);
-
-  const start = new Date(now);
+  let start = new Date(now);
+  let end = new Date(now);
 
   if (datePreset === "today") {
-    start.setHours(0, 0, 0, 0);
-  } else if (datePreset === "yesterday") {
-    start.setDate(start.getDate() - 1);
-    start.setHours(0, 0, 0, 0);
+    start = startOfDayUTC(now);
 
-    end.setDate(now.getDate());
-    end.setHours(0, 0, 0, 0);
+    end = startOfHourUTC(now);
+    end.setUTCHours(end.getUTCHours() + 1);
+  } else if (datePreset === "yesterday") {
+    start = startOfDayUTC(now);
+    start.setUTCDate(start.getUTCDate() - 1);
+
+    end = startOfDayUTC(now);
   } else if (datePreset === "last_7d") {
-    start.setDate(start.getDate() - 7);
+    start = startOfDayUTC(now);
+    start.setUTCDate(start.getUTCDate() - 7);
+
+    end = startOfHourUTC(now);
+    end.setUTCHours(end.getUTCHours() + 1);
   } else if (datePreset === "last_30d") {
-    start.setDate(start.getDate() - 30);
+    start = startOfDayUTC(now);
+    start.setUTCDate(start.getUTCDate() - 30);
+
+    end = startOfHourUTC(now);
+    end.setUTCHours(end.getUTCHours() + 1);
   } else if (datePreset === "this_month") {
-    start.setDate(1);
-    start.setHours(0, 0, 0, 0);
+    start = startOfDayUTC(now);
+    start.setUTCDate(1);
+
+    end = startOfHourUTC(now);
+    end.setUTCHours(end.getUTCHours() + 1);
   } else if (datePreset === "last_90d") {
-    start.setDate(start.getDate() - 90);
+    start = startOfDayUTC(now);
+    start.setUTCDate(start.getUTCDate() - 90);
+
+    end = startOfHourUTC(now);
+    end.setUTCHours(end.getUTCHours() + 1);
   } else if (datePreset === "maximum") {
-    start.setFullYear(start.getFullYear() - 3);
+    start = startOfDayUTC(now);
+    start.setUTCFullYear(start.getUTCFullYear() - 3);
+
+    end = startOfHourUTC(now);
+    end.setUTCHours(end.getUTCHours() + 1);
   } else {
-    start.setDate(start.getDate() - 30);
+    start = startOfDayUTC(now);
+    start.setUTCDate(start.getUTCDate() - 30);
+
+    end = startOfHourUTC(now);
+    end.setUTCHours(end.getUTCHours() + 1);
   }
 
   return {
@@ -497,11 +532,13 @@ export async function GET(request) {
 
   const payload = {
     success: true,
-    version: "snapchat-insights-safe-v2",
+    version: "snapchat-insights-safe-v3-hour-fixed",
     account_id: accountId,
     level,
     date_preset: datePreset,
     entity_type: entityType,
+    start_time: startTime,
+    end_time: endTime,
     fields: FIELDS,
     count: rows.length,
     total_entities_available: entities.length,
