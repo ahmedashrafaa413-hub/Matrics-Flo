@@ -20,9 +20,15 @@ async function readJsonResponse(response) {
       ok: response.ok,
       status: response.status,
       data: null,
-      raw: text.slice(0, 1000)
+      raw: text.slice(0, 1500)
     };
   }
+}
+
+function daysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().split("T")[0];
 }
 
 export async function GET(request) {
@@ -47,84 +53,115 @@ export async function GET(request) {
     });
   }
 
-  const campaignsUrl = `${BASE}/adaccounts/${accountId}/campaigns?limit=3`;
+  let firstId = campaignId || null;
+  let listResult = null;
 
-  const listRes = await fetch(campaignsUrl, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    },
-    cache: "no-store"
-  });
+  if (!firstId) {
+    const campaignsUrl = `${BASE}/adaccounts/${accountId}/campaigns?limit=3`;
 
-  const listResult = await readJsonResponse(listRes);
-  const listData = listResult.data;
-
-  if (!listResult.ok) {
-    return NextResponse.json({
-      success: false,
-      step: "campaigns_list",
-      accountId,
-      campaignsUrl,
-      campaignsStatus: listResult.status,
-      campaignsOk: listResult.ok,
-      error:
-        listResult.status === 429
-          ? "Snapchat API rate limit reached. Wait 1-2 minutes before testing again."
-          : "Failed to fetch Snapchat campaigns",
-      campaignsRawResponse: listResult.data || listResult.raw
-    });
-  }
-
-  const firstId =
-    campaignId ||
-    listData?.campaigns?.[0]?.campaign?.id ||
-    null;
-
-  let statsResult = null;
-
-  if (firstId) {
-    const start = new Date(
-      Date.now() - 365 * 24 * 60 * 60 * 1000
-    )
-      .toISOString()
-      .split("T")[0];
-
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const endTime =
-      tomorrow.toISOString().split("T")[0] +
-      "T00:00:00.000Z";
-
-    const statsUrl =
-      `${BASE}/campaigns/${firstId}/stats` +
-      `?granularity=LIFETIME` +
-      `&fields=impressions,spend,swipes` +
-      `&start_time=${start}T00:00:00.000Z` +
-      `&end_time=${endTime}`;
-
-    const statsRes = await fetch(statsUrl, {
+    const listRes = await fetch(campaignsUrl, {
       headers: {
         Authorization: `Bearer ${token}`
       },
       cache: "no-store"
     });
 
-    statsResult = await readJsonResponse(statsRes);
-    statsResult.url = statsUrl;
+    listResult = await readJsonResponse(listRes);
+
+    if (!listResult.ok) {
+      return NextResponse.json({
+        success: false,
+        step: "campaigns_list",
+        accountId,
+        campaignsStatus: listResult.status,
+        campaignsOk: listResult.ok,
+        error:
+          listResult.status === 429
+            ? "Snapchat API rate limit reached. Wait 5 minutes."
+            : "Failed to fetch campaigns",
+        campaignsRawResponse: listResult.data || listResult.raw
+      });
+    }
+
+    firstId =
+      listResult.data?.campaigns?.[0]?.campaign?.id ||
+      null;
+  }
+
+  if (!firstId) {
+    return NextResponse.json({
+      success: false,
+      error: "No campaign_id found. Pass campaign_id manually."
+    });
+  }
+
+  const startDate = daysAgo(1095);
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const endTime =
+    tomorrow.toISOString().split("T")[0] +
+    "T00:00:00.000Z";
+
+  const tests = [
+    {
+      name: "LIFETIME_BASIC",
+      url:
+        `${BASE}/campaigns/${firstId}/stats` +
+        `?granularity=LIFETIME` +
+        `&fields=impressions,spend,swipes` +
+        `&start_time=${startDate}T00:00:00.000Z` +
+        `&end_time=${endTime}`
+    },
+    {
+      name: "DAY_BASIC",
+      url:
+        `${BASE}/campaigns/${firstId}/stats` +
+        `?granularity=DAY` +
+        `&fields=impressions,spend,swipes` +
+        `&start_time=${startDate}T00:00:00.000Z` +
+        `&end_time=${endTime}`
+    },
+    {
+      name: "TOTAL_BASIC",
+      url:
+        `${BASE}/campaigns/${firstId}/stats` +
+        `?granularity=TOTAL` +
+        `&fields=impressions,spend,swipes` +
+        `&start_time=${startDate}T00:00:00.000Z` +
+        `&end_time=${endTime}`
+    }
+  ];
+
+  const results = [];
+
+  for (const test of tests) {
+    const res = await fetch(test.url, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      cache: "no-store"
+    });
+
+    const result = await readJsonResponse(res);
+
+    results.push({
+      name: test.name,
+      status: result.status,
+      ok: result.ok,
+      url: test.url,
+      response: result.data || result.raw
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   return NextResponse.json({
     success: true,
     accountId,
-    firstCampaignId: firstId,
-    campaignsUrl,
-    campaignsStatus: listResult.status,
-    campaignsOk: listResult.ok,
-    listSample: listData?.campaigns?.slice(0, 2) || [],
-    statsStatus: statsResult?.status || null,
-    statsOk: statsResult?.ok || null,
-    statsUrl: statsResult?.url || null,
-    statsRawResponse: statsResult?.data || statsResult?.raw || null
+    campaignId: firstId,
+    campaignsListStatus: listResult?.status || "skipped",
+    results
   });
 }
