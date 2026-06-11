@@ -5,10 +5,9 @@ import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
 const COMING_SOON = [
-  { name: "Google Ads",    icon: "G", iconBg: "#4285F4", desc: "Search, Performance Max, YouTube" },
-  { name: "TikTok Ads",   icon: "T", iconBg: "#010101", desc: "Campaigns, ad groups, creatives"   },
-  { name: "Snapchat Ads", icon: "S", iconBg: "#FFFC00", desc: "Campaigns, ad squads, ads"         },
-  { name: "Shopify",      icon: "S", iconBg: "#96BF48", desc: "Revenue, orders, products"          },
+  { name: "Google Ads", icon: "G", iconBg: "#4285F4", desc: "Search, Performance Max, YouTube" },
+  { name: "TikTok Ads", icon: "T", iconBg: "#010101", desc: "Campaigns, ad groups, creatives"  },
+  { name: "Shopify",    icon: "S", iconBg: "#96BF48", desc: "Revenue, orders, products"         },
 ];
 
 export default function ConnectionsPage() {
@@ -23,11 +22,14 @@ export default function ConnectionsPage() {
   const [gaProperty,      setGaProperty]      = useState("");
 
   const [sallaConnected,  setSallaConnected]  = useState(false);
+  const [snapConnected,   setSnapConnected]   = useState(false);
+  const [snapAccount,     setSnapAccount]     = useState("");
 
   useEffect(() => {
     loadAccounts();
     checkGA4();
     checkSalla();
+    checkSnapchat();
   }, []);
 
   async function loadAccounts() {
@@ -73,6 +75,20 @@ export default function ConnectionsPage() {
       setSallaConnected(data?.success === true);
     } catch {
       setSallaConnected(false);
+    }
+  }
+
+  async function checkSnapchat() {
+    try {
+      const data = await apiGet("/api/snapchat/accounts");
+      if (data?.success && data?.data?.length > 0) {
+        setSnapConnected(true);
+        setSnapAccount(data.data[0]?.name || "");
+      } else {
+        setSnapConnected(false);
+      }
+    } catch {
+      setSnapConnected(false);
     }
   }
 
@@ -331,6 +347,70 @@ export default function ConnectionsPage() {
             }}>
               {sallaConnected ? "Reconnect" : "Connect Salla"}
             </a>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Snapchat Ads ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{
+          background: "var(--card)", backdropFilter: "blur(16px)",
+          border: snapConnected ? "1px solid rgba(255,252,0,0.25)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "22px 24px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: "#FFFC00",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 22, flexShrink: 0,
+                boxShadow: "0 0 16px rgba(255,252,0,0.25)"
+              }}>👻</div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
+                    Snapchat Ads
+                  </h2>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                    background: snapConnected ? "rgba(255,252,0,0.08)" : "rgba(99,102,241,0.1)",
+                    border: snapConnected ? "1px solid rgba(255,252,0,0.3)" : "1px solid rgba(99,102,241,0.25)",
+                    color: snapConnected ? "#E6E300" : "#a5b4fc"
+                  }}>
+                    {snapConnected ? "● Connected" : "○ Ready to Connect"}
+                  </span>
+                </div>
+                <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
+                  {snapConnected && snapAccount
+                    ? `Active: ${snapAccount}`
+                    : "Campaigns, ad squads, ads — hook rate, hold rate, completion"}
+                </p>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {snapConnected && (
+                <a href="/snapchat" style={{
+                  background: "var(--glass-2)", color: "var(--text)",
+                  border: "1px solid var(--border-2)", padding: "10px 16px",
+                  borderRadius: "var(--radius-md)", fontWeight: 600, fontSize: 13,
+                  cursor: "pointer", textDecoration: "none"
+                }}>
+                  Open Dashboard
+                </a>
+              )}
+              <a href="/api/snapchat/auth" style={{
+                background: "linear-gradient(135deg, #E6E300, #b8b500)",
+                color: "#000", border: "none", padding: "10px 18px",
+                borderRadius: "var(--radius-md)", fontWeight: 700, fontSize: 13,
+                cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap",
+                boxShadow: "0 0 16px rgba(255,252,0,0.2)"
+              }}>
+                {snapConnected ? "Reconnect" : "Connect Snapchat"}
+              </a>
+            </div>
           </div>
         </div>
       </div>
