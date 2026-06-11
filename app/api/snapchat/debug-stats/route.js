@@ -83,9 +83,7 @@ export async function GET(request) {
       });
     }
 
-    firstId =
-      listResult.data?.campaigns?.[0]?.campaign?.id ||
-      null;
+    firstId = listResult.data?.campaigns?.[0]?.campaign?.id || null;
   }
 
   if (!firstId) {
@@ -105,24 +103,6 @@ export async function GET(request) {
     "T00:00:00.000Z";
 
   const tests = [
-    {
-      name: "LIFETIME_BASIC",
-      url:
-        `${BASE}/campaigns/${firstId}/stats` +
-        `?granularity=LIFETIME` +
-        `&fields=impressions,spend,swipes` +
-        `&start_time=${startDate}T00:00:00.000Z` +
-        `&end_time=${endTime}`
-    },
-    {
-      name: "DAY_BASIC",
-      url:
-        `${BASE}/campaigns/${firstId}/stats` +
-        `?granularity=DAY` +
-        `&fields=impressions,spend,swipes` +
-        `&start_time=${startDate}T00:00:00.000Z` +
-        `&end_time=${endTime}`
-    },
     {
       name: "TOTAL_BASIC",
       url:
