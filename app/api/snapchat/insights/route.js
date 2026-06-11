@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 const BASE = "https://adsapi.snapchat.com/v1";
 
-const BASIC_FIELDS = [
+const FIELDS = [
   "impressions",
   "spend",
   "swipes",
@@ -13,6 +13,15 @@ const BASIC_FIELDS = [
   "conversion_purchases_value",
   "video_views"
 ];
+
+const MAX_ENTITIES_PER_REQUEST = 10;
+const DELAY_BETWEEN_REQUESTS_MS = 450;
+
+const memoryCache = new Map();
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function safeNumber(value) {
   const n = Number(value || 0);
@@ -30,6 +39,32 @@ function safeDivide(a, b) {
 
 function moneyFromMicros(value) {
   return safeNumber(value) / 1000000;
+}
+
+function getCacheKey({ accountId, level, datePreset }) {
+  return `${accountId}:${level}:${datePreset}`;
+}
+
+function getCachedResult(key) {
+  const cached = memoryCache.get(key);
+
+  if (!cached) return null;
+
+  const age = Date.now() - cached.createdAt;
+
+  if (age > 1000 * 60 * 5) {
+    memoryCache.delete(key);
+    return null;
+  }
+
+  return cached.data;
+}
+
+function setCachedResult(key, data) {
+  memoryCache.set(key, {
+    createdAt: Date.now(),
+    data
+  });
 }
 
 function getDateRange(datePreset) {
@@ -109,6 +144,7 @@ function extractCampaigns(payload) {
     .map((campaign) => ({
       id: campaign.id,
       name: campaign.name || "Unnamed Campaign",
+      campaign_name: campaign.name || "Unnamed Campaign",
       status: campaign.status || campaign.effective_status || "",
       raw: campaign
     }));
@@ -123,6 +159,7 @@ function extractAdSquads(payload) {
     .map((adsquad) => ({
       id: adsquad.id,
       name: adsquad.name || "Unnamed Ad Squad",
+      adsquad_name: adsquad.name || "Unnamed Ad Squad",
       campaign_id: adsquad.campaign_id || "",
       status: adsquad.status || adsquad.effective_status || "",
       raw: adsquad
@@ -163,7 +200,7 @@ function extractStats(payload, entityId) {
   return stats || {};
 }
 
-function normalizeRow(entity, stats) {
+function normalizeRow(entity, stats, meta = {}) {
   const spend = moneyFromMicros(stats.spend);
   const impressions = safeNumber(stats.impressions);
   const swipes = safeNumber(stats.swipes);
@@ -197,6 +234,10 @@ function normalizeRow(entity, stats) {
 
     video_views: videoViews,
     video_view_rate: videoViewRate,
+
+    has_stats: meta.hasStats || false,
+    stats_status: meta.status || null,
+    stats_error: meta.error || null,
 
     _raw_stats: stats
   };
@@ -306,13 +347,17 @@ function getStatsEntityType(level) {
   return "campaigns";
 }
 
-async function getEntityStats({ entityType, entityId, token, startTime, endTime }) {
-  const fields = BASIC_FIELDS.join(",");
-
+async function getEntityStats({
+  entityType,
+  entityId,
+  token,
+  startTime,
+  endTime
+}) {
   const url =
     `${BASE}/${entityType}/${entityId}/stats` +
     `?granularity=TOTAL` +
-    `&fields=${encodeURIComponent(fields)}` +
+    `&fields=${encodeURIComponent(FIELDS.join(","))}` +
     `&start_time=${encodeURIComponent(startTime)}` +
     `&end_time=${encodeURIComponent(endTime)}`;
 
@@ -329,6 +374,7 @@ async function getEntityStats({ entityType, entityId, token, startTime, endTime 
 
   return {
     ok: true,
+    status: result.status,
     stats: extractStats(result.data, entityId),
     url
   };
@@ -340,12 +386,30 @@ export async function GET(request) {
   const accountId = searchParams.get("account_id");
   const level = searchParams.get("level") || "campaign";
   const datePreset = searchParams.get("date_preset") || "last_30d";
+  const force = searchParams.get("force") === "1";
 
   if (!accountId) {
     return NextResponse.json({
       success: false,
       error: "account_id is required"
     });
+  }
+
+  const cacheKey = getCacheKey({
+    accountId,
+    level,
+    datePreset
+  });
+
+  if (!force) {
+    const cached = getCachedResult(cacheKey);
+
+    if (cached) {
+      return NextResponse.json({
+        ...cached,
+        cached: true
+      });
+    }
   }
 
   const token = await getSnapchatToken();
@@ -377,10 +441,10 @@ export async function GET(request) {
 
   const entities = entitiesResult.entities || [];
   const entityType = getStatsEntityType(level);
-
-  const limitedEntities = entities.slice(0, 50);
+  const limitedEntities = entities.slice(0, MAX_ENTITIES_PER_REQUEST);
 
   const rows = [];
+  const errors = [];
 
   for (const entity of limitedEntities) {
     const statsResult = await getEntityStats({
@@ -392,34 +456,63 @@ export async function GET(request) {
     });
 
     if (statsResult.ok) {
-      rows.push(normalizeRow(entity, statsResult.stats));
-    } else {
       rows.push(
-        normalizeRow(entity, {
-          impressions: 0,
-          spend: 0,
-          swipes: 0,
-          conversion_purchases: 0,
-          conversion_purchases_value: 0,
-          video_views: 0
+        normalizeRow(entity, statsResult.stats, {
+          hasStats: true,
+          status: statsResult.status
         })
       );
+    } else {
+      errors.push({
+        entity_id: entity.id,
+        entity_name: entity.name,
+        status: statsResult.status,
+        error: statsResult.error
+      });
+
+      rows.push(
+        normalizeRow(
+          entity,
+          {},
+          {
+            hasStats: false,
+            status: statsResult.status,
+            error:
+              statsResult.status === 429
+                ? "Rate limited by Snapchat"
+                : "Stats unavailable"
+          }
+        )
+      );
+
+      if (statsResult.status === 429) {
+        break;
+      }
     }
+
+    await sleep(DELAY_BETWEEN_REQUESTS_MS);
   }
 
   const summary = buildSummary(rows);
 
-  return NextResponse.json({
+  const payload = {
     success: true,
-    version: "snapchat-insights-basic-conversions-video-v1",
+    version: "snapchat-insights-safe-v2",
     account_id: accountId,
     level,
     date_preset: datePreset,
     entity_type: entityType,
-    fields: BASIC_FIELDS,
+    fields: FIELDS,
     count: rows.length,
-    limited_to: limitedEntities.length,
+    total_entities_available: entities.length,
+    limited_to: MAX_ENTITIES_PER_REQUEST,
+    rate_limited: errors.some((error) => error.status === 429),
+    errors,
     summary,
     data: rows
-  });
+  };
+
+  setCachedResult(cacheKey, payload);
+
+  return NextResponse.json(payload);
 }
