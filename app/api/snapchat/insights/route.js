@@ -67,75 +67,138 @@ function setCachedResult(key, data) {
   });
 }
 
-function startOfHourUTC(date) {
-  const d = new Date(date);
-  d.setUTCMinutes(0, 0, 0);
-  return d;
+/**
+ * Snapchat account timezone fix
+ * Most Saudi Snapchat accounts use Asia/Riyadh.
+ * Snapchat accepts timestamps like:
+ * 2026-06-12T00:00:00.000+03:00
+ */
+function pad(value) {
+  return String(value).padStart(2, "0");
 }
 
-function startOfDayUTC(date) {
-  const d = new Date(date);
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
+function getRiyadhDateParts(date = new Date()) {
+  const riyadhNow = new Date(date.getTime() + 3 * 60 * 60 * 1000);
+
+  return {
+    year: riyadhNow.getUTCFullYear(),
+    month: riyadhNow.getUTCMonth() + 1,
+    day: riyadhNow.getUTCDate(),
+    hour: riyadhNow.getUTCHours()
+  };
+}
+
+function dateOnlyToUTCDate({ year, month, day }) {
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+}
+
+function addDaysToParts(parts, days) {
+  const d = dateOnlyToUTCDate(parts);
+  d.setUTCDate(d.getUTCDate() + days);
+
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate()
+  };
+}
+
+function addMonthsStart(parts, monthsBack) {
+  const d = dateOnlyToUTCDate({
+    year: parts.year,
+    month: parts.month,
+    day: 1
+  });
+
+  d.setUTCMonth(d.getUTCMonth() - monthsBack);
+
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: 1
+  };
+}
+
+function toRiyadhTimestamp(parts, hour = 0) {
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(
+    hour
+  )}:00:00.000+03:00`;
 }
 
 function getDateRange(datePreset) {
-  const now = new Date();
+  const nowParts = getRiyadhDateParts();
 
-  let start = new Date(now);
-  let end = new Date(now);
+  const today = {
+    year: nowParts.year,
+    month: nowParts.month,
+    day: nowParts.day
+  };
+
+  const currentHour = nowParts.hour;
+  const nextHour = Math.min(currentHour + 1, 23);
+
+  let startParts = today;
+  let endParts = today;
+  let startHour = 0;
+  let endHour = nextHour;
 
   if (datePreset === "today") {
-    start = startOfDayUTC(now);
+    startParts = today;
+    startHour = 0;
 
-    end = startOfHourUTC(now);
-    end.setUTCHours(end.getUTCHours() + 1);
+    endParts = today;
+    endHour = nextHour;
   } else if (datePreset === "yesterday") {
-    start = startOfDayUTC(now);
-    start.setUTCDate(start.getUTCDate() - 1);
+    startParts = addDaysToParts(today, -1);
+    startHour = 0;
 
-    end = startOfDayUTC(now);
+    endParts = today;
+    endHour = 0;
   } else if (datePreset === "last_7d") {
-    start = startOfDayUTC(now);
-    start.setUTCDate(start.getUTCDate() - 7);
+    startParts = addDaysToParts(today, -6);
+    startHour = 0;
 
-    end = startOfHourUTC(now);
-    end.setUTCHours(end.getUTCHours() + 1);
+    endParts = today;
+    endHour = nextHour;
   } else if (datePreset === "last_30d") {
-    start = startOfDayUTC(now);
-    start.setUTCDate(start.getUTCDate() - 30);
+    startParts = addDaysToParts(today, -29);
+    startHour = 0;
 
-    end = startOfHourUTC(now);
-    end.setUTCHours(end.getUTCHours() + 1);
+    endParts = today;
+    endHour = nextHour;
   } else if (datePreset === "this_month") {
-    start = startOfDayUTC(now);
-    start.setUTCDate(1);
+    startParts = {
+      year: today.year,
+      month: today.month,
+      day: 1
+    };
+    startHour = 0;
 
-    end = startOfHourUTC(now);
-    end.setUTCHours(end.getUTCHours() + 1);
+    endParts = today;
+    endHour = nextHour;
   } else if (datePreset === "last_90d") {
-    start = startOfDayUTC(now);
-    start.setUTCDate(start.getUTCDate() - 90);
+    startParts = addDaysToParts(today, -89);
+    startHour = 0;
 
-    end = startOfHourUTC(now);
-    end.setUTCHours(end.getUTCHours() + 1);
+    endParts = today;
+    endHour = nextHour;
   } else if (datePreset === "maximum") {
-    start = startOfDayUTC(now);
-    start.setUTCFullYear(start.getUTCFullYear() - 3);
+    startParts = addMonthsStart(today, 36);
+    startHour = 0;
 
-    end = startOfHourUTC(now);
-    end.setUTCHours(end.getUTCHours() + 1);
+    endParts = today;
+    endHour = nextHour;
   } else {
-    start = startOfDayUTC(now);
-    start.setUTCDate(start.getUTCDate() - 30);
+    startParts = addDaysToParts(today, -29);
+    startHour = 0;
 
-    end = startOfHourUTC(now);
-    end.setUTCHours(end.getUTCHours() + 1);
+    endParts = today;
+    endHour = nextHour;
   }
 
   return {
-    startTime: start.toISOString(),
-    endTime: end.toISOString()
+    startTime: toRiyadhTimestamp(startParts, startHour),
+    endTime: toRiyadhTimestamp(endParts, endHour)
   };
 }
 
@@ -532,11 +595,12 @@ export async function GET(request) {
 
   const payload = {
     success: true,
-    version: "snapchat-insights-safe-v3-hour-fixed",
+    version: "snapchat-insights-safe-v4-riyadh-timezone",
     account_id: accountId,
     level,
     date_preset: datePreset,
     entity_type: entityType,
+    timezone: "Asia/Riyadh",
     start_time: startTime,
     end_time: endTime,
     fields: FIELDS,
