@@ -14,29 +14,38 @@ async function snap(path, token) {
   return res.json();
 }
 
-// Build date params — Snapchat uses ISO 8601
+// Build date params — Snapchat requires exact hour boundaries
 function buildDateParams(datePreset, since, until) {
-  const now   = new Date();
-  const today = now.toISOString().split("T")[0];
+  const today = new Date().toISOString().split("T")[0];
+
+  // end_time must be start of NEXT day (not 23:59:59)
+  function toEnd(dateStr) {
+    const d = new Date(dateStr + "T00:00:00.000Z");
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().replace(/\.\d{3}Z$/, ".000Z");
+  }
 
   if (since && until) {
-    return { start_time: `${since}T00:00:00.000Z`, end_time: `${until}T23:59:59.000Z` };
+    return {
+      start_time: `${since}T00:00:00.000Z`,
+      end_time:   toEnd(until),
+    };
   }
 
   const presets = {
-    today:      { start: today,                              end: today },
-    yesterday:  { start: daysAgo(1),                        end: daysAgo(1) },
-    last_7d:    { start: daysAgo(7),                        end: today },
-    last_30d:   { start: daysAgo(30),                       end: today },
-    this_month: { start: `${today.slice(0,7)}-01`,          end: today },
-    last_90d:   { start: daysAgo(90),                       end: today },
-    maximum:    { start: daysAgo(365),                      end: today },
+    today:      { start: today,                     end: today      },
+    yesterday:  { start: daysAgo(1),                end: daysAgo(1) },
+    last_7d:    { start: daysAgo(7),                end: today      },
+    last_30d:   { start: daysAgo(30),               end: today      },
+    this_month: { start: `${today.slice(0,7)}-01`,  end: today      },
+    last_90d:   { start: daysAgo(90),               end: today      },
+    maximum:    { start: daysAgo(365),              end: today      },
   };
 
   const range = presets[datePreset] || presets["last_30d"];
   return {
     start_time: `${range.start}T00:00:00.000Z`,
-    end_time:   `${range.end}T23:59:59.000Z`,
+    end_time:   toEnd(range.end),
   };
 }
 
