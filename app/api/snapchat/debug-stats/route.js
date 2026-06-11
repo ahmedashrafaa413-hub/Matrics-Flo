@@ -47,18 +47,33 @@ export async function GET(request) {
     });
   }
 
-  const listRes = await fetch(
-    `${BASE}/adaccounts/${accountId}/campaigns?limit=3`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`
-      },
-      cache: "no-store"
-    }
-  );
+  const campaignsUrl = `${BASE}/adaccounts/${accountId}/campaigns?limit=3`;
+
+  const listRes = await fetch(campaignsUrl, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    cache: "no-store"
+  });
 
   const listResult = await readJsonResponse(listRes);
   const listData = listResult.data;
+
+  if (!listResult.ok) {
+    return NextResponse.json({
+      success: false,
+      step: "campaigns_list",
+      accountId,
+      campaignsUrl,
+      campaignsStatus: listResult.status,
+      campaignsOk: listResult.ok,
+      error:
+        listResult.status === 429
+          ? "Snapchat API rate limit reached. Wait 1-2 minutes before testing again."
+          : "Failed to fetch Snapchat campaigns",
+      campaignsRawResponse: listResult.data || listResult.raw
+    });
+  }
 
   const firstId =
     campaignId ||
@@ -103,6 +118,7 @@ export async function GET(request) {
     success: true,
     accountId,
     firstCampaignId: firstId,
+    campaignsUrl,
     campaignsStatus: listResult.status,
     campaignsOk: listResult.ok,
     listSample: listData?.campaigns?.slice(0, 2) || [],
