@@ -33,7 +33,6 @@ export async function GET(request) {
     });
 
     const tokenData = await tokenRes.json();
-
     if (!tokenData.access_token) {
       return NextResponse.redirect(
         `${process.env.NEXT_PUBLIC_APP_URL}/connections?error=snapchat_token_failed`
@@ -41,19 +40,32 @@ export async function GET(request) {
     }
 
     const cookieStore = cookies();
-    cookieStore.set("snapchat_token", tokenData.access_token, {
+    const expiresIn   = tokenData.expires_in || 3600;
+    const expiryTime  = Date.now() + expiresIn * 1000;
+
+    const cookieOpts = {
       httpOnly: true,
       secure:   process.env.NODE_ENV === "production",
-      maxAge:   tokenData.expires_in || 3600,
       path:     "/",
+    };
+
+    // Access token
+    cookieStore.set("snapchat_token", tokenData.access_token, {
+      ...cookieOpts,
+      maxAge: expiresIn,
     });
 
+    // Expiry timestamp
+    cookieStore.set("snapchat_token_expiry", String(expiryTime), {
+      ...cookieOpts,
+      maxAge: expiresIn + 60,
+    });
+
+    // Refresh token — 6 months
     if (tokenData.refresh_token) {
       cookieStore.set("snapchat_refresh_token", tokenData.refresh_token, {
-        httpOnly: true,
-        secure:   process.env.NODE_ENV === "production",
-        maxAge:   60 * 60 * 24 * 30,
-        path:     "/",
+        ...cookieOpts,
+        maxAge: 60 * 60 * 24 * 180,
       });
     }
 
