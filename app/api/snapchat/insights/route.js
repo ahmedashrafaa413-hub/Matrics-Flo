@@ -89,6 +89,10 @@ async function fetchStats(entityPath, ids, dateParams, token) {
             cache: "no-store",
           });
           const data = await res.json();
+          // Debug: store first response to inspect
+          if (!statsMap["__debug__"] && data) {
+            statsMap["__debug__"] = data;
+          }
           statsMap[id] = data.total_stats?.[0]?.total_stat?.stats || {};
         } catch {
           statsMap[id] = {};
@@ -233,6 +237,7 @@ export async function GET(request) {
       date_preset: since && until ? "custom" : datePreset,
       data:        enriched,
       summary,
+      _debug:      statsMap["__debug__"] || null,
     });
   } catch (err) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
