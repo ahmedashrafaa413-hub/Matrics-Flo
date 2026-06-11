@@ -16,19 +16,6 @@ import {
 const SNAP_COLOR = "#FFFC00";
 const SNAP_DARK = "#E6E300";
 
-const fmt = {
-  money: (v) => `$${Number(v || 0).toFixed(2)}`,
-  number: (v) => Number(v || 0).toLocaleString(),
-  percent: (v) => `${Number(v || 0).toFixed(2)}%`,
-  x: (v) => `${Number(v || 0).toFixed(2)}x`,
-  compact: (v) => {
-    const n = Number(v || 0);
-    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
-    return n.toLocaleString();
-  }
-};
-
 const DATE_OPTIONS = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -36,8 +23,7 @@ const DATE_OPTIONS = [
   { value: "last_30d", label: "Last 30 Days" },
   { value: "this_month", label: "This Month" },
   { value: "last_90d", label: "Last 90 Days" },
-  { value: "maximum", label: "Maximum" },
-  { value: "custom", label: "Custom Range" }
+  { value: "maximum", label: "Maximum" }
 ];
 
 const TABS = [
@@ -55,43 +41,103 @@ const CREATIVE_FILTERS = [
   { key: "high_cpc", label: "High CPC" }
 ];
 
-const ChartTip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-
-  return (
-    <div
-      style={{
-        background: "var(--card)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "10px 14px"
-      }}
-    >
-      <p
-        style={{
-          color: "var(--muted)",
-          fontSize: 11,
-          marginBottom: 6
-        }}
-      >
-        {label}
-      </p>
-
-      {payload.map((p, i) => (
-        <p
-          key={i}
-          style={{
-            color: p.color,
-            fontWeight: 700,
-            fontSize: 12
-          }}
-        >
-          {p.name}: {Number(p.value || 0).toLocaleString()}
-        </p>
-      ))}
-    </div>
-  );
+const fmt = {
+  money: (v) => `$${Number(v || 0).toFixed(2)}`,
+  number: (v) => Number(v || 0).toLocaleString(),
+  percent: (v) => `${Number(v || 0).toFixed(2)}%`,
+  compact: (v) => {
+    const n = Number(v || 0);
+    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+    return n.toLocaleString();
+  }
 };
+
+function safeDivide(a, b) {
+  const x = Number(a || 0);
+  const y = Number(b || 0);
+
+  if (!y) return 0;
+
+  return x / y;
+}
+
+function ctrColor(value) {
+  const ctr = Number(value || 0);
+
+  if (ctr >= 1) return "var(--accent)";
+  if (ctr >= 0.5) return "var(--gold)";
+
+  return "var(--red)";
+}
+
+function diagnoseSnapCreative(row) {
+  const spend = Number(row.spend || 0);
+  const impressions = Number(row.impressions || 0);
+  const swipes = Number(row.swipes || row.clicks || 0);
+  const ctr = Number(row.ctr || 0);
+  const cpc = Number(row.cpc || 0);
+
+  if (spend > 0 && impressions > 1000 && swipes === 0) {
+    return {
+      label: "Traffic Issue",
+      severity: "high",
+      badge: "🚫 No Swipes",
+      problem: "The ad is spending but generating no swipes.",
+      action:
+        "Check targeting, placement, bid strategy, ad approval, and creative clarity."
+    };
+  }
+
+  if (impressions > 1000 && ctr < 0.5) {
+    return {
+      label: "Creative Problem",
+      severity: "high",
+      badge: "🎬 Creative Issue",
+      problem: "CTR is weak, which means the creative is not driving enough interest.",
+      action:
+        "Test a stronger hook, clearer first frame, UGC opening, sharper offer, or bolder visual."
+    };
+  }
+
+  if (cpc > 1 && spend > 0) {
+    return {
+      label: "High CPC",
+      severity: "medium",
+      badge: "💸 High CPC",
+      problem: "Swipe cost is high compared to current engagement.",
+      action:
+        "Improve CTR, test broader audiences, refresh creative angles, and reduce friction in the CTA."
+    };
+  }
+
+  if (ctr >= 1 && spend > 0 && swipes > 0) {
+    return {
+      label: "Potential Winner",
+      severity: "success",
+      badge: "🏆 Potential Winner",
+      problem: "This ad is generating healthy swipe engagement.",
+      action:
+        "Keep monitoring. Test a gradual budget increase and create 3 variations from the same angle."
+    };
+  }
+
+  return {
+    label: "Monitor",
+    severity: "neutral",
+    badge: "⚪ Monitor",
+    problem: "No strong issue or winning signal detected yet.",
+    action: "Keep collecting data before making a major decision."
+  };
+}
+
+function getDiagnosisColor(severity) {
+  if (severity === "success") return "#06d6a0";
+  if (severity === "high") return "#ff477e";
+  if (severity === "medium") return "#f59e0b";
+
+  return "#8b95c9";
+}
 
 function StatusDot({ status }) {
   if (!status) return null;
@@ -128,8 +174,7 @@ function StatusDot({ status }) {
           width: 5,
           height: 5,
           borderRadius: "50%",
-          background: cfg.color,
-          flexShrink: 0
+          background: cfg.color
         }}
       />
       {cfg.label}
@@ -168,73 +213,6 @@ function KPICard({ label, value, color, icon }) {
       </strong>
     </div>
   );
-}
-
-function diagnoseSnapCreative(row) {
-  const spend = Number(row.spend || 0);
-  const impressions = Number(row.impressions || 0);
-  const swipes = Number(row.swipes || row.clicks || 0);
-  const ctr = Number(row.ctr || 0);
-  const cpc = Number(row.cpc || 0);
-
-  if (spend > 0 && impressions > 1000 && swipes === 0) {
-    return {
-      label: "Traffic Issue",
-      severity: "high",
-      badge: "🚫 No Swipes",
-      problem: "The ad is spending but generating no swipes.",
-      action:
-        "Check targeting, ad approval, placement, bid strategy, and creative clarity."
-    };
-  }
-
-  if (impressions > 1000 && ctr < 0.5) {
-    return {
-      label: "Creative Problem",
-      severity: "high",
-      badge: "🎬 Creative Issue",
-      problem: "CTR is weak, which means the creative is not driving enough interest.",
-      action:
-        "Test a stronger hook, clearer first frame, UGC opening, sharper offer, or bolder visual."
-    };
-  }
-
-  if (cpc > 1 && spend > 0) {
-    return {
-      label: "High CPC",
-      severity: "medium",
-      badge: "💸 High CPC",
-      problem: "Swipe cost is high compared to current engagement.",
-      action:
-        "Improve CTR, test broader audiences, refresh creative angles, and reduce friction in the CTA."
-    };
-  }
-
-  if (ctr >= 1 && spend > 0 && swipes > 0) {
-    return {
-      label: "Potential Winner",
-      severity: "success",
-      badge: "🏆 Potential Winner",
-      problem: "This ad is generating healthy swipe engagement.",
-      action:
-        "Keep monitoring. Test budget increase gradually and create 3 variations from the same angle."
-    };
-  }
-
-  return {
-    label: "Monitor",
-    severity: "neutral",
-    badge: "⚪ Monitor",
-    problem: "No strong issue or winning signal detected yet.",
-    action: "Keep collecting data before making a major decision."
-  };
-}
-
-function getDiagnosisColor(severity) {
-  if (severity === "success") return "#06d6a0";
-  if (severity === "high") return "#ff477e";
-  if (severity === "medium") return "#f59e0b";
-  return "#8b95c9";
 }
 
 function CreativeMetric({ label, value, color }) {
@@ -287,7 +265,7 @@ function SnapCreativeCard({ row }) {
         border: `1px solid ${diagnosisColor}55`,
         borderRadius: 22,
         overflow: "hidden",
-        boxShadow: `0 0 0 1px rgba(255,255,255,0.02), 0 18px 50px ${diagnosisColor}12`
+        boxShadow: `0 18px 50px ${diagnosisColor}12`
       }}
     >
       <div
@@ -318,13 +296,7 @@ function SnapCreativeCard({ row }) {
           👻
         </div>
 
-        <div
-          style={{
-            position: "absolute",
-            top: 12,
-            left: 12
-          }}
-        >
+        <div style={{ position: "absolute", top: 12, left: 12 }}>
           <StatusDot status={row.status} />
         </div>
 
@@ -367,8 +339,8 @@ function SnapCreativeCard({ row }) {
             minHeight: 34
           }}
         >
-          {row.campaign_name || "Campaign"}{" "}
-          {row.adsquad_name ? `• ${row.adsquad_name}` : ""}
+          {row.campaign_name || "Campaign"}
+          {row.adsquad_name ? ` • ${row.adsquad_name}` : ""}
         </p>
 
         <div
@@ -388,13 +360,7 @@ function SnapCreativeCard({ row }) {
           <CreativeMetric
             label="CTR"
             value={fmt.percent(row.ctr)}
-            color={
-              Number(row.ctr || 0) >= 1
-                ? "var(--accent)"
-                : Number(row.ctr || 0) >= 0.5
-                ? "var(--gold)"
-                : "var(--red)"
-            }
+            color={ctrColor(row.ctr)}
           />
           <CreativeMetric label="CPC" value={fmt.money(row.cpc)} />
           <CreativeMetric label="CPM" value={fmt.money(row.cpm)} />
@@ -412,7 +378,6 @@ function SnapCreativeCard({ row }) {
           <div
             style={{
               display: "flex",
-              alignItems: "center",
               justifyContent: "space-between",
               gap: 8,
               marginBottom: 8
@@ -468,14 +433,36 @@ function SnapCreativeCard({ row }) {
   );
 }
 
+function ChartTip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "10px 14px"
+      }}
+    >
+      <p style={{ color: "var(--muted)", fontSize: 11, marginBottom: 6 }}>
+        {label}
+      </p>
+
+      {payload.map((p, i) => (
+        <p key={i} style={{ color: p.color, fontWeight: 700, fontSize: 12 }}>
+          {p.name}: {Number(p.value || 0).toLocaleString()}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export default function SnapchatPage() {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const [datePreset, setDatePreset] = useState("last_30d");
-  const [customSince, setCustomSince] = useState("");
-  const [customUntil, setCustomUntil] = useState("");
-  const [showCustom, setShowCustom] = useState(false);
   const [creativeFilter, setCreativeFilter] = useState("all");
 
   const [campRows, setCampRows] = useState([]);
@@ -509,7 +496,7 @@ export default function SnapchatPage() {
 
     resetData();
     loadCampaigns(accountId);
-  }, [accountId, datePreset, customSince, customUntil]);
+  }, [accountId, datePreset]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -521,18 +508,15 @@ export default function SnapchatPage() {
     if (activeTab === "ads" && !adLoaded && !adLoading) {
       loadAds(accountId);
     }
-  }, [activeTab, accountId, adsquadLoaded, adLoaded]);
+  }, [activeTab, accountId, adsquadLoaded, adLoaded, adsquadLoading, adLoading]);
 
   function resetData() {
     setCampRows([]);
     setCampSummary(null);
-
     setAdsquadRows([]);
     setAdsquadLoaded(false);
-
     setAdRows([]);
     setAdLoaded(false);
-
     setError("");
 
     campaignsRequestRef.current = "";
@@ -541,10 +525,6 @@ export default function SnapchatPage() {
   }
 
   function buildDateParam() {
-    if (datePreset === "custom" && customSince && customUntil) {
-      return `since=${customSince}&until=${customUntil}`;
-    }
-
     return `date_preset=${datePreset}`;
   }
 
@@ -704,39 +684,20 @@ export default function SnapchatPage() {
     saveSetting("primary_snapchat_account", value);
   }
 
-  function handleDateChange(value) {
-    setDatePreset(value);
-    setShowCustom(value === "custom");
-
-    if (value !== "custom") {
-      setCustomSince("");
-      setCustomUntil("");
-    }
-  }
-
-  function applyCustomRange() {
-    if (!customSince || !customUntil || isAnyLoading) return;
-
-    resetData();
-    loadCampaigns(accountId);
-  }
-
   const totals = campSummary || {};
 
   const chartData = useMemo(
     () =>
       campRows.slice(0, 8).map((row) => ({
         name: (row.name || "Unknown").slice(0, 14),
-        spend: Number(Number(row.spend || 0).toFixed(2)),
-        revenue: Number(Number(row.purchase_value || 0).toFixed(2))
+        spend: Number(row.spend || 0),
+        swipes: Number(row.swipes || 0)
       })),
     [campRows]
   );
 
   const creativeRows = useMemo(() => {
-    const rows = [...adRows];
-
-    const filtered = rows.filter((row) => {
+    const filtered = adRows.filter((row) => {
       const diagnosis = diagnoseSnapCreative(row);
 
       if (creativeFilter === "all") return true;
@@ -752,24 +713,7 @@ export default function SnapchatPage() {
       return true;
     });
 
-    return filtered.sort((a, b) => {
-      const da = diagnoseSnapCreative(a);
-      const db = diagnoseSnapCreative(b);
-
-      const score = {
-        "Potential Winner": 4,
-        "Creative Problem": 3,
-        "Traffic Issue": 3,
-        "High CPC": 2,
-        Monitor: 1
-      };
-
-      return (
-        (score[db.label] || 0) - (score[da.label] || 0) ||
-        Number(b.spend || 0) - Number(a.spend || 0) ||
-        Number(b.ctr || 0) - Number(a.ctr || 0)
-      );
-    });
+    return filtered.sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
   }, [adRows, creativeFilter]);
 
   const creativeSummary = useMemo(() => {
@@ -805,23 +749,6 @@ export default function SnapchatPage() {
     };
   }, [adRows]);
 
-  function safeDivide(a, b) {
-    const x = Number(a || 0);
-    const y = Number(b || 0);
-
-    if (!y) return 0;
-
-    return x / y;
-  }
-
-  function ctrColor(value) {
-    const ctr = Number(value || 0);
-
-    if (ctr >= 1) return "var(--accent)";
-    if (ctr >= 0.5) return "var(--gold)";
-    return "var(--red)";
-  }
-
   if (!connected) {
     return (
       <main
@@ -850,27 +777,7 @@ export default function SnapchatPage() {
           👻
         </div>
 
-        <h1
-          style={{
-            fontFamily: "'Space Grotesk',sans-serif",
-            fontSize: 22,
-            fontWeight: 700,
-            color: "var(--text)"
-          }}
-        >
-          Snapchat not connected
-        </h1>
-
-        <p
-          style={{
-            color: "var(--muted)",
-            fontSize: 14,
-            textAlign: "center"
-          }}
-        >
-          Connect your Snapchat Ads account to view campaigns, ad squads, and
-          creative performance.
-        </p>
+        <h1 style={{ color: "var(--text)" }}>Snapchat not connected</h1>
 
         <a
           href="/api/snapchat/auth"
@@ -919,15 +826,7 @@ export default function SnapchatPage() {
           </div>
 
           <div>
-            <h1
-              style={{
-                fontFamily: "'Space Grotesk',sans-serif",
-                fontSize: 20,
-                fontWeight: 700,
-                color: "var(--text)",
-                letterSpacing: "-0.3px"
-              }}
-            >
+            <h1 style={{ color: "var(--text)", fontSize: 20 }}>
               Snapchat Ads
             </h1>
 
@@ -938,31 +837,12 @@ export default function SnapchatPage() {
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            alignItems: "center"
-          }}
-        >
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {accounts.length > 0 && (
             <select
               value={accountId}
               onChange={(event) => handleAccountChange(event.target.value)}
               disabled={isAnyLoading}
-              style={{
-                background: "var(--card)",
-                color: "var(--text)",
-                border: "1px solid var(--border-2)",
-                borderRadius: "var(--radius-md)",
-                padding: "8px 12px",
-                fontSize: 12,
-                fontWeight: 600,
-                fontFamily: "inherit",
-                outline: "none",
-                cursor: isAnyLoading ? "not-allowed" : "pointer"
-              }}
             >
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
@@ -974,20 +854,8 @@ export default function SnapchatPage() {
 
           <select
             value={datePreset}
-            onChange={(event) => handleDateChange(event.target.value)}
+            onChange={(event) => setDatePreset(event.target.value)}
             disabled={isAnyLoading}
-            style={{
-              background: "var(--card)",
-              color: "var(--text)",
-              border: "1px solid var(--border-2)",
-              borderRadius: "var(--radius-md)",
-              padding: "8px 12px",
-              fontSize: 12,
-              fontWeight: 600,
-              fontFamily: "inherit",
-              outline: "none",
-              cursor: isAnyLoading ? "not-allowed" : "pointer"
-            }}
           >
             {DATE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -1005,42 +873,6 @@ export default function SnapchatPage() {
           </button>
         </div>
       </div>
-
-      {showCustom && (
-        <div
-          style={{
-            background: "var(--card)",
-            border: "1px solid var(--border-2)",
-            borderRadius: "var(--radius-lg)",
-            padding: "14px 16px",
-            display: "flex",
-            alignItems: "flex-end",
-            gap: 10,
-            flexWrap: "wrap"
-          }}
-        >
-          <input
-            type="date"
-            value={customSince}
-            max={customUntil || undefined}
-            onChange={(event) => setCustomSince(event.target.value)}
-          />
-
-          <input
-            type="date"
-            value={customUntil}
-            min={customSince || undefined}
-            onChange={(event) => setCustomUntil(event.target.value)}
-          />
-
-          <button
-            disabled={!customSince || !customUntil || isAnyLoading}
-            onClick={applyCustomRange}
-          >
-            Apply ↗
-          </button>
-        </div>
-      )}
 
       <div
         style={{
@@ -1065,11 +897,6 @@ export default function SnapchatPage() {
               fontFamily: "inherit",
               fontSize: 12,
               fontWeight: activeTab === tab.key ? 700 : 500,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 5,
-              transition: "all 0.15s",
               background:
                 activeTab === tab.key ? "var(--card-2)" : "transparent",
               color: activeTab === tab.key ? "var(--text)" : "var(--muted)",
@@ -1079,7 +906,7 @@ export default function SnapchatPage() {
                   : "2px solid transparent"
             }}
           >
-            <span>{tab.icon}</span> {tab.label}
+            {tab.icon} {tab.label}
           </button>
         ))}
       </div>
@@ -1127,231 +954,77 @@ export default function SnapchatPage() {
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14 }}>
-            <div className="dash-chart-card">
-              <div className="dash-chart-head">
-                <div>
-                  <h2>Spend vs Swipes</h2>
-                  <p>Top campaigns</p>
-                </div>
-              </div>
-
-              <div className="dash-chart-box">
-                {chartData.length === 0 ? (
-                  <div className="dash-empty">
-                    <h3>{campLoading ? "⏳ Loading..." : "No data"}</h3>
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={campRows.slice(0, 8).map((row) => ({
-                        name: (row.name || "Unknown").slice(0, 14),
-                        spend: Number(row.spend || 0),
-                        swipes: Number(row.swipes || 0)
-                      }))}
-                      barGap={3}
-                    >
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="var(--border)"
-                        vertical={false}
-                      />
-                      <XAxis
-                        dataKey="name"
-                        stroke="var(--muted)"
-                        fontSize={10}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis
-                        stroke="var(--muted)"
-                        fontSize={10}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <Tooltip
-                        content={<ChartTip />}
-                        cursor={{ fill: "rgba(255,252,0,0.04)" }}
-                      />
-                      <Bar
-                        dataKey="spend"
-                        name="Spend ($)"
-                        fill={SNAP_DARK}
-                        radius={[5, 5, 0, 0]}
-                      />
-                      <Bar
-                        dataKey="swipes"
-                        name="Swipes"
-                        fill="#06d6a0"
-                        radius={[5, 5, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
+          <div className="dash-chart-card">
+            <div className="dash-chart-head">
+              <div>
+                <h2>Spend vs Swipes</h2>
+                <p>Top campaigns</p>
               </div>
             </div>
 
-            <div className="dash-chart-card">
-              <div className="dash-chart-head">
-                <div>
-                  <h2>Snap Metrics</h2>
-                  <p>Platform specific</p>
+            <div className="dash-chart-box">
+              {chartData.length === 0 ? (
+                <div className="dash-empty">
+                  <h3>{campLoading ? "⏳ Loading..." : "No data"}</h3>
                 </div>
-              </div>
-
-              {[
-                { label: "Total Impressions", value: fmt.compact(totals.impressions) },
-                { label: "Total Swipes", value: fmt.compact(totals.swipes || totals.clicks) },
-                { label: "Average CTR", value: fmt.percent(totals.ctr) },
-                { label: "Average CPC", value: fmt.money(totals.cpc) },
-                { label: "Average CPM", value: fmt.money(totals.cpm) }
-              ].map((metric) => (
-                <div
-                  key={metric.label}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "8px 0",
-                    borderBottom: "1px solid var(--border)"
-                  }}
-                >
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                    {metric.label}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: "var(--text)"
-                    }}
-                  >
-                    {campLoading ? "—" : metric.value}
-                  </span>
-                </div>
-              ))}
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} barGap={3}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--border)"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      stroke="var(--muted)"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      stroke="var(--muted)"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip content={<ChartTip />} />
+                    <Bar
+                      dataKey="spend"
+                      name="Spend"
+                      fill={SNAP_DARK}
+                      radius={[5, 5, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="swipes"
+                      name="Swipes"
+                      fill="#06d6a0"
+                      radius={[5, 5, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </>
       )}
 
       {activeTab === "campaigns" && (
-        <div className="dash-table-card">
-          <div className="dash-table-head">
-            <div>
-              <h2>Campaigns</h2>
-              <p>{campLoading ? "Loading..." : `${campRows.length} campaigns`}</p>
-            </div>
-          </div>
-
-          {campLoading ? (
-            <div className="dash-empty">
-              <h3>⏳ Loading...</h3>
-            </div>
-          ) : campRows.length === 0 ? (
-            <div className="dash-empty">
-              <h3>No campaigns found</h3>
-            </div>
-          ) : (
-            <div className="dash-table-scroll">
-              <table className="dash-data-table">
-                <thead>
-                  <tr>
-                    <th>Campaign</th>
-                    <th>Status</th>
-                    <th>Spend</th>
-                    <th>Impressions</th>
-                    <th>Swipes</th>
-                    <th>CTR</th>
-                    <th>CPC</th>
-                    <th>CPM</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {campRows.map((row, index) => (
-                    <tr key={row.id || index}>
-                      <td className="dash-name-cell">{row.name}</td>
-                      <td>
-                        <StatusDot status={row.status} />
-                      </td>
-                      <td>{fmt.money(row.spend)}</td>
-                      <td>{fmt.compact(row.impressions)}</td>
-                      <td>{fmt.compact(row.swipes)}</td>
-                      <td style={{ color: ctrColor(row.ctr), fontWeight: 700 }}>
-                        {fmt.percent(row.ctr)}
-                      </td>
-                      <td>{fmt.money(row.cpc)}</td>
-                      <td>{fmt.money(row.cpm)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <SnapTable
+          title="Campaigns"
+          loading={campLoading}
+          rows={campRows}
+          nameKey="name"
+        />
       )}
 
       {activeTab === "adsquads" && (
-        <div className="dash-table-card">
-          <div className="dash-table-head">
-            <div>
-              <h2>Ad Squads</h2>
-              <p>
-                {adsquadLoading ? "Loading..." : `${adsquadRows.length} ad squads`}
-              </p>
-            </div>
-          </div>
-
-          {adsquadLoading ? (
-            <div className="dash-empty">
-              <h3>⏳ Loading...</h3>
-            </div>
-          ) : adsquadRows.length === 0 ? (
-            <div className="dash-empty">
-              <h3>No ad squads found</h3>
-            </div>
-          ) : (
-            <div className="dash-table-scroll">
-              <table className="dash-data-table">
-                <thead>
-                  <tr>
-                    <th>Ad Squad</th>
-                    <th>Campaign</th>
-                    <th>Status</th>
-                    <th>Spend</th>
-                    <th>Impressions</th>
-                    <th>Swipes</th>
-                    <th>CTR</th>
-                    <th>CPC</th>
-                    <th>CPM</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {adsquadRows.map((row, index) => (
-                    <tr key={row.id || index}>
-                      <td className="dash-name-cell">{row.name}</td>
-                      <td style={{ color: "var(--muted)", fontSize: 12 }}>
-                        {row.campaign_name}
-                      </td>
-                      <td>
-                        <StatusDot status={row.status} />
-                      </td>
-                      <td>{fmt.money(row.spend)}</td>
-                      <td>{fmt.compact(row.impressions)}</td>
-                      <td>{fmt.compact(row.swipes)}</td>
-                      <td style={{ color: ctrColor(row.ctr), fontWeight: 700 }}>
-                        {fmt.percent(row.ctr)}
-                      </td>
-                      <td>{fmt.money(row.cpc)}</td>
-                      <td>{fmt.money(row.cpm)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <SnapTable
+          title="Ad Squads"
+          loading={adsquadLoading}
+          rows={adsquadRows}
+          nameKey="name"
+        />
       )}
 
       {activeTab === "ads" && (
@@ -1395,14 +1068,7 @@ export default function SnapchatPage() {
             />
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              flexWrap: "wrap",
-              justifyContent: "flex-end"
-            }}
-          >
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {CREATIVE_FILTERS.map((filter) => (
               <button
                 key={filter.key}
@@ -1434,7 +1100,6 @@ export default function SnapchatPage() {
           ) : creativeRows.length === 0 ? (
             <div className="dash-empty">
               <h3>No ads found</h3>
-              <p>No creatives match the selected filter.</p>
             </div>
           ) : (
             <section
@@ -1452,5 +1117,64 @@ export default function SnapchatPage() {
         </>
       )}
     </main>
+  );
+}
+
+function SnapTable({ title, loading, rows, nameKey }) {
+  return (
+    <div className="dash-table-card">
+      <div className="dash-table-head">
+        <div>
+          <h2>{title}</h2>
+          <p>{loading ? "Loading..." : `${rows.length} rows`}</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="dash-empty">
+          <h3>⏳ Loading...</h3>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="dash-empty">
+          <h3>No data found</h3>
+        </div>
+      ) : (
+        <div className="dash-table-scroll">
+          <table className="dash-data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Spend</th>
+                <th>Impressions</th>
+                <th>Swipes</th>
+                <th>CTR</th>
+                <th>CPC</th>
+                <th>CPM</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={row.id || index}>
+                  <td className="dash-name-cell">{row[nameKey] || row.name}</td>
+                  <td>
+                    <StatusDot status={row.status} />
+                  </td>
+                  <td>{fmt.money(row.spend)}</td>
+                  <td>{fmt.compact(row.impressions)}</td>
+                  <td>{fmt.compact(row.swipes)}</td>
+                  <td style={{ color: ctrColor(row.ctr), fontWeight: 700 }}>
+                    {fmt.percent(row.ctr)}
+                  </td>
+                  <td>{fmt.money(row.cpc)}</td>
+                  <td>{fmt.money(row.cpm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
