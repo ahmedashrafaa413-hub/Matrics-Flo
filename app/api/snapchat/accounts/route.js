@@ -1,5 +1,5 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +14,13 @@ async function snap(path, token) {
 }
 
 export async function GET() {
-  const token = cookies().get("snapchat_token")?.value;
+  const token = await getSnapchatToken();
+
   if (!token) {
-    return NextResponse.json({ success: false, error: "Not connected to Snapchat" }, { status: 401 });
+    return NextResponse.json(
+      { success: false, error: "Not connected to Snapchat" },
+      { status: 401 }
+    );
   }
 
   try {
@@ -24,7 +28,10 @@ export async function GET() {
     const orgs     = orgsData.organizations || [];
 
     if (!orgs.length) {
-      return NextResponse.json({ success: false, error: "No organizations found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: "No organizations found" },
+        { status: 404 }
+      );
     }
 
     const accountsResults = await Promise.all(
