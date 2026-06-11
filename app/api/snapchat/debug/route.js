@@ -22,16 +22,18 @@ export async function GET(request) {
 
   let statsData = null;
   if (firstId) {
-    const today = new Date().toISOString().split("T")[0];
     const start = new Date(Date.now() - 365*24*60*60*1000).toISOString().split("T")[0];
+    // end_time must be start of an hour — use tomorrow 00:00:00
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const endTime = tomorrow.toISOString().split("T")[0] + "T00:00:00.000Z";
 
-    // Try minimal fields only
     const statsRes = await fetch(
       `${BASE}/campaigns/${firstId}/stats`
         + `?granularity=LIFETIME`
         + `&fields=impressions,spend,swipes`
         + `&start_time=${start}T00:00:00.000Z`
-        + `&end_time=${today}T23:59:59.000Z`,
+        + `&end_time=${endTime}`,
       { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
     );
     statsData = await statsRes.json();
