@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { getSnapchatToken } from "../../../../lib/snapchatToken";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -105,7 +105,7 @@ async function fetchStats(entityPath, ids, dateParams, token) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const token      = searchParams.get("token") || cookies().get("snapchat_token")?.value;
+  const token      = searchParams.get("token") || await getSnapchatToken();
   const accountId  = searchParams.get("account_id");
   const level      = searchParams.get("level")       || "campaign";
   const datePreset = searchParams.get("date_preset") || "last_30d";
