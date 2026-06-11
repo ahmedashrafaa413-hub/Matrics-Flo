@@ -1,570 +1,1180 @@
-import { getSnapchatToken } from "../../../../lib/snapchatToken";
-import { NextResponse } from "next/server";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiGet } from "../../lib/api";
+import { getSetting, saveSetting } from "../../lib/storage";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid
+} from "recharts";
 
-const BASE = "https://adsapi.snapchat.com/v1";
+const SNAP_COLOR = "#FFFC00";
+const SNAP_DARK = "#E6E300";
 
-const SERVER_CACHE = globalThis.__snapchatCache || new Map();
-globalThis.__snapchatCache = SERVER_CACHE;
-
-function getCache(key) {
-  const item = SERVER_CACHE.get(key);
-
-  if (!item) return null;
-
-  if (Date.now() > item.expiresAt) {
-    SERVER_CACHE.delete(key);
-    return null;
+const fmt = {
+  money: (v) => `$${Number(v || 0).toFixed(2)}`,
+  number: (v) => Number(v || 0).toLocaleString(),
+  percent: (v) => `${Number(v || 0).toFixed(2)}%`,
+  x: (v) => `${Number(v || 0).toFixed(2)}x`,
+  compact: (v) => {
+    const n = Number(v || 0);
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+    return n.toLocaleString();
   }
+};
 
-  return item.value;
+const DATE_OPTIONS = [
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "last_7d", label: "Last 7 Days" },
+  { value: "last_30d", label: "Last 30 Days" },
+  { value: "this_month", label: "This Month" },
+  { value: "last_90d", label: "Last 90 Days" },
+  { value: "maximum", label: "Maximum" },
+  { value: "custom", label: "Custom Range" }
+];
+
+const TABS = [
+  { key: "overview", label: "Overview", icon: "⬡" },
+  { key: "campaigns", label: "Campaigns", icon: "◈" },
+  { key: "adsquads", label: "Ad Squads", icon: "◫" },
+  { key: "ads", label: "Ads", icon: "▣" }
+];
+
+const ChartTip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "10px 14px"
+      }}
+    >
+      <p
+        style={{
+          color: "var(--muted)",
+          fontSize: 11,
+          marginBottom: 6
+        }}
+      >
+        {label}
+      </p>
+
+      {payload.map((p, i) => (
+        <p
+          key={i}
+          style={{
+            color: p.color,
+            fontWeight: 700,
+            fontSize: 12
+          }}
+        >
+          {p.name}: {Number(p.value || 0).toLocaleString()}
+        </p>
+      ))}
+    </div>
+  );
+};
+
+function StatusDot({ status }) {
+  if (!status) return null;
+
+  const st = String(status).toUpperCase();
+
+  const cfg =
+    st === "ACTIVE"
+      ? { color: "#06d6a0", label: "Active" }
+      : st === "PAUSED"
+      ? { color: "#f59e0b", label: "Paused" }
+      : st === "PENDING"
+      ? { color: "#6366f1", label: "Pending" }
+      : { color: "#7b88b8", label: status };
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "3px 8px",
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        color: cfg.color,
+        background: `${cfg.color}12`,
+        border: `1px solid ${cfg.color}25`,
+        whiteSpace: "nowrap"
+      }}
+    >
+      <span
+        style={{
+          width: 5,
+          height: 5,
+          borderRadius: "50%",
+          background: cfg.color,
+          flexShrink: 0
+        }}
+      />
+      {cfg.label}
+    </span>
+  );
 }
 
-function setCache(key, value, ttlMs = 120000) {
-  SERVER_CACHE.set(key, {
-    value,
-    expiresAt: Date.now() + ttlMs
-  });
+function KPICard({ label, value, color, icon }) {
+  return (
+    <div className="dash-kpi-card" style={{ position: "relative" }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 2,
+          background: color,
+          borderRadius: "20px 20px 0 0"
+        }}
+      />
+
+      <div className="dash-kpi-top">
+        <span className="dash-kpi-label">{label}</span>
+        <span className="dash-kpi-icon">{icon}</span>
+      </div>
+
+      <strong
+        style={{
+          fontFamily: "'Space Grotesk',sans-serif",
+          fontSize: 22,
+          color: "var(--text)"
+        }}
+      >
+        {value}
+      </strong>
+    </div>
+  );
 }
 
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().split("T")[0];
-}
+export default function SnapchatPage() {
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState("");
+  const [activeTab, setActiveTab] = useState("overview");
+  const [datePreset, setDatePreset] = useState("last_30d");
+  const [customSince, setCustomSince] = useState("");
+  const [customUntil, setCustomUntil] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
 
-function safeDivide(a, b) {
-  const x = Number(a || 0);
-  const y = Number(b || 0);
+  const [campRows, setCampRows] = useState([]);
+  const [campSummary, setCampSummary] = useState(null);
+  const [campLoading, setCampLoading] = useState(false);
 
-  if (!y) return 0;
+  const [adsquadRows, setAdsquadRows] = useState([]);
+  const [adsquadLoaded, setAdsquadLoaded] = useState(false);
+  const [adsquadLoading, setAdsquadLoading] = useState(false);
 
-  return x / y;
-}
+  const [adRows, setAdRows] = useState([]);
+  const [adLoaded, setAdLoaded] = useState(false);
+  const [adLoading, setAdLoading] = useState(false);
 
-function buildDateParams(datePreset, since, until) {
-  const today = new Date().toISOString().split("T")[0];
+  const [connected, setConnected] = useState(true);
+  const [error, setError] = useState("");
 
-  function toEnd(dateStr) {
-    const d = new Date(dateStr + "T00:00:00.000Z");
-    d.setDate(d.getDate() + 1);
+  const campaignsRequestRef = useRef("");
+  const adsquadsRequestRef = useRef("");
+  const adsRequestRef = useRef("");
+  const lastManualRefreshRef = useRef(0);
 
-    return d.toISOString().replace(/\.\d{3}Z$/, ".000Z");
-  }
+  const isAnyLoading = campLoading || adsquadLoading || adLoading;
 
-  if (since && until) {
-    return {
-      start_time: `${since}T00:00:00.000Z`,
-      end_time: toEnd(until)
-    };
-  }
+  useEffect(() => {
+    loadAccounts();
+  }, []);
 
-  const presets = {
-    today: {
-      start: today,
-      end: today
-    },
+  useEffect(() => {
+    if (!accountId) return;
 
-    yesterday: {
-      start: daysAgo(1),
-      end: daysAgo(1)
-    },
+    resetData();
+    loadCampaigns(accountId);
+  }, [accountId, datePreset, customSince, customUntil]);
 
-    last_7d: {
-      start: daysAgo(7),
-      end: today
-    },
+  useEffect(() => {
+    if (!accountId) return;
 
-    last_30d: {
-      start: daysAgo(30),
-      end: today
-    },
-
-    last_90d: {
-      start: daysAgo(90),
-      end: today
-    },
-
-    this_month: {
-      start: `${today.slice(0, 7)}-01`,
-      end: today
-    },
-
-    maximum: {
-      start: daysAgo(1095),
-      end: today
-    }
-  };
-
-  const range = presets[datePreset] || presets.last_30d;
-
-  return {
-    start_time: `${range.start}T00:00:00.000Z`,
-    end_time: toEnd(range.end)
-  };
-}
-
-async function readJsonResponse(response) {
-  const text = await response.text();
-
-  try {
-    return {
-      ok: response.ok,
-      status: response.status,
-      data: JSON.parse(text),
-      raw: null
-    };
-  } catch {
-    return {
-      ok: response.ok,
-      status: response.status,
-      data: null,
-      raw: text.slice(0, 1000)
-    };
-  }
-}
-
-async function snap(path, token, cacheTtl = 120000) {
-  const cacheKey = `snap:${path}`;
-  const cached = getCache(cacheKey);
-
-  if (cached) return cached;
-
-  const response = await fetch(`${BASE}${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    },
-    cache: "no-store"
-  });
-
-  const result = await readJsonResponse(response);
-
-  if (!result.ok) {
-    if (result.status === 429 || String(result.raw || "").includes("Too Many Requests")) {
-      throw new Error(
-        "Snapchat API rate limit reached. Please wait 5 minutes before refreshing again."
-      );
-    }
-
-    throw new Error(
-      result.data?.request_status ||
-        result.data?.message ||
-        result.data?.debug_message ||
-        result.data?.error ||
-        result.raw ||
-        `Snapchat API error: ${result.status}`
-    );
-  }
-
-  setCache(cacheKey, result.data, cacheTtl);
-
-  return result.data;
-}
-
-const STATS_FIELDS = [
-  "impressions",
-  "swipes",
-  "spend",
-  "video_views",
-  "view_completion_1_quarter",
-  "view_completion_2_quarter",
-  "view_completion_3_quarter",
-  "view_completion_4_quarter",
-  "frequency",
-  "reach",
-  "conversion_purchases",
-  "conversion_purchases_value"
-].join(",");
-
-function mergeStatsFromResponse(data) {
-  const totalStats =
-    data?.total_stats?.[0]?.total_stat?.stats || null;
-
-  if (totalStats) return totalStats;
-
-  const timeseries =
-    data?.timeseries_stats?.[0]?.timeseries_stat?.timeseries || [];
-
-  const merged = {};
-
-  timeseries.forEach((point) => {
-    const stats = point.stats || {};
-
-    Object.entries(stats).forEach(([key, value]) => {
-      merged[key] = Number(merged[key] || 0) + Number(value || 0);
-    });
-  });
-
-  return merged;
-}
-
-async function fetchSingleStat(entityType, id, dateParams, token) {
-  const cacheKey = `snap:stats:${entityType}:${id}:${dateParams.start_time}:${dateParams.end_time}`;
-  const cached = getCache(cacheKey);
-
-  if (cached) return cached;
-
-  const url =
-    `${BASE}/${entityType}/${id}/stats` +
-    `?granularity=DAY` +
-    `&fields=${encodeURIComponent(STATS_FIELDS)}` +
-    `&start_time=${encodeURIComponent(dateParams.start_time)}` +
-    `&end_time=${encodeURIComponent(dateParams.end_time)}` +
-    `&swipe_up_attribution_window=28_DAY` +
-    `&view_attribution_window=7_DAY`;
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    },
-    cache: "no-store"
-  });
-
-  const result = await readJsonResponse(response);
-
-  if (!result.ok) {
-    if (result.status === 429 || String(result.raw || "").includes("Too Many Requests")) {
-      return {
-        stats: {},
-        debug: {
-          entityType,
-          id,
-          status: 429,
-          url,
-          error:
-            "Snapchat API rate limit reached. Please wait 5 minutes before refreshing again."
-        }
-      };
+    if (activeTab === "adsquads" && !adsquadLoaded && !adsquadLoading) {
+      loadAdsquads(accountId);
     }
 
-    return {
-      stats: {},
-      debug: {
-        entityType,
-        id,
-        status: result.status,
-        url,
-        error: result.data || result.raw
+    if (activeTab === "ads" && !adLoaded && !adLoading) {
+      loadAds(accountId);
+    }
+  }, [activeTab, accountId, adsquadLoaded, adLoaded]);
+
+  function resetData() {
+    setCampRows([]);
+    setCampSummary(null);
+
+    setAdsquadRows([]);
+    setAdsquadLoaded(false);
+
+    setAdRows([]);
+    setAdLoaded(false);
+
+    setError("");
+
+    campaignsRequestRef.current = "";
+    adsquadsRequestRef.current = "";
+    adsRequestRef.current = "";
+  }
+
+  function buildDateParam() {
+    if (datePreset === "custom" && customSince && customUntil) {
+      return `since=${customSince}&until=${customUntil}`;
+    }
+
+    return `date_preset=${datePreset}`;
+  }
+
+  async function loadAccounts() {
+    try {
+      setError("");
+
+      const data = await apiGet("/api/snapchat/accounts");
+
+      if (!data.success) {
+        setConnected(false);
+        return;
       }
-    };
-  }
 
-  const stats = mergeStatsFromResponse(result.data);
+      const list = data.data || [];
 
-  const output = {
-    stats,
-    debug: {
-      entityType,
-      id,
-      status: result.status,
-      url,
-      raw_response: result.data,
-      parsed_stats: stats
+      setAccounts(list);
+
+      const saved = getSetting("primary_snapchat_account", "");
+      const selected =
+        list.find((account) => account.id === saved)?.id || list[0]?.id || "";
+
+      setAccountId(selected);
+
+      if (selected) {
+        saveSetting("primary_snapchat_account", selected);
+      }
+
+      setConnected(true);
+    } catch (err) {
+      setConnected(false);
+      setError(err.message || "Failed to load Snapchat accounts");
     }
-  };
+  }
 
-  setCache(cacheKey, output, 120000);
+  async function loadCampaigns(selectedAccount = accountId) {
+    if (!selectedAccount || campLoading) return;
 
-  return output;
-}
+    const key = `${selectedAccount}|campaign|${buildDateParam()}`;
 
-async function fetchStats(entityType, ids, dateParams, token) {
-  const statsMap = {};
-  const chunkSize = 3;
+    if (campaignsRequestRef.current === key) return;
 
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const chunk = ids.slice(i, i + chunkSize);
+    campaignsRequestRef.current = key;
+    setCampLoading(true);
+    setError("");
 
-    const settled = await Promise.allSettled(
-      chunk.map(async (id) => {
-        const result = await fetchSingleStat(entityType, id, dateParams, token);
-
-        statsMap[id] = result.stats || {};
-
-        if (!statsMap.__debug__) {
-          statsMap.__debug__ = result.debug || null;
-        }
-      })
-    );
-
-    const has429 = settled.some((item) => {
-      return (
-        item.status === "fulfilled" &&
-        statsMap.__debug__?.status === 429
+    try {
+      const data = await apiGet(
+        `/api/snapchat/insights?account_id=${selectedAccount}&level=campaign&${buildDateParam()}`
       );
-    });
 
-    if (has429) break;
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  return statsMap;
-}
-
-function normalizeEntity(entity, level) {
-  if (level === "campaign") {
-    return {
-      id: entity.id,
-      name: entity.name,
-      status: entity.status,
-      campaign_id: entity.id,
-      campaign_name: entity.name,
-      adsquad_id: null,
-      adsquad_name: null,
-      ad_id: null,
-      ad_name: null
-    };
-  }
-
-  if (level === "adsquad") {
-    return {
-      id: entity.id,
-      name: entity.name,
-      status: entity.status,
-      campaign_id: entity.campaign_id || null,
-      campaign_name: entity.campaign_name || "",
-      adsquad_id: entity.id,
-      adsquad_name: entity.name,
-      ad_id: null,
-      ad_name: null
-    };
-  }
-
-  return {
-    id: entity.id,
-    name: entity.name,
-    status: entity.status,
-    campaign_id: entity.campaign_id || null,
-    campaign_name: entity.campaign_name || "",
-    adsquad_id: entity.ad_squad_id || entity.adsquad_id || null,
-    adsquad_name: entity.ad_squad_name || entity.adsquad_name || "",
-    ad_id: entity.id,
-    ad_name: entity.name
-  };
-}
-
-function enrichEntity(entity, stats, level) {
-  const identity = normalizeEntity(entity, level);
-
-  const spend = Number(stats.spend || 0) / 1_000_000;
-  const impressions = Number(stats.impressions || 0);
-  const swipes = Number(stats.swipes || 0);
-  const reach = Number(stats.reach || 0);
-
-  const videoViews = Number(stats.video_views || 0);
-
-  const video25 = Number(stats.view_completion_1_quarter || 0);
-  const video50 = Number(stats.view_completion_2_quarter || 0);
-  const video75 = Number(stats.view_completion_3_quarter || 0);
-  const video100 = Number(stats.view_completion_4_quarter || 0);
-
-  const purchases = Number(stats.conversion_purchases || 0);
-  const purchaseValue =
-    Number(stats.conversion_purchases_value || 0) / 1_000_000;
-
-  const frequency =
-    Number(stats.frequency || 0) || safeDivide(impressions, reach);
-
-  const ctr = safeDivide(swipes, impressions) * 100;
-  const cpc = safeDivide(spend, swipes);
-  const cpm = safeDivide(spend, impressions) * 1000;
-  const roas = safeDivide(purchaseValue, spend);
-  const cpa = safeDivide(spend, purchases);
-
-  const hookRate = safeDivide(videoViews, impressions) * 100;
-  const holdRate = safeDivide(video50, video25 || videoViews) * 100;
-  const completionRate = safeDivide(video100, videoViews) * 100;
-
-  return {
-    ...identity,
-
-    spend: Number(spend.toFixed(2)),
-    impressions,
-    swipes,
-    clicks: swipes,
-    reach,
-    frequency: Number(frequency.toFixed(2)),
-
-    ctr: Number(ctr.toFixed(2)),
-    cpc: Number(cpc.toFixed(2)),
-    cpm: Number(cpm.toFixed(2)),
-
-    purchases,
-    purchase_value: Number(purchaseValue.toFixed(2)),
-    roas: Number(roas.toFixed(2)),
-    cpa: Number(cpa.toFixed(2)),
-
-    video_views: videoViews,
-    video_25: video25,
-    video_50: video50,
-    video_75: video75,
-    video_100: video100,
-
-    hook_rate: Number(hookRate.toFixed(2)),
-    hold_rate: Number(holdRate.toFixed(2)),
-    completion_rate: Number(completionRate.toFixed(2)),
-
-    _raw: stats
-  };
-}
-
-function buildSummary(rows) {
-  const summary = rows.reduce(
-    (acc, row) => {
-      acc.spend += Number(row.spend || 0);
-      acc.impressions += Number(row.impressions || 0);
-      acc.clicks += Number(row.clicks || 0);
-      acc.reach += Number(row.reach || 0);
-      acc.purchases += Number(row.purchases || 0);
-      acc.purchase_value += Number(row.purchase_value || 0);
-      acc.video_views += Number(row.video_views || 0);
-
-      return acc;
-    },
-    {
-      spend: 0,
-      impressions: 0,
-      clicks: 0,
-      reach: 0,
-      purchases: 0,
-      purchase_value: 0,
-      video_views: 0
+      setCampRows(data.data || []);
+      setCampSummary(data.summary || null);
+    } catch (err) {
+      setCampRows([]);
+      setCampSummary(null);
+      setError(err.message || "Failed to load Snapchat campaigns");
+      campaignsRequestRef.current = "";
+    } finally {
+      setCampLoading(false);
     }
-  );
-
-  summary.roas = Number(
-    safeDivide(summary.purchase_value, summary.spend).toFixed(2)
-  );
-
-  summary.cpa = Number(
-    safeDivide(summary.spend, summary.purchases).toFixed(2)
-  );
-
-  summary.ctr = Number(
-    (safeDivide(summary.clicks, summary.impressions) * 100).toFixed(2)
-  );
-
-  summary.cpc = Number(
-    safeDivide(summary.spend, summary.clicks).toFixed(2)
-  );
-
-  summary.cpm = Number(
-    (safeDivide(summary.spend, summary.impressions) * 1000).toFixed(2)
-  );
-
-  return summary;
-}
-
-export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-
-  const token = searchParams.get("token") || (await getSnapchatToken());
-  const accountId = searchParams.get("account_id");
-  const level = searchParams.get("level") || "campaign";
-  const datePreset = searchParams.get("date_preset") || "last_30d";
-  const since = searchParams.get("since");
-  const until = searchParams.get("until");
-
-  if (!token) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Not connected to Snapchat"
-      },
-      { status: 401 }
-    );
   }
 
-  if (!accountId) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "account_id is required"
-      },
-      { status: 400 }
-    );
+  async function loadAdsquads(selectedAccount = accountId) {
+    if (!selectedAccount || adsquadLoading) return;
+
+    const key = `${selectedAccount}|adsquad|${buildDateParam()}`;
+
+    if (adsquadsRequestRef.current === key) return;
+
+    adsquadsRequestRef.current = key;
+    setAdsquadLoading(true);
+    setError("");
+
+    try {
+      const data = await apiGet(
+        `/api/snapchat/insights?account_id=${selectedAccount}&level=adsquad&${buildDateParam()}`
+      );
+
+      setAdsquadRows(data.data || []);
+      setAdsquadLoaded(true);
+    } catch (err) {
+      setAdsquadRows([]);
+      setAdsquadLoaded(false);
+      setError(err.message || "Failed to load Snapchat ad squads");
+      adsquadsRequestRef.current = "";
+    } finally {
+      setAdsquadLoading(false);
+    }
   }
 
-  try {
-    const dateParams = buildDateParams(datePreset, since, until);
+  async function loadAds(selectedAccount = accountId) {
+    if (!selectedAccount || adLoading) return;
 
-    let entities = [];
-    let statsEntityType = "campaigns";
+    const key = `${selectedAccount}|ad|${buildDateParam()}`;
 
-    if (level === "campaign") {
-      const data = await snap(
-        `/adaccounts/${accountId}/campaigns?limit=50`,
-        token
+    if (adsRequestRef.current === key) return;
+
+    adsRequestRef.current = key;
+    setAdLoading(true);
+    setError("");
+
+    try {
+      const data = await apiGet(
+        `/api/snapchat/insights?account_id=${selectedAccount}&level=ad&${buildDateParam()}`
       );
 
-      entities = (data.campaigns || [])
-        .map((item) => item.campaign)
-        .filter(Boolean);
+      setAdRows(data.data || []);
+      setAdLoaded(true);
+    } catch (err) {
+      setAdRows([]);
+      setAdLoaded(false);
+      setError(err.message || "Failed to load Snapchat ads");
+      adsRequestRef.current = "";
+    } finally {
+      setAdLoading(false);
+    }
+  }
 
-      statsEntityType = "campaigns";
-    } else if (level === "adsquad") {
-      const data = await snap(
-        `/adaccounts/${accountId}/adsquads?limit=50`,
-        token
-      );
+  async function refresh() {
+    if (isAnyLoading) return;
 
-      entities = (data.adsquads || [])
-        .map((item) => item.adsquad)
-        .filter(Boolean);
+    const now = Date.now();
 
-      statsEntityType = "adsquads";
-    } else if (level === "ad") {
-      const data = await snap(
-        `/adaccounts/${accountId}/ads?limit=50`,
-        token
-      );
-
-      entities = (data.ads || [])
-        .map((item) => item.ad)
-        .filter(Boolean);
-
-      statsEntityType = "ads";
-    } else {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid level. Use campaign, adsquad, or ad."
-        },
-        { status: 400 }
-      );
+    if (now - lastManualRefreshRef.current < 60000) {
+      setError("Please wait 60 seconds before refreshing Snapchat data again.");
+      return;
     }
 
-    const ids = entities.map((entity) => entity.id).filter(Boolean);
+    lastManualRefreshRef.current = now;
 
-    const statsMap = await fetchStats(statsEntityType, ids, dateParams, token);
+    campaignsRequestRef.current = "";
+    adsquadsRequestRef.current = "";
+    adsRequestRef.current = "";
 
-    const enriched = entities.map((entity) =>
-      enrichEntity(entity, statsMap[entity.id] || {}, level)
-    );
+    setCampRows([]);
+    setCampSummary(null);
+    setAdsquadRows([]);
+    setAdsquadLoaded(false);
+    setAdRows([]);
+    setAdLoaded(false);
+    setError("");
 
-    const summary = buildSummary(enriched);
+    await loadCampaigns(accountId);
 
-    return NextResponse.json({
-      success: true,
-      provider: "Snapchat Ads",
-      account_id: accountId,
-      level,
-      date_preset: since && until ? "custom" : datePreset,
-      date_range: dateParams,
-      rows_count: enriched.length,
-      data: enriched,
-      summary,
-      debug: statsMap.__debug__ || null
-    });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: error?.message || "Internal server error"
-      },
-      { status: 500 }
+    if (activeTab === "adsquads") {
+      await loadAdsquads(accountId);
+    }
+
+    if (activeTab === "ads") {
+      await loadAds(accountId);
+    }
+  }
+
+  function handleAccountChange(value) {
+    setAccountId(value);
+    saveSetting("primary_snapchat_account", value);
+  }
+
+  function handleDateChange(value) {
+    setDatePreset(value);
+    setShowCustom(value === "custom");
+
+    if (value !== "custom") {
+      setCustomSince("");
+      setCustomUntil("");
+    }
+  }
+
+  function applyCustomRange() {
+    if (!customSince || !customUntil || isAnyLoading) return;
+
+    resetData();
+    loadCampaigns(accountId);
+  }
+
+  const totals = campSummary || {};
+
+  const chartData = useMemo(
+    () =>
+      campRows.slice(0, 8).map((row) => ({
+        name: (row.name || "Unknown").slice(0, 14),
+        spend: Number(Number(row.spend || 0).toFixed(2)),
+        revenue: Number(Number(row.purchase_value || 0).toFixed(2))
+      })),
+    [campRows]
+  );
+
+  function ctrColor(value) {
+    const ctr = Number(value || 0);
+
+    if (ctr >= 1) return "var(--accent)";
+    if (ctr >= 0.5) return "var(--gold)";
+    return "var(--red)";
+  }
+
+  if (!connected) {
+    return (
+      <main
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: 300,
+          gap: 16
+        }}
+      >
+        <div
+          style={{
+            width: 52,
+            height: 52,
+            borderRadius: 14,
+            background: "rgba(255,252,0,0.1)",
+            border: "1px solid rgba(255,252,0,0.25)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 26
+          }}
+        >
+          👻
+        </div>
+
+        <h1
+          style={{
+            fontFamily: "'Space Grotesk',sans-serif",
+            fontSize: 22,
+            fontWeight: 700,
+            color: "var(--text)"
+          }}
+        >
+          Snapchat not connected
+        </h1>
+
+        <p
+          style={{
+            color: "var(--muted)",
+            fontSize: 14,
+            textAlign: "center"
+          }}
+        >
+          Connect your Snapchat Ads account to view campaigns, ad squads, and
+          creative performance.
+        </p>
+
+        <a
+          href="/api/snapchat/auth"
+          style={{
+            background: "linear-gradient(135deg,#FFFC00,#E6E300)",
+            color: "#000",
+            padding: "11px 24px",
+            borderRadius: "var(--radius-md)",
+            fontWeight: 700,
+            fontSize: 13,
+            textDecoration: "none"
+          }}
+        >
+          Connect Snapchat →
+        </a>
+      </main>
     );
   }
+
+  return (
+    <main style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: "rgba(255,252,0,0.12)",
+              border: "1px solid rgba(255,252,0,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 18
+            }}
+          >
+            👻
+          </div>
+
+          <div>
+            <h1
+              style={{
+                fontFamily: "'Space Grotesk',sans-serif",
+                fontSize: 20,
+                fontWeight: 700,
+                color: "var(--text)",
+                letterSpacing: "-0.3px"
+              }}
+            >
+              Snapchat Ads
+            </h1>
+
+            <p style={{ fontSize: 12, color: "var(--muted)" }}>
+              {accounts.find((account) => account.id === accountId)?.name ||
+                "No account selected"}
+            </p>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center"
+          }}
+        >
+          {accounts.length > 0 && (
+            <select
+              value={accountId}
+              onChange={(event) => handleAccountChange(event.target.value)}
+              disabled={isAnyLoading}
+              style={{
+                background: "var(--card)",
+                color: "var(--text)",
+                border: "1px solid var(--border-2)",
+                borderRadius: "var(--radius-md)",
+                padding: "8px 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: "inherit",
+                outline: "none",
+                cursor: isAnyLoading ? "not-allowed" : "pointer"
+              }}
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name} — {account.currency}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <select
+            value={datePreset}
+            onChange={(event) => handleDateChange(event.target.value)}
+            disabled={isAnyLoading}
+            style={{
+              background: "var(--card)",
+              color: "var(--text)",
+              border: "1px solid var(--border-2)",
+              borderRadius: "var(--radius-md)",
+              padding: "8px 12px",
+              fontSize: 12,
+              fontWeight: 600,
+              fontFamily: "inherit",
+              outline: "none",
+              cursor: isAnyLoading ? "not-allowed" : "pointer"
+            }}
+          >
+            {DATE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <button
+            className="dash-refresh"
+            onClick={refresh}
+            disabled={isAnyLoading}
+          >
+            {isAnyLoading ? "Loading..." : "↺ Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {showCustom && (
+        <div
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border-2)",
+            borderRadius: "var(--radius-lg)",
+            padding: "14px 16px",
+            display: "flex",
+            alignItems: "flex-end",
+            gap: 10,
+            flexWrap: "wrap"
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--muted)",
+                textTransform: "uppercase",
+                letterSpacing: "0.8px",
+                marginBottom: 5
+              }}
+            >
+              From
+            </div>
+
+            <input
+              type="date"
+              value={customSince}
+              max={customUntil || undefined}
+              onChange={(event) => setCustomSince(event.target.value)}
+              style={{
+                background: "var(--glass)",
+                border: "1px solid var(--border-2)",
+                borderRadius: "var(--radius-md)",
+                padding: "8px 12px",
+                color: "var(--text)",
+                fontSize: 13,
+                fontFamily: "inherit",
+                outline: "none",
+                colorScheme: "dark"
+              }}
+            />
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--muted)",
+                textTransform: "uppercase",
+                letterSpacing: "0.8px",
+                marginBottom: 5
+              }}
+            >
+              To
+            </div>
+
+            <input
+              type="date"
+              value={customUntil}
+              min={customSince || undefined}
+              onChange={(event) => setCustomUntil(event.target.value)}
+              style={{
+                background: "var(--glass)",
+                border: "1px solid var(--border-2)",
+                borderRadius: "var(--radius-md)",
+                padding: "8px 12px",
+                color: "var(--text)",
+                fontSize: 13,
+                fontFamily: "inherit",
+                outline: "none",
+                colorScheme: "dark"
+              }}
+            />
+          </div>
+
+          <button
+            disabled={!customSince || !customUntil || isAnyLoading}
+            onClick={applyCustomRange}
+            style={{
+              background:
+                customSince && customUntil && !isAnyLoading
+                  ? "linear-gradient(135deg,var(--primary),#4f46e5)"
+                  : "var(--glass2)",
+              color:
+                customSince && customUntil && !isAnyLoading
+                  ? "#fff"
+                  : "var(--muted)",
+              border: "none",
+              padding: "9px 16px",
+              borderRadius: "var(--radius-md)",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor:
+                customSince && customUntil && !isAnyLoading
+                  ? "pointer"
+                  : "not-allowed",
+              fontFamily: "inherit"
+            }}
+          >
+            Apply ↗
+          </button>
+        </div>
+      )}
+
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-lg)",
+          padding: 4
+        }}
+      >
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: "var(--radius-md)",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              fontSize: 12,
+              fontWeight: activeTab === tab.key ? 700 : 500,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 5,
+              transition: "all 0.15s",
+              background:
+                activeTab === tab.key ? "var(--card-2)" : "transparent",
+              color: activeTab === tab.key ? "var(--text)" : "var(--muted)",
+              borderBottom:
+                activeTab === tab.key
+                  ? "2px solid #FFFC00"
+                  : "2px solid transparent"
+            }}
+          >
+            <span>{tab.icon}</span> {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {error && <div className="dash-message error">⚠ {error}</div>}
+
+      {activeTab === "overview" && (
+        <>
+          <div className="dash-kpi-grid">
+            <KPICard
+              label="Spend"
+              value={campLoading ? "—" : fmt.money(totals.spend)}
+              color={SNAP_DARK}
+              icon="💰"
+            />
+            <KPICard
+              label="Revenue"
+              value={campLoading ? "—" : fmt.money(totals.purchase_value)}
+              color="#06d6a0"
+              icon="💵"
+            />
+            <KPICard
+              label="ROAS"
+              value={campLoading ? "—" : fmt.x(totals.roas)}
+              color="#06d6a0"
+              icon="📈"
+            />
+            <KPICard
+              label="Purchases"
+              value={campLoading ? "—" : fmt.number(totals.purchases)}
+              color="#f59e0b"
+              icon="🛒"
+            />
+            <KPICard
+              label="Impressions"
+              value={campLoading ? "—" : fmt.compact(totals.impressions)}
+              color="#6366f1"
+              icon="👁"
+            />
+            <KPICard
+              label="Swipes CTR"
+              value={campLoading ? "—" : fmt.percent(totals.ctr)}
+              color="#8b5cf6"
+              icon="👆"
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14 }}>
+            <div className="dash-chart-card">
+              <div className="dash-chart-head">
+                <div>
+                  <h2>Revenue vs Spend</h2>
+                  <p>Top campaigns</p>
+                </div>
+              </div>
+
+              <div className="dash-chart-box">
+                {chartData.length === 0 ? (
+                  <div className="dash-empty">
+                    <h3>{campLoading ? "⏳ Loading..." : "No data"}</h3>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} barGap={3}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="name"
+                        stroke="var(--muted)"
+                        fontSize={10}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        stroke="var(--muted)"
+                        fontSize={10}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip
+                        content={<ChartTip />}
+                        cursor={{ fill: "rgba(255,252,0,0.04)" }}
+                      />
+                      <Bar
+                        dataKey="revenue"
+                        name="Revenue ($)"
+                        fill="#06d6a0"
+                        radius={[5, 5, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="spend"
+                        name="Spend ($)"
+                        fill={SNAP_DARK}
+                        radius={[5, 5, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            <div className="dash-chart-card">
+              <div className="dash-chart-head">
+                <div>
+                  <h2>Snap Metrics</h2>
+                  <p>Platform specific</p>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  marginTop: 4
+                }}
+              >
+                {[
+                  { label: "Total Impressions", value: fmt.compact(totals.impressions) },
+                  { label: "Total Swipes", value: fmt.compact(totals.clicks) },
+                  { label: "Total Purchases", value: fmt.number(totals.purchases) },
+                  { label: "Avg ROAS", value: fmt.x(totals.roas) },
+                  { label: "Avg CPA", value: fmt.money(totals.cpa) }
+                ].map((metric) => (
+                  <div
+                    key={metric.label}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "8px 0",
+                      borderBottom: "1px solid var(--border)"
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                      {metric.label}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: "var(--text)"
+                      }}
+                    >
+                      {campLoading ? "—" : metric.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {activeTab === "campaigns" && (
+        <div className="dash-table-card">
+          <div className="dash-table-head">
+            <div>
+              <h2>Campaigns</h2>
+              <p>{campLoading ? "Loading..." : `${campRows.length} campaigns`}</p>
+            </div>
+          </div>
+
+          {campLoading ? (
+            <div className="dash-empty">
+              <h3>⏳ Loading...</h3>
+            </div>
+          ) : campRows.length === 0 ? (
+            <div className="dash-empty">
+              <h3>No campaigns found</h3>
+            </div>
+          ) : (
+            <div className="dash-table-scroll">
+              <table className="dash-data-table">
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>Status</th>
+                    <th>Spend</th>
+                    <th>Revenue</th>
+                    <th>ROAS</th>
+                    <th>Purchases</th>
+                    <th>Impressions</th>
+                    <th>Swipes</th>
+                    <th>CTR</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {campRows.map((row, index) => (
+                    <tr key={row.id || index}>
+                      <td className="dash-name-cell">{row.name}</td>
+                      <td>
+                        <StatusDot status={row.status} />
+                      </td>
+                      <td>{fmt.money(row.spend)}</td>
+                      <td>{fmt.money(row.purchase_value)}</td>
+                      <td
+                        style={{
+                          color:
+                            Number(row.roas || 0) >= 2
+                              ? "var(--accent)"
+                              : Number(row.roas || 0) >= 1
+                              ? "var(--gold)"
+                              : "var(--red)",
+                          fontWeight: 700
+                        }}
+                      >
+                        {fmt.x(row.roas)}
+                      </td>
+                      <td>{fmt.number(row.purchases)}</td>
+                      <td>{fmt.compact(row.impressions)}</td>
+                      <td>{fmt.compact(row.swipes)}</td>
+                      <td style={{ color: ctrColor(row.ctr), fontWeight: 700 }}>
+                        {fmt.percent(row.ctr)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "adsquads" && (
+        <div className="dash-table-card">
+          <div className="dash-table-head">
+            <div>
+              <h2>Ad Squads</h2>
+              <p>
+                {adsquadLoading ? "Loading..." : `${adsquadRows.length} ad squads`}
+              </p>
+            </div>
+          </div>
+
+          {adsquadLoading ? (
+            <div className="dash-empty">
+              <h3>⏳ Loading...</h3>
+            </div>
+          ) : adsquadRows.length === 0 ? (
+            <div className="dash-empty">
+              <h3>No ad squads found</h3>
+            </div>
+          ) : (
+            <div className="dash-table-scroll">
+              <table className="dash-data-table">
+                <thead>
+                  <tr>
+                    <th>Ad Squad</th>
+                    <th>Campaign</th>
+                    <th>Status</th>
+                    <th>Spend</th>
+                    <th>ROAS</th>
+                    <th>Purchases</th>
+                    <th>Swipes</th>
+                    <th>CTR</th>
+                    <th>Freq.</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {adsquadRows.map((row, index) => (
+                    <tr key={row.id || index}>
+                      <td className="dash-name-cell">{row.name}</td>
+                      <td style={{ color: "var(--muted)", fontSize: 12 }}>
+                        {row.campaign_name}
+                      </td>
+                      <td>
+                        <StatusDot status={row.status} />
+                      </td>
+                      <td>{fmt.money(row.spend)}</td>
+                      <td
+                        style={{
+                          color:
+                            Number(row.roas || 0) >= 2
+                              ? "var(--accent)"
+                              : Number(row.roas || 0) >= 1
+                              ? "var(--gold)"
+                              : "var(--red)",
+                          fontWeight: 700
+                        }}
+                      >
+                        {fmt.x(row.roas)}
+                      </td>
+                      <td>{fmt.number(row.purchases)}</td>
+                      <td>{fmt.compact(row.swipes)}</td>
+                      <td style={{ color: ctrColor(row.ctr), fontWeight: 700 }}>
+                        {fmt.percent(row.ctr)}
+                      </td>
+                      <td
+                        style={{
+                          color:
+                            Number(row.frequency || 0) >= 3.5
+                              ? "var(--red)"
+                              : Number(row.frequency || 0) >= 3
+                              ? "var(--gold)"
+                              : "var(--text-2)"
+                        }}
+                      >
+                        {Number(row.frequency || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "ads" && (
+        <div className="dash-table-card">
+          <div className="dash-table-head">
+            <div>
+              <h2>Ads</h2>
+              <p>{adLoading ? "Loading..." : `${adRows.length} ads`}</p>
+            </div>
+          </div>
+
+          {adLoading ? (
+            <div className="dash-empty">
+              <h3>⏳ Loading...</h3>
+            </div>
+          ) : adRows.length === 0 ? (
+            <div className="dash-empty">
+              <h3>No ads found</h3>
+            </div>
+          ) : (
+            <div className="dash-table-scroll">
+              <table className="dash-data-table">
+                <thead>
+                  <tr>
+                    <th>Ad</th>
+                    <th>Status</th>
+                    <th>Spend</th>
+                    <th>ROAS</th>
+                    <th>Purchases</th>
+                    <th>Swipes</th>
+                    <th>CTR</th>
+                    <th>Hook</th>
+                    <th>Hold</th>
+                    <th>Completion</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {adRows.map((row, index) => (
+                    <tr key={row.id || index}>
+                      <td className="dash-name-cell">{row.name}</td>
+                      <td>
+                        <StatusDot status={row.status} />
+                      </td>
+                      <td>{fmt.money(row.spend)}</td>
+                      <td
+                        style={{
+                          color:
+                            Number(row.roas || 0) >= 2
+                              ? "var(--accent)"
+                              : Number(row.roas || 0) >= 1
+                              ? "var(--gold)"
+                              : "var(--red)",
+                          fontWeight: 700
+                        }}
+                      >
+                        {fmt.x(row.roas)}
+                      </td>
+                      <td>{fmt.number(row.purchases)}</td>
+                      <td>{fmt.compact(row.swipes)}</td>
+                      <td style={{ color: ctrColor(row.ctr), fontWeight: 700 }}>
+                        {fmt.percent(row.ctr)}
+                      </td>
+                      <td
+                        style={{
+                          color:
+                            Number(row.hook_rate || 0) >= 25
+                              ? "var(--accent)"
+                              : "var(--text-2)"
+                        }}
+                      >
+                        {Number(row.hook_rate || 0) > 0
+                          ? fmt.percent(row.hook_rate)
+                          : "—"}
+                      </td>
+                      <td
+                        style={{
+                          color:
+                            Number(row.hold_rate || 0) >= 40
+                              ? "var(--accent)"
+                              : "var(--text-2)"
+                        }}
+                      >
+                        {Number(row.hold_rate || 0) > 0
+                          ? fmt.percent(row.hold_rate)
+                          : "—"}
+                      </td>
+                      <td>
+                        {Number(row.completion_rate || 0) > 0
+                          ? fmt.percent(row.completion_rate)
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </main>
+  );
 }
