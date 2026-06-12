@@ -31,9 +31,7 @@ function safeNumber(value) {
 function safeDivide(a, b) {
   const x = safeNumber(a);
   const y = safeNumber(b);
-
   if (!y) return 0;
-
   return x / y;
 }
 
@@ -67,12 +65,26 @@ function setCachedResult(key, data) {
   });
 }
 
-/**
- * Snapchat account timezone fix
- * Most Saudi Snapchat accounts use Asia/Riyadh.
- * Snapchat accepts timestamps like:
- * 2026-06-12T00:00:00.000+03:00
- */
+function getStatusRank(status) {
+  const st = String(status || "").toUpperCase();
+
+  if (st === "ACTIVE") return 1;
+  if (st === "PENDING") return 2;
+  if (st === "PAUSED") return 3;
+
+  return 4;
+}
+
+function sortEntitiesActiveFirst(entities) {
+  return [...entities].sort((a, b) => {
+    const statusDiff = getStatusRank(a.status) - getStatusRank(b.status);
+
+    if (statusDiff !== 0) return statusDiff;
+
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
+}
+
 function pad(value) {
   return String(value).padStart(2, "0");
 }
@@ -538,8 +550,9 @@ export async function GET(request) {
   }
 
   const entities = entitiesResult.entities || [];
+  const sortedEntities = sortEntitiesActiveFirst(entities);
   const entityType = getStatsEntityType(level);
-  const limitedEntities = entities.slice(0, MAX_ENTITIES_PER_REQUEST);
+  const limitedEntities = sortedEntities.slice(0, MAX_ENTITIES_PER_REQUEST);
 
   const rows = [];
   const errors = [];
@@ -595,7 +608,7 @@ export async function GET(request) {
 
   const payload = {
     success: true,
-    version: "snapchat-insights-safe-v4-riyadh-timezone",
+    version: "snapchat-insights-safe-v5-active-first",
     account_id: accountId,
     level,
     date_preset: datePreset,
@@ -607,6 +620,7 @@ export async function GET(request) {
     count: rows.length,
     total_entities_available: entities.length,
     limited_to: MAX_ENTITIES_PER_REQUEST,
+    active_first: true,
     rate_limited: errors.some((error) => error.status === 429),
     errors,
     summary,
