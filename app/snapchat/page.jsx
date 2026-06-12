@@ -36,6 +36,7 @@ const fmt = {
   money: (v) => `$${Number(v || 0).toFixed(2)}`,
   number: (v) => Number(v || 0).toLocaleString(),
   percent: (v) => `${Number(v || 0).toFixed(2)}%`,
+  x: (v) => `${Number(v || 0).toFixed(2)}x`,
   compact: (v) => {
     const n = Number(v || 0);
     if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -49,7 +50,14 @@ function ctrColor(value) {
 
   if (ctr >= 1) return "var(--accent)";
   if (ctr >= 0.5) return "var(--gold)";
+  return "var(--red)";
+}
 
+function roasColor(value) {
+  const roas = Number(value || 0);
+
+  if (roas >= 3) return "var(--accent)";
+  if (roas >= 1) return "var(--gold)";
   return "var(--red)";
 }
 
@@ -180,11 +188,16 @@ function SnapTable({ title, loading, rows }) {
                 <th>Name</th>
                 <th>Status</th>
                 <th>Spend</th>
+                <th>Revenue</th>
+                <th>ROAS</th>
+                <th>Purchases</th>
+                <th>CPA</th>
                 <th>Impressions</th>
                 <th>Swipes</th>
                 <th>CTR</th>
                 <th>CPC</th>
                 <th>CPM</th>
+                <th>Video Views</th>
               </tr>
             </thead>
 
@@ -192,12 +205,21 @@ function SnapTable({ title, loading, rows }) {
               {rows.map((row, index) => (
                 <tr key={row.id || index}>
                   <td className="dash-name-cell">
-                    {row.ad_name || row.adsquad_name || row.campaign_name || row.name}
+                    {row.ad_name ||
+                      row.adsquad_name ||
+                      row.campaign_name ||
+                      row.name}
                   </td>
                   <td>
                     <StatusDot status={row.status} />
                   </td>
                   <td>{fmt.money(row.spend)}</td>
+                  <td>{fmt.money(row.revenue || row.purchase_value)}</td>
+                  <td style={{ color: roasColor(row.roas), fontWeight: 700 }}>
+                    {fmt.x(row.roas)}
+                  </td>
+                  <td>{fmt.number(row.purchases)}</td>
+                  <td>{fmt.money(row.cpa)}</td>
                   <td>{fmt.compact(row.impressions)}</td>
                   <td>{fmt.compact(row.swipes || row.clicks)}</td>
                   <td style={{ color: ctrColor(row.ctr), fontWeight: 700 }}>
@@ -205,6 +227,7 @@ function SnapTable({ title, loading, rows }) {
                   </td>
                   <td>{fmt.money(row.cpc)}</td>
                   <td>{fmt.money(row.cpm)}</td>
+                  <td>{fmt.compact(row.video_views)}</td>
                 </tr>
               ))}
             </tbody>
@@ -450,6 +473,7 @@ export default function SnapchatPage() {
       campRows.slice(0, 8).map((row) => ({
         name: (row.name || row.campaign_name || "Unknown").slice(0, 14),
         spend: Number(row.spend || 0),
+        revenue: Number(row.revenue || 0),
         swipes: Number(row.swipes || row.clicks || 0)
       })),
     [campRows]
@@ -544,19 +568,13 @@ export default function SnapchatPage() {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {accounts.length > 0 && (
-            <select
-              value={accountId}
-              onChange={(event) => handleAccountChange(event.target.value)}
-              disabled={isAnyLoading}
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name} — {account.currency}
-                </option>
-              ))}
-            </select>
-          )}
+          <button
+            className="dash-refresh"
+            onClick={refresh}
+            disabled={isAnyLoading}
+          >
+            {isAnyLoading ? "Loading..." : "↺ Refresh"}
+          </button>
 
           <select
             value={datePreset}
@@ -570,13 +588,19 @@ export default function SnapchatPage() {
             ))}
           </select>
 
-          <button
-            className="dash-refresh"
-            onClick={refresh}
-            disabled={isAnyLoading}
-          >
-            {isAnyLoading ? "Loading..." : "↺ Refresh"}
-          </button>
+          {accounts.length > 0 && (
+            <select
+              value={accountId}
+              onChange={(event) => handleAccountChange(event.target.value)}
+              disabled={isAnyLoading}
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name} — {account.currency}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -629,10 +653,28 @@ export default function SnapchatPage() {
               icon="💰"
             />
             <KPICard
-              label="Impressions"
-              value={campLoading ? "—" : fmt.compact(totals.impressions)}
-              color="#6366f1"
-              icon="👁"
+              label="Revenue"
+              value={campLoading ? "—" : fmt.money(totals.revenue)}
+              color="#06d6a0"
+              icon="💵"
+            />
+            <KPICard
+              label="ROAS"
+              value={campLoading ? "—" : fmt.x(totals.roas)}
+              color={roasColor(totals.roas)}
+              icon="📈"
+            />
+            <KPICard
+              label="Purchases"
+              value={campLoading ? "—" : fmt.number(totals.purchases)}
+              color="#22c55e"
+              icon="🛒"
+            />
+            <KPICard
+              label="CPA"
+              value={campLoading ? "—" : fmt.money(totals.cpa)}
+              color="#f59e0b"
+              icon="🎯"
             />
             <KPICard
               label="Swipes"
@@ -641,29 +683,47 @@ export default function SnapchatPage() {
               icon="👆"
             />
             <KPICard
+              label="Impressions"
+              value={campLoading ? "—" : fmt.compact(totals.impressions)}
+              color="#6366f1"
+              icon="👁"
+            />
+            <KPICard
               label="CTR"
               value={campLoading ? "—" : fmt.percent(totals.ctr)}
               color="#06d6a0"
-              icon="📈"
+              icon="📊"
             />
             <KPICard
               label="CPC"
               value={campLoading ? "—" : fmt.money(totals.cpc)}
               color="#f59e0b"
-              icon="🎯"
+              icon="💳"
             />
             <KPICard
               label="CPM"
               value={campLoading ? "—" : fmt.money(totals.cpm)}
               color="#22c55e"
-              icon="📊"
+              icon="📡"
+            />
+            <KPICard
+              label="Video Views"
+              value={campLoading ? "—" : fmt.compact(totals.video_views)}
+              color="#38bdf8"
+              icon="🎥"
+            />
+            <KPICard
+              label="Video View Rate"
+              value={campLoading ? "—" : fmt.percent(totals.video_view_rate)}
+              color="#38bdf8"
+              icon="▶️"
             />
           </div>
 
           <div className="dash-chart-card">
             <div className="dash-chart-head">
               <div>
-                <h2>Spend vs Swipes</h2>
+                <h2>Spend vs Revenue vs Swipes</h2>
                 <p>Top campaigns</p>
               </div>
             </div>
@@ -702,9 +762,15 @@ export default function SnapchatPage() {
                       radius={[5, 5, 0, 0]}
                     />
                     <Bar
+                      dataKey="revenue"
+                      name="Revenue"
+                      fill="#06d6a0"
+                      radius={[5, 5, 0, 0]}
+                    />
+                    <Bar
                       dataKey="swipes"
                       name="Swipes"
-                      fill="#06d6a0"
+                      fill="#8b5cf6"
                       radius={[5, 5, 0, 0]}
                     />
                   </BarChart>
