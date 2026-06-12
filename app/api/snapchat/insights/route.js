@@ -14,8 +14,9 @@ const FIELDS = [
   "video_views"
 ];
 
-const MAX_ENTITIES_PER_REQUEST = 10;
-const DELAY_BETWEEN_REQUESTS_MS = 450;
+const DEFAULT_LIMIT = 20;
+const MAX_SAFE_LIMIT = 40;
+const DELAY_BETWEEN_REQUESTS_MS = 350;
 
 const memoryCache = new Map();
 
@@ -31,7 +32,9 @@ function safeNumber(value) {
 function safeDivide(a, b) {
   const x = safeNumber(a);
   const y = safeNumber(b);
+
   if (!y) return 0;
+
   return x / y;
 }
 
@@ -39,8 +42,8 @@ function moneyFromMicros(value) {
   return safeNumber(value) / 1000000;
 }
 
-function getCacheKey({ accountId, level, datePreset }) {
-  return `${accountId}:${level}:${datePreset}`;
+function getCacheKey({ accountId, level, datePreset, limit }) {
+  return `${accountId}:${level}:${datePreset}:${limit}`;
 }
 
 function getCachedResult(key) {
@@ -62,26 +65,6 @@ function setCachedResult(key, data) {
   memoryCache.set(key, {
     createdAt: Date.now(),
     data
-  });
-}
-
-function getStatusRank(status) {
-  const st = String(status || "").toUpperCase();
-
-  if (st === "ACTIVE") return 1;
-  if (st === "PENDING") return 2;
-  if (st === "PAUSED") return 3;
-
-  return 4;
-}
-
-function sortEntitiesActiveFirst(entities) {
-  return [...entities].sort((a, b) => {
-    const statusDiff = getStatusRank(a.status) - getStatusRank(b.status);
-
-    if (statusDiff !== 0) return statusDiff;
-
-    return String(a.name || "").localeCompare(String(b.name || ""));
   });
 }
 
@@ -156,56 +139,33 @@ function getDateRange(datePreset) {
 
   if (datePreset === "today") {
     startParts = today;
-    startHour = 0;
-
     endParts = today;
-    endHour = nextHour;
   } else if (datePreset === "yesterday") {
     startParts = addDaysToParts(today, -1);
-    startHour = 0;
-
     endParts = today;
     endHour = 0;
   } else if (datePreset === "last_7d") {
     startParts = addDaysToParts(today, -6);
-    startHour = 0;
-
     endParts = today;
-    endHour = nextHour;
   } else if (datePreset === "last_30d") {
     startParts = addDaysToParts(today, -29);
-    startHour = 0;
-
     endParts = today;
-    endHour = nextHour;
   } else if (datePreset === "this_month") {
     startParts = {
       year: today.year,
       month: today.month,
       day: 1
     };
-    startHour = 0;
-
     endParts = today;
-    endHour = nextHour;
   } else if (datePreset === "last_90d") {
     startParts = addDaysToParts(today, -89);
-    startHour = 0;
-
     endParts = today;
-    endHour = nextHour;
   } else if (datePreset === "maximum") {
     startParts = addMonthsStart(today, 36);
-    startHour = 0;
-
     endParts = today;
-    endHour = nextHour;
   } else {
     startParts = addDaysToParts(today, -29);
-    startHour = 0;
-
     endParts = today;
-    endHour = nextHour;
   }
 
   return {
@@ -245,6 +205,86 @@ async function snapFetch(url, token) {
   return readJsonResponse(response);
 }
 
+function getDeliveryStatusText(entity) {
+  const delivery = entity?.delivery_status;
+
+  if (Array.isArray(delivery)) {
+    return delivery.join(" ");
+  }
+
+  if (typeof delivery === "string") {
+    return delivery;
+  }
+
+  return "";
+}
+
+function getNormalizedStatus(entity) {
+  const status = String(entity?.status || "").toUpperCase();
+  const effectiveStatus = String(entity?.effective_status || "").toUpperCase();
+  const configuredStatus = String(entity?.configured_status || "").toUpperCase();
+  const deliveryStatus = getDeliveryStatusText(entity).toUpperCase();
+
+  if (
+    status === "ACTIVE" ||
+    effectiveStatus === "ACTIVE" ||
+    configuredStatus === "ACTIVE"
+  ) {
+    return "ACTIVE";
+  }
+
+  if (
+    status === "PAUSED" ||
+    effectiveStatus === "PAUSED" ||
+    configuredStatus === "PAUSED"
+  ) {
+    return "PAUSED";
+  }
+
+  if (
+    status === "PENDING" ||
+    effectiveStatus === "PENDING" ||
+    configuredStatus === "PENDING"
+  ) {
+    return "PENDING";
+  }
+
+  if (deliveryStatus.includes("ACTIVE")) {
+    return "ACTIVE";
+  }
+
+  if (deliveryStatus.includes("PAUSED")) {
+    return "PAUSED";
+  }
+
+  return status || effectiveStatus || configuredStatus || "UNKNOWN";
+}
+
+function getStatusRank(status) {
+  const st = String(status || "").toUpperCase();
+
+  if (st === "ACTIVE") return 1;
+  if (st === "PENDING") return 2;
+  if (st === "PAUSED") return 3;
+
+  return 4;
+}
+
+function sortEntitiesActiveFirst(entities) {
+  return [...entities].sort((a, b) => {
+    const statusDiff = getStatusRank(a.status) - getStatusRank(b.status);
+
+    if (statusDiff !== 0) return statusDiff;
+
+    const aUpdated = new Date(a.raw?.updated_at || a.raw?.created_at || 0).getTime();
+    const bUpdated = new Date(b.raw?.updated_at || b.raw?.created_at || 0).getTime();
+
+    if (aUpdated !== bUpdated) return bUpdated - aUpdated;
+
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
+}
+
 function extractCampaigns(payload) {
   const rows = payload?.campaigns || [];
 
@@ -255,7 +295,7 @@ function extractCampaigns(payload) {
       id: campaign.id,
       name: campaign.name || "Unnamed Campaign",
       campaign_name: campaign.name || "Unnamed Campaign",
-      status: campaign.status || campaign.effective_status || "",
+      status: getNormalizedStatus(campaign),
       raw: campaign
     }));
 }
@@ -271,7 +311,7 @@ function extractAdSquads(payload) {
       name: adsquad.name || "Unnamed Ad Squad",
       adsquad_name: adsquad.name || "Unnamed Ad Squad",
       campaign_id: adsquad.campaign_id || "",
-      status: adsquad.status || adsquad.effective_status || "",
+      status: getNormalizedStatus(adsquad),
       raw: adsquad
     }));
 }
@@ -288,7 +328,7 @@ function extractAds(payload) {
       ad_name: ad.name || "Unnamed Ad",
       adsquad_id: ad.ad_squad_id || ad.adsquad_id || "",
       campaign_id: ad.campaign_id || "",
-      status: ad.status || ad.effective_status || "",
+      status: getNormalizedStatus(ad),
       raw: ad
     }));
 }
@@ -498,6 +538,12 @@ export async function GET(request) {
   const datePreset = searchParams.get("date_preset") || "last_30d";
   const force = searchParams.get("force") === "1";
 
+  const requestedLimit = Number(searchParams.get("limit") || DEFAULT_LIMIT);
+  const limit = Math.min(
+    Math.max(Number.isFinite(requestedLimit) ? requestedLimit : DEFAULT_LIMIT, 1),
+    MAX_SAFE_LIMIT
+  );
+
   if (!accountId) {
     return NextResponse.json({
       success: false,
@@ -508,7 +554,8 @@ export async function GET(request) {
   const cacheKey = getCacheKey({
     accountId,
     level,
-    datePreset
+    datePreset,
+    limit
   });
 
   if (!force) {
@@ -552,7 +599,7 @@ export async function GET(request) {
   const entities = entitiesResult.entities || [];
   const sortedEntities = sortEntitiesActiveFirst(entities);
   const entityType = getStatsEntityType(level);
-  const limitedEntities = sortedEntities.slice(0, MAX_ENTITIES_PER_REQUEST);
+  const limitedEntities = sortedEntities.slice(0, limit);
 
   const rows = [];
   const errors = [];
@@ -608,7 +655,7 @@ export async function GET(request) {
 
   const payload = {
     success: true,
-    version: "snapchat-insights-safe-v5-active-first",
+    version: "snapchat-insights-v6-active-filter-sort-ready",
     account_id: accountId,
     level,
     date_preset: datePreset,
@@ -619,7 +666,8 @@ export async function GET(request) {
     fields: FIELDS,
     count: rows.length,
     total_entities_available: entities.length,
-    limited_to: MAX_ENTITIES_PER_REQUEST,
+    loaded_limit: limit,
+    partial_data: rows.length < entities.length,
     active_first: true,
     rate_limited: errors.some((error) => error.status === 429),
     errors,
