@@ -14,8 +14,8 @@ const FIELDS = [
   "video_views"
 ];
 
-const DEFAULT_LIMIT = 20;
-const MAX_SAFE_LIMIT = 40;
+const DEFAULT_LIMIT = 200;
+const MAX_SAFE_LIMIT = 500;
 const DELAY_BETWEEN_REQUESTS_MS = 350;
 
 const memoryCache = new Map();
@@ -580,6 +580,41 @@ export async function GET(request) {
 
   const { startTime, endTime } = getDateRange(datePreset);
 
+  // Fetch account-level summary for accurate totals (not limited by entity count)
+  let accountSummary = null;
+  try {
+    const accountStatsUrl =
+      `${BASE}/adaccounts/${accountId}/stats` +
+      `?granularity=TOTAL` +
+      `&fields=${encodeURIComponent(FIELDS.join(","))}` +
+      `&start_time=${encodeURIComponent(startTime)}` +
+      `&end_time=${encodeURIComponent(endTime)}`;
+
+    const accountStatsRes = await snapFetch(accountStatsUrl, token);
+    if (accountStatsRes.ok) {
+      const raw = extractStats(accountStatsRes.data, accountId);
+      const spend   = moneyFromMicros(raw.spend);
+      const revenue = moneyFromMicros(raw.conversion_purchases_value);
+      const purchases = safeNumber(raw.conversion_purchases);
+      const impressions = safeNumber(raw.impressions);
+      const swipes = safeNumber(raw.swipes);
+      const videoViews = safeNumber(raw.video_views);
+      accountSummary = {
+        spend, revenue,
+        roas: safeDivide(revenue, spend),
+        purchases,
+        cpa:  safeDivide(spend, purchases),
+        impressions, swipes,
+        clicks: swipes,
+        ctr:  safeDivide(swipes, impressions) * 100,
+        cpc:  safeDivide(spend, swipes),
+        cpm:  safeDivide(spend, impressions) * 1000,
+        video_views: videoViews,
+        video_view_rate: safeDivide(videoViews, impressions) * 100,
+      };
+    }
+  } catch {}
+
   const entitiesResult = await getEntities({
     accountId,
     level,
@@ -651,7 +686,7 @@ export async function GET(request) {
     await sleep(DELAY_BETWEEN_REQUESTS_MS);
   }
 
-  const summary = buildSummary(rows);
+  const summary = accountSummary || buildSummary(rows);
 
   const payload = {
     success: true,
