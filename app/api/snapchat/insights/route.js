@@ -82,32 +82,44 @@ async function snapFetch(url, token) {
 
 // ── Stats extraction ─────────────────────────────────────────────────────────
 function extractStats(payload, entityId) {
+  // Format 1: { total_stats: [{ total_stat: { id, stats: {...} } }] }
   const arr = payload?.total_stats || [];
-  const match = arr.find(i => (i.total_stat||i)?.id === entityId) || arr[0] || null;
-  return match?.total_stat?.stats || match?.stats || {};
+  if (arr.length > 0) {
+    const match = arr.find(i => {
+      const id = i?.total_stat?.id || i?.id;
+      return id === entityId;
+    }) || arr[0];
+    const stats = match?.total_stat?.stats || match?.stats;
+    if (stats) return stats;
+  }
+  // Format 2: { TimeSeries: ... } or flat stats at root
+  if (payload?.stats) return payload.stats;
+  return {};
 }
 
 // ── Entity stats (single) ─────────────────────────────────────────────────────
-async function fetchEntityStats({ entityType, entityId, token, startTime, endTime }) {
+async function fetchEntityStats({ entityType, entityId, token, startTime, endTime, swipeWindow, viewWindow }) {
   const url =
     `${BASE}/${entityType}/${entityId}/stats` +
     `?granularity=TOTAL` +
     `&fields=${encodeURIComponent(FIELDS.join(","))}` +
     `&start_time=${encodeURIComponent(startTime)}` +
-    `&end_time=${encodeURIComponent(endTime)}`;
+    `&end_time=${encodeURIComponent(endTime)}` +
+    `&swipe_up_attribution_window=${swipeWindow || "28_DAY"}` +
+    `&view_attribution_window=${viewWindow || "1_DAY"}`;
   const r = await snapFetch(url, token);
   if (!r.ok) return { ok: false, status: r.status, stats: {} };
   return { ok: true, stats: extractStats(r.data, entityId) };
 }
 
 // ── Parallel batch stats ──────────────────────────────────────────────────────
-async function fetchStatsParallel({ entities, entityType, token, startTime, endTime }) {
+async function fetchStatsParallel({ entities, entityType, token, startTime, endTime, swipeWindow, viewWindow }) {
   const statsMap = {};
   for (let i = 0; i < entities.length; i += BATCH_SIZE) {
     const batch = entities.slice(i, i + BATCH_SIZE);
     await Promise.all(
       batch.map(async (e) => {
-        const r = await fetchEntityStats({ entityType, entityId: e.id, token, startTime, endTime });
+        const r = await fetchEntityStats({ entityType, entityId: e.id, token, startTime, endTime, swipeWindow, viewWindow });
         statsMap[e.id] = r.stats || {};
         if (r.status === 429) statsMap["__rate_limited__"] = true;
       })
@@ -119,13 +131,15 @@ async function fetchStatsParallel({ entities, entityType, token, startTime, endT
 }
 
 // ── Account-level summary (accurate totals) ───────────────────────────────────
-async function fetchAccountSummary({ accountId, token, startTime, endTime }) {
+async function fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }) {
   const url =
     `${BASE}/adaccounts/${accountId}/stats` +
     `?granularity=TOTAL` +
     `&fields=${encodeURIComponent(FIELDS.join(","))}` +
     `&start_time=${encodeURIComponent(startTime)}` +
-    `&end_time=${encodeURIComponent(endTime)}`;
+    `&end_time=${encodeURIComponent(endTime)}` +
+    `&swipe_up_attribution_window=${swipeWindow || "28_DAY"}` +
+    `&view_attribution_window=${viewWindow || "1_DAY"}`;
   const r = await snapFetch(url, token);
   if (!r.ok) return null;
   const s     = extractStats(r.data, accountId);
@@ -235,9 +249,20 @@ export async function GET(request) {
   const activeOnly = searchParams.get("active_only") === "1";
   const force      = searchParams.get("force")       === "1";
 
+  // Attribution windows — convert "28d" → "28_DAY", "0d" → "ZERO"
+  const rawSwipe = searchParams.get("swipe_up_attribution_window") || "28d";
+  const rawView  = searchParams.get("view_attribution_window")     || "1d";
+  function toSnapWindow(v) {
+    const n = parseInt(v);
+    if (!n || n === 0) return "ZERO";
+    return `${n}_DAY`;
+  }
+  const swipeWindow = toSnapWindow(rawSwipe);
+  const viewWindow  = toSnapWindow(rawView);
+
   if (!accountId) return NextResponse.json({ success: false, error: "account_id is required" });
 
-  const cacheKey = getCacheKey({ accountId, level, datePreset, activeOnly });
+  const cacheKey = `${accountId}:${level}:${datePreset}:${activeOnly?1:0}:${swipeWindow}:${viewWindow}`;
   if (!force) {
     const cached = getCached(cacheKey);
     if (cached) return NextResponse.json({ ...cached, cached: true });
@@ -249,9 +274,9 @@ export async function GET(request) {
   const { startTime, endTime } = getDateRange(datePreset);
   const entityType = { campaign:"campaigns", adsquad:"adsquads", ad:"ads" }[level] || "campaigns";
 
-  // 1. Fetch account summary (accurate totals — fast, 1 call)
+  // 1. Fetch account summary + entities in parallel
   const [accountSummary, entitiesResult] = await Promise.all([
-    fetchAccountSummary({ accountId, token, startTime, endTime }),
+    fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }),
     fetchEntities({ accountId, level, token }),
   ]);
 
@@ -261,32 +286,36 @@ export async function GET(request) {
 
   const allEntities = entitiesResult.entities;
 
-  // 2. Active first — sort active to top
+  // 2. Filter: skip DELETED / ARCHIVED — keep ACTIVE + PAUSED + PENDING only
+  const allowedStatuses = ["ACTIVE", "PAUSED", "PENDING"];
+  const filtered = allEntities.filter(e => allowedStatuses.includes(e.status));
+
+  // 3. Sort: ACTIVE first
   const sorted = [
-    ...allEntities.filter(e => e.status === "ACTIVE"),
-    ...allEntities.filter(e => e.status !== "ACTIVE"),
+    ...filtered.filter(e => e.status === "ACTIVE"),
+    ...filtered.filter(e => e.status !== "ACTIVE"),
   ];
 
-  // 3. Filter logic:
-  //    active_only=1  → only ACTIVE
-  //    default        → ACTIVE + PAUSED (skip DELETED/ARCHIVED/UNKNOWN)
-  const allowedStatuses = ["ACTIVE", "PAUSED", "PENDING"];
+  // 4. If active_only, keep only ACTIVE
   const toLoad = activeOnly
     ? sorted.filter(e => e.status === "ACTIVE")
-    : sorted.filter(e => allowedStatuses.includes(e.status));
+    : sorted;
 
-  // 4. Parallel batch stats
+  // 5. Fetch stats in parallel batches with attribution windows
   const statsMap = await fetchStatsParallel({
-    entities: toLoad, entityType, token, startTime, endTime
+    entities: toLoad, entityType, token, startTime, endTime, swipeWindow, viewWindow
   });
 
   const rateLimited = !!statsMap["__rate_limited__"];
   const allRows = toLoad.map(e => normalizeRow(e, statsMap[e.id] || {}));
 
-  // Only show rows that are ACTIVE or had spend in the selected period
-  const rows = allRows.filter(r => r.status === "ACTIVE" || r.spend > 0);
+  // 6. Keep only rows with actual spend OR currently ACTIVE — hide empty ghosts
+  const rows = allRows.filter(r => r.spend > 0 || r.status === "ACTIVE");
 
-  // 5. Summary — use account-level if available (most accurate)
+  // 7. Sort by spend descending — most valuable campaigns first
+  rows.sort((a, b) => b.spend - a.spend);
+
+  // 8. Summary — account-level is most accurate
   const summary = accountSummary || buildSummary(rows);
 
   const payload = {
@@ -294,14 +323,15 @@ export async function GET(request) {
     provider:   "Snapchat Ads",
     account_id: accountId,
     level,
-    date_preset: datePreset,
-    start_time:  startTime,
-    end_time:    endTime,
-    total_entities:   allEntities.length,
-    active_entities:  allEntities.filter(e => e.status === "ACTIVE").length,
-    loaded_count:     rows.length,
-    active_only:      activeOnly,
-    rate_limited:     rateLimited,
+    date_preset:  datePreset,
+    start_time:   startTime,
+    end_time:     endTime,
+    attribution:  { swipe: swipeWindow, view: viewWindow },
+    total_entities:  allEntities.length,
+    active_entities: allEntities.filter(e => e.status === "ACTIVE").length,
+    loaded_count:    rows.length,
+    active_only:     activeOnly,
+    rate_limited:    rateLimited,
     summary,
     data: rows,
   };
