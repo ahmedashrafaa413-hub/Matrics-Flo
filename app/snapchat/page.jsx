@@ -163,6 +163,47 @@ function ChartTip({ active, payload, label }) {
 }
 
 function SnapTable({ title, loading, rows }) {
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("desc");
+
+  function handleSort(key) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return rows;
+    return [...rows].sort((a, b) => {
+      const aVal = Number(a[sortKey] || 0);
+      const bVal = Number(b[sortKey] || 0);
+      return sortDir === "desc" ? bVal - aVal : aVal - bVal;
+    });
+  }, [rows, sortKey, sortDir]);
+
+  function SortTh({ label, colKey }) {
+    const active = sortKey === colKey;
+    return (
+      <th
+        onClick={() => handleSort(colKey)}
+        style={{
+          cursor: "pointer",
+          userSelect: "none",
+          whiteSpace: "nowrap",
+          color: active ? "#FFFC00" : undefined
+        }}
+      >
+        {label}{" "}
+        <span style={{ opacity: active ? 1 : 0.3, fontSize: 10 }}>
+          {active ? (sortDir === "desc" ? "▼" : "▲") : "⇅"}
+        </span>
+      </th>
+    );
+  }
+
   return (
     <div className="dash-table-card">
       <div className="dash-table-head">
@@ -187,22 +228,22 @@ function SnapTable({ title, loading, rows }) {
               <tr>
                 <th>Name</th>
                 <th>Status</th>
-                <th>Spend</th>
-                <th>Revenue</th>
-                <th>ROAS</th>
-                <th>Purchases</th>
-                <th>CPA</th>
-                <th>Impressions</th>
-                <th>Swipes</th>
-                <th>CTR</th>
-                <th>CPC</th>
-                <th>CPM</th>
-                <th>Video Views</th>
+                <SortTh label="Spend" colKey="spend" />
+                <SortTh label="Revenue" colKey="revenue" />
+                <SortTh label="ROAS" colKey="roas" />
+                <SortTh label="Purchases" colKey="purchases" />
+                <SortTh label="CPA" colKey="cpa" />
+                <SortTh label="Impressions" colKey="impressions" />
+                <SortTh label="Swipes" colKey="swipes" />
+                <SortTh label="CTR" colKey="ctr" />
+                <SortTh label="CPC" colKey="cpc" />
+                <SortTh label="CPM" colKey="cpm" />
+                <SortTh label="Video Views" colKey="video_views" />
               </tr>
             </thead>
 
             <tbody>
-              {rows.map((row, index) => (
+              {sortedRows.map((row, index) => (
                 <tr key={row.id || index}>
                   <td className="dash-name-cell">
                     {row.ad_name ||
