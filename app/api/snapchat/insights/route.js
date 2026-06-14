@@ -267,10 +267,13 @@ export async function GET(request) {
     ...allEntities.filter(e => e.status !== "ACTIVE"),
   ];
 
-  // 3. Load active only by default, all if requested
+  // 3. Filter logic:
+  //    active_only=1  → only ACTIVE
+  //    default        → ACTIVE + PAUSED (skip DELETED/ARCHIVED/UNKNOWN)
+  const allowedStatuses = ["ACTIVE", "PAUSED", "PENDING"];
   const toLoad = activeOnly
     ? sorted.filter(e => e.status === "ACTIVE")
-    : sorted;
+    : sorted.filter(e => allowedStatuses.includes(e.status));
 
   // 4. Parallel batch stats
   const statsMap = await fetchStatsParallel({
@@ -278,7 +281,10 @@ export async function GET(request) {
   });
 
   const rateLimited = !!statsMap["__rate_limited__"];
-  const rows = toLoad.map(e => normalizeRow(e, statsMap[e.id] || {}));
+  const allRows = toLoad.map(e => normalizeRow(e, statsMap[e.id] || {}));
+
+  // Only show rows that are ACTIVE or had spend in the selected period
+  const rows = allRows.filter(r => r.status === "ACTIVE" || r.spend > 0);
 
   // 5. Summary — use account-level if available (most accurate)
   const summary = accountSummary || buildSummary(rows);
