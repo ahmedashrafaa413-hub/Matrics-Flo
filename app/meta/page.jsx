@@ -3,17 +3,21 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
+import { toSAR, safeDivide, formatSAR, formatROAS } from "../../lib/currency";
 import { rankCreatives, scoringSummary } from "../../lib/creativeScoring";
 import {
   ResponsiveContainer, BarChart, Bar,
   AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
 
+const META_DEFAULT_CURRENCY = "USD";
+
 const fmt = {
-  money:   (v) => `$${Number(v||0).toFixed(2)}`,
+  money:   (v, currency = META_DEFAULT_CURRENCY) => formatSAR(toSAR(v, currency)),
+  sar:     (v) => formatSAR(v),
   number:  (v) => Number(v||0).toLocaleString(),
   percent: (v) => `${Number(v||0).toFixed(2)}%`,
-  x:       (v) => `${Number(v||0).toFixed(2)}x`,
+  x:       (v) => formatROAS(v),
   compact: (v) => { const n=Number(v||0); return n>=1e6?`${(n/1e6).toFixed(1)}M`:n>=1e3?`${(n/1e3).toFixed(1)}K`:n.toLocaleString(); }
 };
 
@@ -218,7 +222,7 @@ function diagnoseCreatives(rows) {
     else if (hookRate>=25&&holdRate>=10&&ctr<1) { diagnosis="Offer/CTA Problem"; severity="medium"; problem="Watching but not clicking."; action="Test stronger CTA, clearer offer, urgency, or social proof."; }
     else if (frequency>4&&ctr<1) { diagnosis="Creative Fatigue"; severity="medium"; problem="Audience seen this too many times."; action="Refresh creative, test new angles, exclude saturated audiences."; }
     else if (ctr>=1&&lpv>0&&lpvRate<70) { diagnosis="Landing Page Problem"; severity="medium"; problem="Clicks but few reach LP."; action="Run PageSpeed, check mobile, compare Meta LPV with GA4."; }
-    else if (addToCart>0&&purchases/addToCart<0.2) { diagnosis="Checkout Problem"; severity="medium"; problem="Add to cart but don't purchase."; action:"Audit checkout, payment methods, shipping, cart abandonment."; }
+    else if (addToCart>0&&purchases/addToCart<0.2) { diagnosis="Checkout Problem"; severity="medium"; problem="Add to cart but don't purchase."; action="Audit checkout, payment methods, shipping, cart abandonment."; }
     else if (spend>0&&roas<1&&purchases===0) { diagnosis="Losing Creative"; severity="high"; problem="Spending without generating purchases."; action="Pause. Review hook, offer, targeting, and LP before relaunch."; }
     else { diagnosis="Monitor"; severity="neutral"; problem="No clear winner or critical issue."; action="Keep monitoring until more spend and purchase data available."; }
     return { adName:row.ad_name||"Unknown", campaignName:row.campaign_name||"", adsetName:row.adset_name||"", spend, purchases, roas, ctr, frequency, hookRate, holdRate, diagnosis, severity, problem, action };
@@ -358,19 +362,25 @@ export default function MetaPage() {
   const funnel  = useMemo(()=>diagnoseFunnel(campSummary), [campSummary]);
   const totals  = campSummary || {};
 
+  const selectedAccount = accounts.find(a => a.id === accountId);
+  const metaCurrency = selectedAccount?.currency || META_DEFAULT_CURRENCY;
+  const metaSpendSAR = toSAR(totals.spend || 0, metaCurrency);
+  const metaRevenueSAR = toSAR(totals.purchase_value || 0, metaCurrency);
+  const sallaRevenueSAR = Number(sallaSummary?.total_revenue || sallaSummary?.total_sales || 0);
+
   const chartData = useMemo(()=>
     campRows.slice(0,8).map(r=>({
       name:(r.campaign_name||"Unknown").slice(0,16),
-      spend:+Number(r.spend||0).toFixed(2),
-      revenue:+Number(r.purchase_value||0).toFixed(2),
-    })), [campRows]);
+      spend:+Number(toSAR(r.spend||0, metaCurrency)).toFixed(2),
+      revenue:+Number(toSAR(r.purchase_value||0, metaCurrency)).toFixed(2),
+    })), [campRows, metaCurrency]);
 
   const rankedAds   = useMemo(()=>rankCreatives(adRows,"ad_name"), [adRows]);
   const adsSummary  = useMemo(()=>scoringSummary(rankedAds), [rankedAds]);
   const creativeDiag= useMemo(()=>diagnoseCreatives(adRows), [adRows]);
 
-  const realROAS = sallaSummary && totals.spend
-    ? (Number(sallaSummary.total_revenue||0) / Number(totals.spend||1))
+  const realROAS = sallaSummary && metaSpendSAR
+    ? safeDivide(sallaRevenueSAR, metaSpendSAR)
     : null;
 
   const filteredCamps  = useMemo(()=> filterStatus==="all" ? campRows  : campRows.filter(r=>{const st=(campStatus[r.campaign_id||""]?.effective_status||"").toUpperCase(); return filterStatus==="active"?st==="ACTIVE":["PAUSED","CAMPAIGN_PAUSED"].includes(st);}), [campRows,campStatus,filterStatus]);
@@ -389,6 +399,7 @@ export default function MetaPage() {
           <div>
             <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:20, fontWeight:700, color:"var(--text)", letterSpacing:"-0.3px" }}>Meta Ads</h1>
             <p style={{ fontSize:12, color:"var(--muted)" }}>{accounts.find(a=>a.id===accountId)?.name || "No account selected"}</p>
+            <p style={{ fontSize:10, color:"var(--accent)", fontWeight:700 }}>Base currency: SAR • Meta account: {metaCurrency}</p>
           </div>
         </div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
@@ -458,11 +469,11 @@ export default function MetaPage() {
           {/* KPIs */}
           <SectionLabel icon="📊" title="Overview" />
           <div className="dash-kpi-grid">
-            <KPICard label="Spend"     value={campLoading?"—":fmt.money(totals.spend)}          color="#6366f1" icon="💰" />
-            <KPICard label="Revenue"   value={campLoading?"—":fmt.money(totals.purchase_value)} color="#06d6a0" icon="💵" />
+            <KPICard label="Spend (SAR)"     value={campLoading?"—":fmt.money(totals.spend, metaCurrency)}          color="#6366f1" icon="💰" />
+            <KPICard label="Revenue (SAR)"   value={campLoading?"—":fmt.money(totals.purchase_value, metaCurrency)} color="#06d6a0" icon="💵" />
             <KPICard label="ROAS"      value={campLoading?"—":fmt.x(totals.roas)}               color="#06d6a0" icon="📈" />
             <KPICard label="Purchases" value={campLoading?"—":fmt.number(totals.purchases)}     color="#f59e0b" icon="🛒" />
-            <KPICard label="CPA"       value={campLoading?"—":fmt.money(totals.cpa)}            color="#f43f5e" icon="🎯" />
+            <KPICard label="CPA (SAR)"       value={campLoading?"—":fmt.money(totals.cpa, metaCurrency)}            color="#f43f5e" icon="🎯" />
             <KPICard label="CTR"       value={campLoading?"—":fmt.percent(totals.ctr)}          color="#8b5cf6" icon="📊" />
           </div>
 
@@ -470,11 +481,11 @@ export default function MetaPage() {
           {realROAS !== null && (
             <div style={{ background:"rgba(6,214,160,0.06)", border:"1px solid rgba(6,214,160,0.2)", borderRadius:"var(--radius-lg)", padding:"14px 18px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <div>
-                <div style={{ fontSize:11, fontWeight:700, color:"var(--accent)", textTransform:"uppercase", letterSpacing:"0.8px", marginBottom:4 }}>Real ROAS (Meta Spend ÷ Salla Revenue)</div>
-                <div style={{ fontSize:28, fontWeight:700, color:"var(--accent)", fontFamily:"'Space Grotesk',sans-serif" }}>{realROAS.toFixed(2)}x</div>
+                <div style={{ fontSize:11, fontWeight:700, color:"var(--accent)", textTransform:"uppercase", letterSpacing:"0.8px", marginBottom:4 }}>Real ROAS (Salla Revenue SAR ÷ Meta Spend SAR)</div>
+                <div style={{ fontSize:28, fontWeight:700, color:"var(--accent)", fontFamily:"'Space Grotesk',sans-serif" }}>{fmt.x(realROAS)}</div>
               </div>
               <div style={{ textAlign:"right", fontSize:12, color:"var(--muted)" }}>
-                <div>Salla Revenue: <strong style={{ color:"var(--text)" }}>{Number(sallaSummary.total_revenue||0).toLocaleString()} SAR</strong></div>
+                <div>Salla Revenue: <strong style={{ color:"var(--text)" }}>{formatSAR(sallaRevenueSAR)}</strong></div>
                 <div>Orders: <strong style={{ color:"var(--text)" }}>{sallaSummary.total_orders}</strong></div>
               </div>
             </div>
@@ -492,8 +503,8 @@ export default function MetaPage() {
                     <XAxis dataKey="name" stroke="var(--muted)" fontSize={10} tickLine={false} axisLine={false} />
                     <YAxis stroke="var(--muted)" fontSize={10} tickLine={false} axisLine={false} />
                     <Tooltip content={<ChartTip />} cursor={{ fill:"rgba(99,102,241,0.04)" }} />
-                    <Bar dataKey="revenue" name="Revenue ($)" fill="#06d6a0" radius={[5,5,0,0]} />
-                    <Bar dataKey="spend"   name="Spend ($)"   fill="#6366f1" radius={[5,5,0,0]} />
+                    <Bar dataKey="revenue" name="Revenue (SAR)" fill="#06d6a0" radius={[5,5,0,0]} />
+                    <Bar dataKey="spend"   name="Spend (SAR)"   fill="#6366f1" radius={[5,5,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>}
               </div>
@@ -588,13 +599,13 @@ export default function MetaPage() {
                   <tr key={i}>
                     <td className="dash-name-cell">{row.campaign_name||"Unknown"}</td>
                     <td><StatusDot effectiveStatus={campStatus[row.campaign_id||""]?.effective_status}/></td>
-                    <td>{fmt.money(row.spend)}</td>
-                    <td>{fmt.money(row.purchase_value)}</td>
+                    <td>{fmt.money(row.spend, metaCurrency)}</td>
+                    <td>{fmt.money(row.purchase_value, metaCurrency)}</td>
                     <td style={{ color:Number(row.roas||0)>=2?"var(--accent)":Number(row.roas||0)>=1?"var(--gold)":"var(--red)", fontWeight:700 }}>{fmt.x(row.roas)}</td>
                     <td>{fmt.number(row.purchases)}</td>
-                    <td>{fmt.money(row.cpa)}</td>
+                    <td>{fmt.money(row.cpa, metaCurrency)}</td>
                     <td style={{ color:ctrColor(row.ctr), fontWeight:700 }}>{fmt.percent(row.ctr)}</td>
-                    <td>{fmt.money(row.cpm)}</td>
+                    <td>{fmt.money(row.cpm, metaCurrency)}</td>
                     <td><SignalBadge row={row}/></td>
                   </tr>
                 ))}
@@ -621,8 +632,8 @@ export default function MetaPage() {
                     <td className="dash-name-cell">{row.adset_name||"Unknown"}</td>
                     <td style={{ color:"var(--muted)", fontSize:12, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{row.campaign_name}</td>
                     <td><StatusDot effectiveStatus={adsetStatus[row.adset_id||""]?.effective_status}/></td>
-                    <td>{fmt.money(row.spend)}</td>
-                    <td>{fmt.money(row.purchase_value)}</td>
+                    <td>{fmt.money(row.spend, metaCurrency)}</td>
+                    <td>{fmt.money(row.purchase_value, metaCurrency)}</td>
                     <td style={{ color:Number(row.roas||0)>=2?"var(--accent)":Number(row.roas||0)>=1?"var(--gold)":"var(--red)", fontWeight:700 }}>{fmt.x(row.roas)}</td>
                     <td>{fmt.number(row.purchases)}</td>
                     <td style={{ color:ctrColor(row.ctr), fontWeight:700 }}>{fmt.percent(row.ctr)}</td>
@@ -670,7 +681,7 @@ export default function MetaPage() {
                       <div><div style={{ fontSize:9, color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:3 }}>Status</div><StatusDot effectiveStatus={adStatus[row.ad_id||""]?.effective_status}/></div>
                       {[
                         { label:"Score", content:<div style={{ display:"flex", alignItems:"center", gap:6 }}><div style={{ flex:1, height:5, background:"rgba(255,255,255,0.06)", borderRadius:3, overflow:"hidden" }}><div style={{ height:"100%", width:`${s.score}%`, background:bc, borderRadius:3 }}/></div><span style={{ fontSize:11, fontWeight:700, color:bc }}>{s.score}</span></div> },
-                        { label:"Spend", content:<div style={{ fontSize:12, fontWeight:600, color:"var(--text)" }}>{fmt.money(row.spend)}</div> },
+                        { label:"Spend", content:<div style={{ fontSize:12, fontWeight:600, color:"var(--text)" }}>{fmt.money(row.spend, metaCurrency)}</div> },
                         { label:"ROAS",  content:<div style={{ fontSize:12, fontWeight:700, color:Number(row.roas||0)>=2?"var(--accent)":Number(row.roas||0)>=1?"var(--gold)":"var(--red)" }}>{fmt.x(row.roas)}</div> },
                         { label:"Hook",  content:<div style={{ fontSize:12, fontWeight:600, color:Number(row.hook_rate||0)>=25?"var(--accent)":"var(--text)" }}>{Number(row.hook_rate||0)>0?fmt.percent(row.hook_rate):"—"}</div> },
                         { label:"Hold",  content:<div style={{ fontSize:12, fontWeight:600, color:Number(row.hold_rate||0)>=40?"var(--accent)":"var(--text)" }}>{Number(row.hold_rate||0)>0?fmt.percent(row.hold_rate):"—"}</div> },
@@ -727,11 +738,11 @@ export default function MetaPage() {
                 {/* Summary KPIs */}
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:10 }}>
                   {[
-                    { label:"Total Spend",    val:fmt.money(totalSpend),       color:"#6366f1" },
+                    { label:"Total Spend",    val:fmt.money(totalSpend, metaCurrency),       color:"#6366f1" },
                     { label:"Purchases",      val:fmt.number(totalPur),        color:"#f59e0b" },
-                    { label:"Revenue",        val:fmt.money(totalRev),         color:"#06d6a0" },
+                    { label:"Revenue",        val:fmt.money(totalRev, metaCurrency),         color:"#06d6a0" },
                     { label:"Avg ROAS",       val:fmt.x(avgROAS),              color:"#06d6a0" },
-                    { label:"Avg CPA",        val:fmt.money(avgCPA),           color:"#f43f5e" },
+                    { label:"Avg CPA",        val:fmt.money(avgCPA, metaCurrency),           color:"#f43f5e" },
                     { label:"Winners 🏆",     val:winnersCount,                color:"#f59e0b" },
                     { label:"Problems 🔴",    val:problemsCount,               color:"#f43f5e" },
                   ].map(k=>(
@@ -810,11 +821,11 @@ export default function MetaPage() {
                           {/* Core decision metrics */}
                           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
                             {[
-                              { label:"Spend",     val:fmt.money(row.spend) },
+                              { label:"Spend",     val:fmt.money(row.spend, metaCurrency) },
                               { label:"Purchases", val:fmt.number(row.purchases) },
-                              { label:"Revenue",   val:fmt.money(row.purchase_value) },
+                              { label:"Revenue",   val:fmt.money(row.purchase_value, metaCurrency) },
                               { label:"ROAS",      val:fmt.x(row.roas),    color:Number(row.roas||0)>=2?"var(--accent)":Number(row.roas||0)>=1?"var(--gold)":"var(--red)" },
-                              { label:"CPA",       val:fmt.money(row.cpa) },
+                              { label:"CPA",       val:fmt.money(row.cpa, metaCurrency) },
                               { label:"CTR",       val:fmt.percent(row.ctr), color:Number(row.ctr||0)>=1?"var(--accent)":Number(row.ctr||0)>=0.5?"var(--gold)":"var(--red)" },
                             ].map(m=>(
                               <div key={m.label} style={{ background:"var(--glass)", borderRadius:"var(--radius-sm)", padding:"7px 8px" }}>
