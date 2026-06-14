@@ -355,7 +355,7 @@ export default function SnapchatPage() {
 
     try {
       const data = await apiGet(
-        `/api/snapchat/insights?account_id=${selectedAccount}&level=campaign&${buildDateParam()}`
+        `/api/snapchat/insights?account_id=${selectedAccount}&level=campaign&${buildDateParam()}&active_only=1`
       );
 
       setCampRows(data.data || []);
@@ -383,7 +383,7 @@ export default function SnapchatPage() {
 
     try {
       const data = await apiGet(
-        `/api/snapchat/insights?account_id=${selectedAccount}&level=adsquad&${buildDateParam()}`
+        `/api/snapchat/insights?account_id=${selectedAccount}&level=adsquad&${buildDateParam()}&active_only=1`
       );
 
       setAdsquadRows(data.data || []);
@@ -411,7 +411,7 @@ export default function SnapchatPage() {
 
     try {
       const data = await apiGet(
-        `/api/snapchat/insights?account_id=${selectedAccount}&level=ad&${buildDateParam()}`
+        `/api/snapchat/insights?account_id=${selectedAccount}&level=ad&${buildDateParam()}&active_only=1`
       );
 
       setAdRows(data.data || []);
