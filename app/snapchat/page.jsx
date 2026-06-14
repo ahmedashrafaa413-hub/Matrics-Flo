@@ -25,6 +25,15 @@ const DATE_OPTIONS = [
   { value: "maximum", label: "Maximum" }
 ];
 
+const ATTRIBUTION_OPTIONS = [
+  { value: "28_1", label: "28d Swipe / 1d View (Default)", swipe: 28, view: 1 },
+  { value: "7_1",  label: "7d Swipe / 1d View",            swipe: 7,  view: 1 },
+  { value: "1_1",  label: "1d Swipe / 1d View",            swipe: 1,  view: 1 },
+  { value: "28_0", label: "28d Swipe / No View",           swipe: 28, view: 0 },
+  { value: "7_0",  label: "7d Swipe / No View",            swipe: 7,  view: 0 },
+  { value: "1_0",  label: "1d Swipe / No View",            swipe: 1,  view: 0 },
+];
+
 const TABS = [
   { key: "overview", label: "Overview", icon: "⬡" },
   { key: "campaigns", label: "Campaigns", icon: "◈" },
@@ -284,6 +293,7 @@ export default function SnapchatPage() {
   const [accountId, setAccountId] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const [datePreset, setDatePreset] = useState("last_30d");
+  const [attribution, setAttribution] = useState("28_1");
 
   const [campRows, setCampRows] = useState([]);
   const [campSummary, setCampSummary] = useState(null);
@@ -316,7 +326,7 @@ export default function SnapchatPage() {
 
     resetData();
     loadCampaigns(accountId);
-  }, [accountId, datePreset]);
+  }, [accountId, datePreset, attribution]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -348,7 +358,8 @@ export default function SnapchatPage() {
   }
 
   function buildDateParam() {
-    return `date_preset=${datePreset}`;
+    const attr = ATTRIBUTION_OPTIONS.find((a) => a.value === attribution) || ATTRIBUTION_OPTIONS[0];
+    return `date_preset=${datePreset}&swipe_up_attribution_window=${attr.swipe}d&view_attribution_window=${attr.view}d`;
   }
 
   async function loadAccounts() {
@@ -629,6 +640,19 @@ export default function SnapchatPage() {
             ))}
           </select>
 
+          <select
+            value={attribution}
+            onChange={(event) => setAttribution(event.target.value)}
+            disabled={isAnyLoading}
+            style={{ fontSize: 11 }}
+          >
+            {ATTRIBUTION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                🔗 {option.label}
+              </option>
+            ))}
+          </select>
+
           {accounts.length > 0 && (
             <select
               value={accountId}
@@ -686,6 +710,22 @@ export default function SnapchatPage() {
 
       {activeTab === "overview" && (
         <>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 12px",
+            background: "rgba(255,252,0,0.06)",
+            border: "1px solid rgba(255,252,0,0.2)",
+            borderRadius: 8,
+            fontSize: 11,
+            color: "#FFFC00"
+          }}>
+            🔗 Attribution Window:{" "}
+            <strong>
+              {ATTRIBUTION_OPTIONS.find((a) => a.value === attribution)?.label}
+            </strong>
+          </div>
           <div className="dash-kpi-grid">
             <KPICard
               label="Spend"
