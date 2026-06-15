@@ -47,34 +47,45 @@ function setCache(key, data) { cache.set(key, { ts: Date.now(), data }); }
 
 // ── Date helpers — UTC only (Snapchat requires UTC, not +03:00) ───────────────
 function getDateRange(preset) {
-  const now   = new Date();
-  const today = now.toISOString().split("T")[0];
+  // Snapchat API interprets times in the ad account timezone (UTC+3 for Saudi)
+  // We pass times as UTC+3 offset to match what Snapchat dashboard shows
+  const OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3
 
-  // end_time must be on exact hour boundary — use next day 00:00:00Z
-  const tomorrow = new Date(now);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  const endTime = tomorrow.toISOString().split("T")[0] + "T00:00:00.000Z";
+  const nowLocal = new Date(Date.now() + OFFSET_MS);
 
-  function daysAgo(n) {
-    const d = new Date(now);
-    d.setUTCDate(d.getUTCDate() - n);
-    return d.toISOString().split("T")[0];
+  function toLocalDateStr(d) {
+    // Get date string in UTC+3 local time
+    const local = new Date(d.getTime() + OFFSET_MS);
+    return local.toISOString().split("T")[0];
   }
 
+  function toSnapTime(dateStr, hour = 0) {
+    // Return as UTC+3 offset timestamp
+    return `${dateStr}T${String(hour).padStart(2,"0")}:00:00.000+03:00`;
+  }
+
+  function daysAgo(n) {
+    const d = new Date(nowLocal.getTime() - n * 86400000);
+    return toLocalDateStr(d);
+  }
+
+  const todayStr     = toLocalDateStr(nowLocal);
+  const tomorrowStr  = daysAgo(-1);
+
   const startMap = {
-    today:      today,
+    today:      todayStr,
     yesterday:  daysAgo(1),
     last_7d:    daysAgo(6),
     last_30d:   daysAgo(29),
-    this_month: `${today.slice(0,7)}-01`,
+    this_month: `${todayStr.slice(0,7)}-01`,
     last_90d:   daysAgo(89),
     maximum:    daysAgo(1095),
   };
 
   const startDate = startMap[preset] || startMap.last_30d;
   return {
-    startTime: `${startDate}T00:00:00.000Z`,
-    endTime,
+    startTime: toSnapTime(startDate, 0),
+    endTime:   toSnapTime(tomorrowStr, 0),
   };
 }
 
