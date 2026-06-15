@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { safeNumber, safeDivide, toSAR } from "../../../../lib/currency";
+import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
@@ -181,12 +183,16 @@ export async function GET(request) {
 
   const datePreset = searchParams.get("date_preset") || "last_30d";
 
-  const metaAccountId = searchParams.get("meta_account_id") || "";
+  const metaAccountId     = searchParams.get("meta_account_id")     || "";
   const snapchatAccountId = searchParams.get("snapchat_account_id") || "";
 
-  const metaCurrency = searchParams.get("meta_currency") || "USD";
-  const snapchatCurrency = searchParams.get("snapchat_currency") || "USD";
-  const sallaCurrency = searchParams.get("salla_currency") || "SAR";
+  const metaCurrency      = searchParams.get("meta_currency")      || "USD";
+  const snapchatCurrency  = searchParams.get("snapchat_currency")  || "USD";
+  const sallaCurrency     = searchParams.get("salla_currency")     || "SAR";
+
+  // ── Read tokens here — cookies are accessible in this route context ──
+  const metaToken     = cookies().get("meta_token")?.value || "";
+  const snapchatToken = await getSnapchatToken() || "";
 
   const sources = [];
   const debug = [];
@@ -196,7 +202,8 @@ export async function GET(request) {
       `${baseUrl}/api/meta/insights` +
       `?account_id=${encodeURIComponent(metaAccountId)}` +
       `&level=campaign` +
-      `&date_preset=${encodeURIComponent(datePreset)}`;
+      `&date_preset=${encodeURIComponent(datePreset)}` +
+      (metaToken ? `&token=${encodeURIComponent(metaToken)}` : "");
 
     const metaResult = await fetchJson(metaUrl);
 
@@ -239,7 +246,8 @@ export async function GET(request) {
       `?account_id=${encodeURIComponent(snapchatAccountId)}` +
       `&level=campaign` +
       `&date_preset=${encodeURIComponent(datePreset)}` +
-      `&active_only=1`;
+      `&active_only=1` +
+      (snapchatToken ? `&snap_token=${encodeURIComponent(snapchatToken)}` : "");
 
     const snapResult = await fetchJson(snapUrl);
 
