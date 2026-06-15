@@ -322,8 +322,8 @@ export async function GET(request) {
     ...buildMetrics(statsMap[e.id] || {}),
   }));
 
-  // 5. Filter: only rows with spend > 0 OR ACTIVE
-  const rows = allRows.filter(r => r.spend > 0 || r.status === "ACTIVE");
+  // Filter: شيل أي row مفيهاش spend فعلي — ACTIVE بس مش كافية
+  const rows = allRows.filter(r => safeNum(r.spend) > 0.001);
 
   // 6. Sort by spend descending
   rows.sort((a, b) => safeNum(b.spend) - safeNum(a.spend));
