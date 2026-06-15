@@ -146,7 +146,24 @@ function buildSummary(sources) {
 }
 
 function getMetaSummary(metaResult) {
-  return metaResult.data?.summary || metaResult.data?.data?.[0] || {};
+  // الـ route بيرجع summary object مع totals — نستخدمه مباشرة
+  const summary = metaResult.data?.summary;
+  if (summary && summary.spend !== undefined) return summary;
+
+  // Fallback: نجمع من الـ rows يدوياً
+  const rows = metaResult.data?.data || [];
+  if (rows.length === 0) return {};
+
+  const totals = rows.reduce((acc, row) => {
+    acc.spend         += Number(row.spend         || 0);
+    acc.impressions   += Number(row.impressions   || 0);
+    acc.clicks        += Number(row.clicks        || 0);
+    acc.purchases     += Number(row.purchases     || 0);
+    acc.purchase_value+= Number(row.purchase_value|| 0);
+    return acc;
+  }, { spend:0, impressions:0, clicks:0, purchases:0, purchase_value:0 });
+
+  return totals;
 }
 
 function getSnapchatSummary(snapResult) {
@@ -178,7 +195,7 @@ export async function GET(request) {
     const metaUrl =
       `${baseUrl}/api/meta/insights` +
       `?account_id=${encodeURIComponent(metaAccountId)}` +
-      `&level=account` +
+      `&level=campaign` +
       `&date_preset=${encodeURIComponent(datePreset)}`;
 
     const metaResult = await fetchJson(metaUrl);
@@ -222,7 +239,7 @@ export async function GET(request) {
       `?account_id=${encodeURIComponent(snapchatAccountId)}` +
       `&level=campaign` +
       `&date_preset=${encodeURIComponent(datePreset)}` +
-      `&limit=20`;
+      `&active_only=1`;
 
     const snapResult = await fetchJson(snapUrl);
 
