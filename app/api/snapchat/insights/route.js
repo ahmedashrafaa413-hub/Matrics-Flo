@@ -314,11 +314,12 @@ export async function GET(request) {
 
   const allEntities = entitiesResult.entities;
 
-  // 2. Filter: ACTIVE + PAUSED + PENDING only (skip DELETED/ARCHIVED)
-  const allowed = ["ACTIVE", "PAUSED", "PENDING"];
-  const toLoad  = activeOnly
+  // 2. Filter: skip DELETED/ARCHIVED only — نجيب كل الحملات حتى لو PAUSED
+  // عشان الحملات المتوقفة ممكن يكون فيها spend في الفترة المختارة
+  const skipStatuses = ["DELETED", "ARCHIVED"];
+  const toLoad = activeOnly
     ? allEntities.filter(e => e.status === "ACTIVE")
-    : allEntities.filter(e => allowed.includes(e.status));
+    : allEntities.filter(e => !skipStatuses.includes(e.status));
 
   // 3. Fetch stats for each entity
   const statsMap = await fetchAllStats({
