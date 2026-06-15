@@ -5,16 +5,22 @@ export const dynamic = "force-dynamic";
 
 const BASE = "https://adsapi.snapchat.com/v1";
 
+// Snapchat API verified field names — tested via debug route
 const FIELDS = [
   "impressions",
   "spend",
   "swipes",
+  "swipe_up_percent",
   "conversion_purchases",
   "conversion_purchases_value",
-  "conversion_add_cart",
+  "conversion_add_billing",      // ATC in Snapchat
+  "conversion_save",
   "video_views",
   "video_views_15s",
   "view_completion",
+  "quartile_1",
+  "quartile_2",
+  "quartile_3",
 ].join(",");
 
 const BATCH_SIZE    = 10;
@@ -39,40 +45,36 @@ function getCached(key) {
 }
 function setCache(key, data) { cache.set(key, { ts: Date.now(), data }); }
 
-// ── Date helpers — Riyadh (UTC+3) ─────────────────────────────────────────────
-function getRiyadhNow() {
-  const d = new Date(Date.now() + 3 * 3600_000);
-  return { y: d.getUTCFullYear(), m: d.getUTCMonth()+1, d: d.getUTCDate(), h: d.getUTCHours() };
-}
-function shiftDays(base, n) {
-  const dt = new Date(Date.UTC(base.y, base.m-1, base.d));
-  dt.setUTCDate(dt.getUTCDate() + n);
-  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth()+1, d: dt.getUTCDate(), h: base.h };
-}
-// Snapchat needs ISO timestamps — we use UTC midnight for start, next day for end
-function toUTCDate(p, offsetDays = 0) {
-  const dt = new Date(Date.UTC(p.y, p.m-1, p.d));
-  dt.setUTCDate(dt.getUTCDate() + offsetDays);
-  return dt.toISOString().split("T")[0];
-}
+// ── Date helpers — UTC only (Snapchat requires UTC, not +03:00) ───────────────
 function getDateRange(preset) {
-  const now = getRiyadhNow();
-  const today = { y: now.y, m: now.m, d: now.d, h: now.h };
-  const map = {
-    today:      { s: today,               daysBack: 0   },
-    yesterday:  { s: shiftDays(today,-1), daysBack: 1   },
-    last_7d:    { s: shiftDays(today,-6), daysBack: 6   },
-    last_30d:   { s: shiftDays(today,-29),daysBack: 29  },
-    this_month: { s: {...today, d:1},     daysBack: null },
-    last_90d:   { s: shiftDays(today,-89),daysBack: 89  },
-    maximum:    { s: shiftDays(today,-1095),daysBack: 1095 },
+  const now   = new Date();
+  const today = now.toISOString().split("T")[0];
+
+  // end_time must be on exact hour boundary — use next day 00:00:00Z
+  const tomorrow = new Date(now);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const endTime = tomorrow.toISOString().split("T")[0] + "T00:00:00.000Z";
+
+  function daysAgo(n) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().split("T")[0];
+  }
+
+  const startMap = {
+    today:      today,
+    yesterday:  daysAgo(1),
+    last_7d:    daysAgo(6),
+    last_30d:   daysAgo(29),
+    this_month: `${today.slice(0,7)}-01`,
+    last_90d:   daysAgo(89),
+    maximum:    daysAgo(1095),
   };
-  const p = map[preset] || map.last_30d;
-  const startDate = toUTCDate(p.s);
-  const endDate   = toUTCDate(today, 1); // tomorrow = exclusive end
+
+  const startDate = startMap[preset] || startMap.last_30d;
   return {
     startTime: `${startDate}T00:00:00.000Z`,
-    endTime:   `${endDate}T00:00:00.000Z`,
+    endTime,
   };
 }
 
@@ -114,28 +116,29 @@ function extractStats(data, entityId) {
 }
 
 // ── Fetch single entity stats ─────────────────────────────────────────────────
-async function fetchOneStats({ entityType, entityId, token, startTime, endTime, swipeWindow, viewWindow }) {
+// ── Fetch single entity stats ─────────────────────────────────────────────────
+// Attribution windows omitted — using Snapchat defaults (28d swipe / 1d view)
+// Adding them explicitly caused empty responses on some accounts
+async function fetchOneStats({ entityType, entityId, token, startTime, endTime }) {
   const url =
     `${BASE}/${entityType}/${entityId}/stats` +
     `?granularity=TOTAL` +
     `&fields=${encodeURIComponent(FIELDS)}` +
     `&start_time=${encodeURIComponent(startTime)}` +
-    `&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=${swipeWindow}` +
-    `&view_attribution_window=${viewWindow}`;
+    `&end_time=${encodeURIComponent(endTime)}`;
   const r = await snapGet(url, token);
   if (!r.ok) return {};
   return extractStats(r.data, entityId);
 }
 
 // ── Fetch stats for all entities in batches ───────────────────────────────────
-async function fetchAllStats({ entities, entityType, token, startTime, endTime, swipeWindow, viewWindow }) {
+async function fetchAllStats({ entities, entityType, token, startTime, endTime }) {
   const statsMap = {};
   for (let i = 0; i < entities.length; i += BATCH_SIZE) {
     const batch = entities.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (e) => {
       statsMap[e.id] = await fetchOneStats({
-        entityType, entityId: e.id, token, startTime, endTime, swipeWindow, viewWindow
+        entityType, entityId: e.id, token, startTime, endTime
       });
     }));
     if (i + BATCH_SIZE < entities.length) await sleep(BATCH_DELAY);
@@ -144,22 +147,19 @@ async function fetchAllStats({ entities, entityType, token, startTime, endTime, 
 }
 
 // ── Fetch account-level summary ───────────────────────────────────────────────
-async function fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }) {
+async function fetchAccountSummary({ accountId, token, startTime, endTime }) {
   const url =
     `${BASE}/adaccounts/${accountId}/stats` +
     `?granularity=TOTAL` +
     `&fields=${encodeURIComponent(FIELDS)}` +
     `&start_time=${encodeURIComponent(startTime)}` +
-    `&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=${swipeWindow}` +
-    `&view_attribution_window=${viewWindow}`;
+    `&end_time=${encodeURIComponent(endTime)}`;
   const r = await snapGet(url, token);
   if (!r.ok) return null;
   const s = extractStats(r.data, accountId);
   return buildMetrics(s);
 }
 
-// ── Fetch entities ─────────────────────────────────────────────────────────────
 function normStatus(raw) {
   const s = String(raw?.status || raw?.effective_status || "").toUpperCase();
   if (["ACTIVE","RUNNING"].includes(s))       return "ACTIVE";
@@ -198,12 +198,15 @@ function buildMetrics(s) {
   const spend  = fromMicros(s.spend);
   const rev    = fromMicros(s.conversion_purchases_value);
   const pur    = safeNum(s.conversion_purchases);
-  const atc    = safeNum(s.conversion_add_cart);
+  // Snapchat uses conversion_add_billing for Add to Cart
+  const atc    = safeNum(s.conversion_add_billing || s.conversion_add_cart || 0);
   const imp    = safeNum(s.impressions);
   const sw     = safeNum(s.swipes);
   const vv     = safeNum(s.video_views);
   const vv15   = safeNum(s.video_views_15s);
   const vc     = safeNum(s.view_completion);
+  const q1     = safeNum(s.quartile_1);
+  const q3     = safeNum(s.quartile_3);
 
   return {
     spend:           fix2(spend),
@@ -217,15 +220,22 @@ function buildMetrics(s) {
     video_views:     vv,
     video_views_15s: vv15,
     view_completion: vc,
+    quartile_1:      q1,
+    quartile_3:      q3,
     roas:            fix2(safeDivide(rev, spend)),
     cpa:             fix2(safeDivide(spend, pur)),
     cost_per_atc:    fix2(safeDivide(spend, atc)),
     ctr:             fix2(safeDivide(sw, imp) * 100),
     cpc:             fix2(safeDivide(spend, sw)),
     cpm:             fix2(safeDivide(spend, imp) * 1000),
+    // Hook Rate = video_views / impressions
     hook_rate:       fix2(safeDivide(vv, imp) * 100),
+    // Hold Rate = video_views_15s / video_views
     hold_rate:       fix2(safeDivide(vv15, vv) * 100),
+    // Completion Rate = view_completion / video_views
     completion_rate: fix2(safeDivide(vc, vv) * 100),
+    // Quartile 3 rate = watched 75% of video
+    q3_rate:         fix2(safeDivide(q3, vv) * 100),
   };
 }
 
@@ -275,18 +285,17 @@ export async function GET(request) {
   const datePreset  = searchParams.get("date_preset") || "last_30d";
   const activeOnly  = searchParams.get("active_only") === "1";
   const force       = searchParams.get("force")       === "1";
-  const swipeWindow = toSnapWindow(searchParams.get("swipe_up_attribution_window") || "28d");
-  const viewWindow  = toSnapWindow(searchParams.get("view_attribution_window")     || "1d");
+  const snapToken   = searchParams.get("snap_token")  || null;
 
   if (!accountId) return NextResponse.json({ success: false, error: "account_id is required" });
 
-  const cacheKey = `${accountId}:${level}:${datePreset}:${activeOnly?1:0}:${swipeWindow}:${viewWindow}`;
+  const cacheKey = `${accountId}:${level}:${datePreset}:${activeOnly?1:0}`;
   if (!force) {
     const cached = getCached(cacheKey);
     if (cached) return NextResponse.json({ ...cached, cached: true });
   }
 
-  const token = searchParams.get("snap_token") || await getSnapchatToken();
+  const token = snapToken || await getSnapchatToken();
   if (!token) return NextResponse.json({ success: false, error: "Not connected to Snapchat" });
 
   const { startTime, endTime } = getDateRange(datePreset);
@@ -296,7 +305,7 @@ export async function GET(request) {
   // 1. Fetch entities + account summary in parallel
   const [entitiesResult, accountSummary] = await Promise.all([
     fetchEntities(accountId, level, token),
-    fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }),
+    fetchAccountSummary({ accountId, token, startTime, endTime }),
   ]);
 
   if (!entitiesResult.ok) {
@@ -306,14 +315,14 @@ export async function GET(request) {
   const allEntities = entitiesResult.entities;
 
   // 2. Filter: ACTIVE + PAUSED + PENDING only (skip DELETED/ARCHIVED)
-  const allowed  = ["ACTIVE", "PAUSED", "PENDING"];
-  const toLoad   = activeOnly
+  const allowed = ["ACTIVE", "PAUSED", "PENDING"];
+  const toLoad  = activeOnly
     ? allEntities.filter(e => e.status === "ACTIVE")
     : allEntities.filter(e => allowed.includes(e.status));
 
   // 3. Fetch stats for each entity
   const statsMap = await fetchAllStats({
-    entities: toLoad, entityType, token, startTime, endTime, swipeWindow, viewWindow
+    entities: toLoad, entityType, token, startTime, endTime
   });
 
   // 4. Build rows
@@ -322,28 +331,27 @@ export async function GET(request) {
     ...buildMetrics(statsMap[e.id] || {}),
   }));
 
-  // Filter: شيل أي row مفيهاش spend فعلي — ACTIVE بس مش كافية
+  // 5. Filter: only rows with actual spend > 0 (remove ghosts)
   const rows = allRows.filter(r => safeNum(r.spend) > 0.001);
 
   // 6. Sort by spend descending
   rows.sort((a, b) => safeNum(b.spend) - safeNum(a.spend));
 
-  // 7. Summary
+  // 7. Summary — account-level is most accurate
   const summary = accountSummary || buildSummary(rows);
 
   const payload = {
-    success:        true,
-    provider:       "Snapchat Ads",
-    account_id:     accountId,
+    success:         true,
+    provider:        "Snapchat Ads",
+    account_id:      accountId,
     level,
-    date_preset:    datePreset,
-    start_time:     startTime,
-    end_time:       endTime,
-    attribution:    { swipe: swipeWindow, view: viewWindow },
-    total_entities: allEntities.length,
-    active_entities:allEntities.filter(e => e.status === "ACTIVE").length,
-    loaded_count:   rows.length,
-    active_only:    activeOnly,
+    date_preset:     datePreset,
+    start_time:      startTime,
+    end_time:        endTime,
+    total_entities:  allEntities.length,
+    active_entities: allEntities.filter(e => e.status === "ACTIVE").length,
+    loaded_count:    rows.length,
+    active_only:     activeOnly,
     summary,
     data: rows,
   };
