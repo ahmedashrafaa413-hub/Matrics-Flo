@@ -286,7 +286,7 @@ export async function GET(request) {
     if (cached) return NextResponse.json({ ...cached, cached: true });
   }
 
-  const token = await getSnapchatToken();
+  const token = searchParams.get("snap_token") || await getSnapchatToken();
   if (!token) return NextResponse.json({ success: false, error: "Not connected to Snapchat" });
 
   const { startTime, endTime } = getDateRange(datePreset);
