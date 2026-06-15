@@ -284,7 +284,7 @@ export default function SnapchatPage() {
     if (!acc||campLoading) return;
     setCampLoading(true); setError("");
     try {
-      const data = await apiGet(`/api/snapchat/insights?account_id=${acc}&level=campaign&${buildDateParam()}&active_only=1`);
+      const data = await apiGet(`/api/snapchat/insights?account_id=${acc}&level=campaign&${buildDateParam()}`);
       setCampRows(data.data||[]); setCampSummary(data.summary||null);
     } catch(e) { setError(e.message||"Failed to load campaigns"); }
     finally { setCampLoading(false); }
@@ -294,7 +294,7 @@ export default function SnapchatPage() {
     if (!acc||adsquadLoading) return;
     setAdsquadLoading(true); setError("");
     try {
-      const data = await apiGet(`/api/snapchat/insights?account_id=${acc}&level=adsquad&${buildDateParam()}&active_only=1`);
+      const data = await apiGet(`/api/snapchat/insights?account_id=${acc}&level=adsquad&${buildDateParam()}`);
       setAdsquadRows(data.data||[]); setAdsquadLoaded(true);
     } catch(e) { setError(e.message||"Failed to load ad squads"); }
     finally { setAdsquadLoading(false); }
@@ -304,7 +304,7 @@ export default function SnapchatPage() {
     if (!acc||adLoading) return;
     setAdLoading(true); setError("");
     try {
-      const data = await apiGet(`/api/snapchat/insights?account_id=${acc}&level=ad&${buildDateParam()}&active_only=1`);
+      const data = await apiGet(`/api/snapchat/insights?account_id=${acc}&level=ad&${buildDateParam()}`);
       setAdRows(data.data||[]); setAdLoaded(true);
     } catch(e) { setError(e.message||"Failed to load ads"); }
     finally { setAdLoading(false); }
