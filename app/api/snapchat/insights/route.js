@@ -23,8 +23,8 @@ const FIELDS = [
   "quartile_3",
 ].join(",");
 
-const BATCH_SIZE    = 25;
-const BATCH_DELAY   = 100;
+const BATCH_SIZE    = 50;
+const BATCH_DELAY   = 200;
 const CACHE_TTL     = 5 * 60 * 1000; // 5 min
 const cache         = new Map();
 
@@ -196,27 +196,44 @@ function normStatus(raw) {
 
 async function fetchEntities(accountId, level, token) {
   const pathMap = { campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
-  const r = await snapGet(`${BASE}/adaccounts/${accountId}/${pathMap[level]}?limit=500`, token);
-  if (!r.ok) return { ok: false, error: r.data || r.raw, entities: [] };
+  const path    = pathMap[level] || "campaigns";
+
+  // Paginate to get ALL entities — Snapchat max per page is 200
+  let allRaw  = [];
+  let nextUrl = `${BASE}/adaccounts/${accountId}/${path}?limit=200`;
+  let pages   = 0;
+
+  while (nextUrl && pages < 10) {
+    const r = await snapGet(nextUrl, token);
+    if (!r.ok) return { ok: false, error: r.data || r.raw, entities: [] };
+
+    const items = r.data?.[path] || [];
+    allRaw = allRaw.concat(items);
+
+    // Follow next_link for pagination
+    nextUrl = r.data?.paging?.next_link || null;
+    pages++;
+  }
 
   let entities = [];
   if (level === "campaign") {
-    entities = (r.data?.campaigns || []).map(i => {
+    entities = allRaw.map(i => {
       const c = i.campaign || i;
       return { id: c.id, name: c.name||"Unnamed", campaign_name: c.name||"Unnamed", status: normStatus(c) };
     });
   } else if (level === "adsquad") {
-    entities = (r.data?.adsquads || []).map(i => {
+    entities = allRaw.map(i => {
       const a = i.adsquad || i;
       return { id: a.id, name: a.name||"Unnamed", adsquad_name: a.name||"Unnamed", campaign_id: a.campaign_id||"", status: normStatus(a) };
     });
   } else {
-    entities = (r.data?.ads || []).map(i => {
+    entities = allRaw.map(i => {
       const a = i.ad || i;
       return { id: a.id, name: a.name||"Unnamed", ad_name: a.name||"Unnamed", adsquad_id: a.ad_squad_id||"", status: normStatus(a) };
     });
   }
-  return { ok: true, entities };
+
+  return { ok: true, entities, total_fetched: allRaw.length };
 }
 
 // ── Build metrics from raw stats ───────────────────────────────────────────────
