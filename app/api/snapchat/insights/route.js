@@ -107,14 +107,22 @@ function toSnapWindow(raw) {
 }
 
 // ── HTTP ──────────────────────────────────────────────────────────────────────
-async function snapGet(url, token) {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  const text = await res.text();
-  try { return { ok: res.ok, status: res.status, data: JSON.parse(text) }; }
-  catch { return { ok: res.ok, status: res.status, data: null, raw: text.slice(0,500) }; }
+async function snapGet(url, token, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const text = await res.text();
+    // Retry on 429 rate limit
+    if (res.status === 429 && attempt < retries) {
+      await sleep(1500 * (attempt + 1));
+      continue;
+    }
+    try { return { ok: res.ok, status: res.status, data: JSON.parse(text) }; }
+    catch { return { ok: res.ok, status: res.status, data: null, raw: text.slice(0,500) }; }
+  }
+  return { ok: false, status: 429, data: null };
 }
 
 // ── Extract stats from Snapchat response ──────────────────────────────────────
@@ -156,10 +164,9 @@ async function fetchOneStats({ entityType, entityId, token, startTime, endTime }
 async function fetchAllStats({ entities, entityType, token, startTime, endTime }) {
   const statsMap = {};
 
-  // Run all requests in parallel — no batching, no delay
-  // Vercel timeout is 10s, Snapchat allows ~50 concurrent requests
-  // For large accounts, we cap at 60 entities max (most spend is in active ones)
-  const toFetch = entities.slice(0, 60);
+  // Run all ACTIVE entities in parallel — no cap needed
+  // ACTIVE entities are typically < 30 per account
+  const toFetch = entities;
 
   await Promise.all(toFetch.map(async (e) => {
     try {
@@ -359,18 +366,10 @@ export async function GET(request) {
 
   const allEntities = entitiesResult.entities;
 
-  // 2. Smart filter:
-  // - For short ranges (today, yesterday, last_7d): ACTIVE only — fast & accurate
-  // - For longer ranges: include PAUSED too (may have historical spend)
-  // This avoids Vercel timeout from fetching 200+ campaigns
-  const shortRange  = ["today", "yesterday", "last_7d"].includes(datePreset);
-  const skipStatuses = ["DELETED", "ARCHIVED"];
-
-  const toLoad = activeOnly
-    ? allEntities.filter(e => e.status === "ACTIVE")
-    : shortRange
-      ? allEntities.filter(e => e.status === "ACTIVE")
-      : allEntities.filter(e => !skipStatuses.includes(e.status));
+  // 2. Smart filter — always use ACTIVE to avoid Vercel timeout
+  // Snapchat accounts can have 200+ entities; we can only handle ~30 in 10s
+  // ACTIVE entities cover 99% of current spend
+  const toLoad = allEntities.filter(e => e.status === "ACTIVE");
 
   // 3. Fetch stats for each entity
   const statsMap = await fetchAllStats({
