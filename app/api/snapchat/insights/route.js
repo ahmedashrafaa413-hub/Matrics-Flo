@@ -197,10 +197,17 @@ async function fetchAccountSummary({ accountId, token, startTime, endTime }) {
 
 function normStatus(raw) {
   const s = String(raw?.status || raw?.effective_status || "").toUpperCase();
-  if (["ACTIVE","RUNNING"].includes(s))       return "ACTIVE";
-  if (["PAUSED","INACTIVE"].includes(s))      return "PAUSED";
-  if (["PENDING","UNDER_REVIEW"].includes(s)) return "PENDING";
-  return s || "UNKNOWN";
+  // Active/Delivering states
+  if (["ACTIVE","RUNNING","DELIVERING","LIVE"].includes(s))           return "ACTIVE";
+  // Paused states
+  if (["PAUSED","INACTIVE","ADACCOUNT_PAUSED","CAMPAIGN_PAUSED",
+       "ADSQUAD_PAUSED","AD_PAUSED"].includes(s))                     return "PAUSED";
+  // Pending/Review states
+  if (["PENDING","UNDER_REVIEW","IN_REVIEW","REVIEW"].includes(s))    return "PENDING";
+  // Deleted/Archived
+  if (["DELETED","ARCHIVED"].includes(s))                             return s;
+  // Unknown/Other — treat as ACTIVE to not miss spend
+  return s || "ACTIVE";
 }
 
 async function fetchEntities(accountId, level, token) {
@@ -238,7 +245,16 @@ async function fetchEntities(accountId, level, token) {
   } else {
     entities = allRaw.map(i => {
       const a = i.ad || i;
-      return { id: a.id, name: a.name||"Unnamed", ad_name: a.name||"Unnamed", adsquad_id: a.ad_squad_id||"", status: normStatus(a) };
+      // Snapchat ad status can come from effective_status or status field
+      const adStatus = a.status || a.effective_status || "ACTIVE";
+      return {
+        id:          a.id,
+        name:        a.name || "Unnamed",
+        ad_name:     a.name || "Unnamed",
+        adsquad_id:  a.ad_squad_id || a.adsquad_id || "",
+        campaign_id: a.campaign_id || "",
+        status:      normStatus({ status: adStatus }),
+      };
     });
   }
 
