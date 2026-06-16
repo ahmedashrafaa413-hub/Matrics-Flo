@@ -7,82 +7,60 @@ const BASE = "https://adsapi.snapchat.com/v1";
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const accountId = searchParams.get("account_id");
-  const preset    = searchParams.get("preset") || "today";
+  const preset    = searchParams.get("preset") || "last_7d";
 
   const token = await getSnapchatToken();
   if (!token) return NextResponse.json({ error: "Not connected" });
 
-  // UTC+3 aware date range
+  // Method A: Pure UTC (same as debug route that works)
+  function daysAgoUTC(n) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().split("T")[0];
+  }
+  const tmrwUTC = new Date();
+  tmrwUTC.setUTCDate(tmrwUTC.getUTCDate() + 1);
+
+  // Method B: UTC+3 offset timestamps
   const OFFSET_MS = 3 * 60 * 60 * 1000;
-  const nowLocal  = new Date(Date.now() + OFFSET_MS);
-
-  function toLocalStr(d) {
-    return new Date(d.getTime() + OFFSET_MS).toISOString().split("T")[0];
+  const nowPlus3  = new Date(Date.now() + OFFSET_MS);
+  function dateStrPlus3(d) {
+    const s = new Date(d.getTime() + OFFSET_MS);
+    return `${s.getUTCFullYear()}-${String(s.getUTCMonth()+1).padStart(2,"0")}-${String(s.getUTCDate()).padStart(2,"0")}`;
   }
-  function toSnapTime(dateStr, hour = 0) {
-    return `${dateStr}T${String(hour).padStart(2,"0")}:00:00.000+03:00`;
-  }
-  function daysAgo(n) {
-    return toLocalStr(new Date(nowLocal.getTime() - n * 86400000));
+  function daysAgoPlus3(n) {
+    return dateStrPlus3(new Date(nowPlus3.getTime() - n * 86400000));
   }
 
-  const todayStr    = toLocalStr(nowLocal);
-  const tomorrowStr = daysAgo(-1);
-  const startMap    = {
-    today: todayStr, yesterday: daysAgo(1),
-    last_7d: daysAgo(6), last_30d: daysAgo(29), maximum: daysAgo(1095),
-  };
+  const presetMap = { today:0, yesterday:1, last_7d:6, last_30d:29, last_90d:89 };
+  const daysBack  = presetMap[preset] || 6;
 
-  const startTime = toSnapTime(startMap[preset] || startMap.last_30d);
-  const endTime   = toSnapTime(tomorrowStr);
+  const startUTC  = `${daysAgoUTC(daysBack)}T00:00:00.000Z`;
+  const endUTC    = `${tmrwUTC.toISOString().split("T")[0]}T00:00:00.000Z`;
 
-  // Account summary
-  const accRes  = await fetch(
-    `${BASE}/adaccounts/${accountId}/stats?granularity=TOTAL` +
-    `&fields=impressions,spend,swipes,conversion_purchases,conversion_purchases_value` +
-    `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`,
-    { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
-  );
-  const accData  = await accRes.json();
-  const accStats = accData?.total_stats?.[0]?.total_stat?.stats || {};
+  const todayPlus3 = dateStrPlus3(nowPlus3);
+  const tmrwPlus3  = dateStrPlus3(new Date(nowPlus3.getTime() + 86400000));
+  const startPlus3 = `${daysAgoPlus3(daysBack)}T00:00:00.000+03:00`;
+  const endPlus3   = `${tmrwPlus3}T00:00:00.000+03:00`;
 
-  // Campaign samples
-  const listRes  = await fetch(`${BASE}/adaccounts/${accountId}/campaigns?limit=20`, {
-    headers: { Authorization: `Bearer ${token}` }, cache: "no-store"
-  });
-  const listData = await listRes.json();
-  const camps    = (listData.campaigns || []).slice(0, 5);
-
-  const campStats = [];
-  for (const c of camps) {
-    const id   = c.campaign?.id;
-    const name = c.campaign?.name;
-    const status = c.campaign?.status;
-    const sr   = await fetch(
-      `${BASE}/campaigns/${id}/stats?granularity=TOTAL` +
-      `&fields=impressions,spend,swipes,conversion_purchases,conversion_purchases_value` +
-      `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`,
-      { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
-    );
-    const sd = await sr.json();
-    const s  = sd?.total_stats?.[0]?.total_stat?.stats || {};
-    campStats.push({
-      id, name, status,
-      spend_usd:   Number(s.spend||0)/1e6,
-      impressions: s.impressions,
-      purchases:   s.conversion_purchases,
-      revenue_usd: Number(s.conversion_purchases_value||0)/1e6,
-    });
+  async function getAccountStats(startTime, endTime) {
+    const url = `${BASE}/adaccounts/${accountId}/stats?granularity=TOTAL&fields=impressions,spend,swipes,conversion_purchases,conversion_purchases_value&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
+    const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    const data = await res.json();
+    const s    = data?.total_stats?.[0]?.total_stat?.stats || {};
+    return { spend_usd: Number(s.spend||0)/1e6, impressions: s.impressions, purchases: s.conversion_purchases, revenue_usd: Number(s.conversion_purchases_value||0)/1e6, startTime, endTime };
   }
+
+  const [methodA, methodB] = await Promise.all([
+    getAccountStats(startUTC, endUTC),
+    getAccountStats(startPlus3, endPlus3),
+  ]);
 
   return NextResponse.json({
-    preset, startTime, endTime,
-    account_summary: {
-      spend_usd:   Number(accStats.spend||0)/1e6,
-      impressions: accStats.impressions,
-      purchases:   accStats.conversion_purchases,
-      revenue_usd: Number(accStats.conversion_purchases_value||0)/1e6,
-    },
-    campaign_samples: campStats,
+    preset, daysBack,
+    method_A_pure_UTC:    methodA,
+    method_B_UTC_plus3:   methodB,
+    current_utc:          new Date().toISOString(),
+    current_plus3:        `${todayPlus3}T${String(new Date().getUTCHours() + 3).padStart(2,"0")}:${String(new Date().getUTCMinutes()).padStart(2,"0")} (local)`,
   });
 }
