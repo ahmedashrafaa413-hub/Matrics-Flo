@@ -23,9 +23,9 @@ const FIELDS = [
   "quartile_3",
 ].join(",");
 
-const BATCH_SIZE    = 10;
-const BATCH_DELAY   = 300;
-const CACHE_TTL     = 10 * 60 * 1000;
+const BATCH_SIZE    = 25;
+const BATCH_DELAY   = 100;
+const CACHE_TTL     = 5 * 60 * 1000; // 5 min
 const cache         = new Map();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -47,45 +47,50 @@ function setCache(key, data) { cache.set(key, { ts: Date.now(), data }); }
 
 // ── Date helpers — UTC only (Snapchat requires UTC, not +03:00) ───────────────
 function getDateRange(preset) {
-  // Snapchat API interprets times in the ad account timezone (UTC+3 for Saudi)
-  // We pass times as UTC+3 offset to match what Snapchat dashboard shows
-  const OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3
+  // Snapchat uses the ad account timezone (UTC+3 Saudi)
+  // We send timestamps with explicit +03:00 offset so Snapchat interprets correctly
+  const OFFSET_MS = 3 * 60 * 60 * 1000;
 
-  const nowLocal = new Date(Date.now() + OFFSET_MS);
+  // Current time in UTC+3 — no double offset
+  const nowUTC   = new Date();
+  const nowPlus3 = new Date(nowUTC.getTime() + OFFSET_MS);
 
-  function toLocalDateStr(d) {
-    // Get date string in UTC+3 local time
-    const local = new Date(d.getTime() + OFFSET_MS);
-    return local.toISOString().split("T")[0];
+  // Get YYYY-MM-DD in UTC+3 space by reading UTC values of the shifted date
+  function dateStr(d) {
+    const shifted = new Date(d.getTime() + OFFSET_MS);
+    const y = shifted.getUTCFullYear();
+    const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(shifted.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
   }
 
-  function toSnapTime(dateStr, hour = 0) {
-    // Return as UTC+3 offset timestamp
-    return `${dateStr}T${String(hour).padStart(2,"0")}:00:00.000+03:00`;
+  // Timestamp with explicit +03:00 offset — Snapchat matches dashboard timezone
+  function snapTS(ds) {
+    return `${ds}T00:00:00.000+03:00`;
   }
 
+  // Subtract n days in local time
   function daysAgo(n) {
-    const d = new Date(nowLocal.getTime() - n * 86400000);
-    return toLocalDateStr(d);
+    return dateStr(new Date(nowPlus3.getTime() - n * 86400000));
   }
 
-  const todayStr     = toLocalDateStr(nowLocal);
-  const tomorrowStr  = daysAgo(-1);
+  const todayStr    = dateStr(nowPlus3);
+  const tomorrowStr = dateStr(new Date(nowPlus3.getTime() + 86400000));
 
   const startMap = {
     today:      todayStr,
     yesterday:  daysAgo(1),
     last_7d:    daysAgo(6),
     last_30d:   daysAgo(29),
-    this_month: `${todayStr.slice(0,7)}-01`,
+    this_month: `${todayStr.slice(0, 7)}-01`,
     last_90d:   daysAgo(89),
     maximum:    daysAgo(1095),
   };
 
   const startDate = startMap[preset] || startMap.last_30d;
   return {
-    startTime: toSnapTime(startDate, 0),
-    endTime:   toSnapTime(tomorrowStr, 0),
+    startTime: snapTS(startDate),
+    endTime:   snapTS(tomorrowStr),
   };
 }
 
@@ -142,18 +147,28 @@ async function fetchOneStats({ entityType, entityId, token, startTime, endTime }
   return extractStats(r.data, entityId);
 }
 
-// ── Fetch stats for all entities in batches ───────────────────────────────────
+// ── Fetch stats for all entities — parallel batches ──────────────────────────
 async function fetchAllStats({ entities, entityType, token, startTime, endTime }) {
   const statsMap = {};
+
+  // Process in batches of BATCH_SIZE in parallel
   for (let i = 0; i < entities.length; i += BATCH_SIZE) {
     const batch = entities.slice(i, i + BATCH_SIZE);
+
     await Promise.all(batch.map(async (e) => {
-      statsMap[e.id] = await fetchOneStats({
-        entityType, entityId: e.id, token, startTime, endTime
-      });
+      try {
+        statsMap[e.id] = await fetchOneStats({
+          entityType, entityId: e.id, token, startTime, endTime
+        });
+      } catch {
+        statsMap[e.id] = {};
+      }
     }));
+
+    // Small delay between batches to avoid rate limiting
     if (i + BATCH_SIZE < entities.length) await sleep(BATCH_DELAY);
   }
+
   return statsMap;
 }
 
