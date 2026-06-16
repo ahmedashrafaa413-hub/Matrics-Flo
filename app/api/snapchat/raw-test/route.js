@@ -18,48 +18,47 @@ export async function GET(request) {
     d.setDate(d.getDate() - n);
     return d.toISOString().split("T")[0];
   }
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const endStr = tomorrow.toISOString().split("T")[0];
-  const presetMap = { today:0, yesterday:1, last_7d:6, last_30d:29, last_90d:89, maximum:1095 };
-  const daysBack  = presetMap[preset] ?? 6;
-  const startStr  = daysAgo(daysBack);
+  const todayStr    = now.toISOString().split("T")[0];
+  const tomorrowStr = new Date(now.getTime() + 86400000).toISOString().split("T")[0];
+
+  const startMap = {
+    today:     todayStr,
+    yesterday: daysAgo(1),
+    last_7d:   daysAgo(7),
+    last_30d:  daysAgo(30),
+    last_90d:  daysAgo(90),
+    maximum:   daysAgo(1095),
+  };
+  const endMap = {
+    today:     tomorrowStr,
+    yesterday: todayStr,
+    last_7d:   todayStr,
+    last_30d:  todayStr,
+    last_90d:  todayStr,
+    maximum:   todayStr,
+  };
+
+  const startStr = startMap[preset] || startMap.last_7d;
+  const endStr   = endMap[preset]   || endMap.last_7d;
   const startTime = `${startStr}T00:00:00.000Z`;
   const endTime   = `${endStr}T00:00:00.000Z`;
 
-  // 1. Get adaccount info to find organization_id
-  const accInfoRes  = await fetch(`${BASE}/adaccounts/${accountId}`, {
-    headers: { Authorization: `Bearer ${token}` }, cache: "no-store"
-  });
-  const accInfoData = await accInfoRes.json();
-  const orgId       = accInfoData?.adaccount?.organization_id;
-  const accCurrency = accInfoData?.adaccount?.currency;
-
-  // 2. Try account-level stats
-  const accStatsRes  = await fetch(
-    `${BASE}/adaccounts/${accountId}/stats?granularity=TOTAL&fields=impressions,spend,swipes,conversion_purchases,conversion_purchases_value&start_time=${startTime}&end_time=${endTime}`,
-    { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
-  );
-  const accStatsData = await accStatsRes.json();
-  const accStats     = accStatsData?.total_stats?.[0]?.total_stat?.stats || {};
-
-  // 3. Get ALL campaigns with pagination
+  // Get ALL campaigns with pagination
   let allCamps = [];
-  let nextLink = `${BASE}/adaccounts/${accountId}/campaigns?limit=200`;
-  let pages = 0;
-  while (nextLink && pages < 5) {
-    const r = await fetch(nextLink, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+  let nextUrl  = `${BASE}/adaccounts/${accountId}/campaigns?limit=200`;
+  let pages    = 0;
+  while (nextUrl && pages < 10) {
+    const r = await fetch(nextUrl, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
     const d = await r.json();
     allCamps = allCamps.concat(d.campaigns || []);
-    nextLink = d.paging?.next_link || null;
+    nextUrl  = d.paging?.next_link || null;
     pages++;
   }
 
-  // 4. Get stats for campaigns with spend — parallel batch of 50
-  const BATCH = 50;
+  // Get stats for ALL in parallel batches of 50
   const results = [];
-  for (let i = 0; i < allCamps.length; i += BATCH) {
-    const batch = allCamps.slice(i, i + BATCH);
+  for (let i = 0; i < allCamps.length; i += 50) {
+    const batch = allCamps.slice(i, i + 50);
     const br = await Promise.all(batch.map(async (c) => {
       const id = c.campaign?.id, name = c.campaign?.name, status = c.campaign?.status;
       try {
@@ -71,13 +70,13 @@ export async function GET(request) {
       } catch { return { id, name, status, spend_usd: 0 }; }
     }));
     results.push(...br);
-    if (i + BATCH < allCamps.length) await new Promise(r => setTimeout(r, 300));
+    if (i + 50 < allCamps.length) await new Promise(r => setTimeout(r, 300));
   }
 
-  const withSpend = results.filter(r => r.spend_usd > 0.001);
+  const withSpend = results.filter(r => r.spend_usd > 0.001).sort((a,b) => b.spend_usd - a.spend_usd);
   const total = results.reduce((acc, r) => ({
-    spend:    acc.spend    + r.spend_usd,
-    revenue:  acc.revenue  + (r.revenue_usd||0),
+    spend: acc.spend + r.spend_usd,
+    revenue: acc.revenue + (r.revenue_usd||0),
     purchases: acc.purchases + (r.purchases||0),
     impressions: acc.impressions + (r.impressions||0),
     swipes: acc.swipes + (r.swipes||0),
@@ -85,19 +84,9 @@ export async function GET(request) {
 
   return NextResponse.json({
     preset, startTime, endTime,
-    organization_id: orgId,
-    currency: accCurrency,
-    // Account-level stats (if works)
-    account_level_stats: {
-      spend_usd:   Number(accStats.spend||0)/1e6,
-      impressions: accStats.impressions,
-      purchases:   accStats.conversion_purchases,
-    },
-    // Campaign aggregation
-    total_campaigns_fetched: allCamps.length,
-    campaigns_with_spend: withSpend.length,
-    campaign_aggregated: total,
-    // Top spenders
-    top_campaigns: withSpend.sort((a,b) => b.spend_usd - a.spend_usd).slice(0, 10),
+    total_campaigns: allCamps.length,
+    with_spend: withSpend.length,
+    aggregated: total,
+    top_campaigns: withSpend.slice(0, 10),
   });
 }
