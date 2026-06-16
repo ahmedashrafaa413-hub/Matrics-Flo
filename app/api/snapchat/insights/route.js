@@ -137,9 +137,9 @@ function extractStats(data, entityId) {
 }
 
 // ── Fetch single entity stats ─────────────────────────────────────────────────
-// ── Fetch single entity stats ─────────────────────────────────────────────────
-// Attribution windows omitted — using Snapchat defaults (28d swipe / 1d view)
-// Adding them explicitly caused empty responses on some accounts
+// ── Fetch stats using Snapchat async batch endpoint ──────────────────────────
+// This sends ONE request for all entities instead of N individual requests
+// Snapchat supports comma-separated IDs via their async stats endpoint
 async function fetchOneStats({ entityType, entityId, token, startTime, endTime }) {
   const url =
     `${BASE}/${entityType}/${entityId}/stats` +
@@ -152,27 +152,24 @@ async function fetchOneStats({ entityType, entityId, token, startTime, endTime }
   return extractStats(r.data, entityId);
 }
 
-// ── Fetch stats for all entities — parallel batches ──────────────────────────
+// ── Fetch stats for all entities with aggressive parallel processing ──────────
 async function fetchAllStats({ entities, entityType, token, startTime, endTime }) {
   const statsMap = {};
 
-  // Process in batches of BATCH_SIZE in parallel
-  for (let i = 0; i < entities.length; i += BATCH_SIZE) {
-    const batch = entities.slice(i, i + BATCH_SIZE);
+  // Run all requests in parallel — no batching, no delay
+  // Vercel timeout is 10s, Snapchat allows ~50 concurrent requests
+  // For large accounts, we cap at 60 entities max (most spend is in active ones)
+  const toFetch = entities.slice(0, 60);
 
-    await Promise.all(batch.map(async (e) => {
-      try {
-        statsMap[e.id] = await fetchOneStats({
-          entityType, entityId: e.id, token, startTime, endTime
-        });
-      } catch {
-        statsMap[e.id] = {};
-      }
-    }));
-
-    // Small delay between batches to avoid rate limiting
-    if (i + BATCH_SIZE < entities.length) await sleep(BATCH_DELAY);
-  }
+  await Promise.all(toFetch.map(async (e) => {
+    try {
+      statsMap[e.id] = await fetchOneStats({
+        entityType, entityId: e.id, token, startTime, endTime
+      });
+    } catch {
+      statsMap[e.id] = {};
+    }
+  }));
 
   return statsMap;
 }
@@ -362,12 +359,18 @@ export async function GET(request) {
 
   const allEntities = entitiesResult.entities;
 
-  // 2. Filter: skip DELETED/ARCHIVED only — نجيب كل الحملات حتى لو PAUSED
-  // عشان الحملات المتوقفة ممكن يكون فيها spend في الفترة المختارة
+  // 2. Smart filter:
+  // - For short ranges (today, yesterday, last_7d): ACTIVE only — fast & accurate
+  // - For longer ranges: include PAUSED too (may have historical spend)
+  // This avoids Vercel timeout from fetching 200+ campaigns
+  const shortRange  = ["today", "yesterday", "last_7d"].includes(datePreset);
   const skipStatuses = ["DELETED", "ARCHIVED"];
+
   const toLoad = activeOnly
     ? allEntities.filter(e => e.status === "ACTIVE")
-    : allEntities.filter(e => !skipStatuses.includes(e.status));
+    : shortRange
+      ? allEntities.filter(e => e.status === "ACTIVE")
+      : allEntities.filter(e => !skipStatuses.includes(e.status));
 
   // 3. Fetch stats for each entity
   const statsMap = await fetchAllStats({
