@@ -77,20 +77,25 @@ function getDateRange(preset) {
   const todayStr    = dateStr(nowPlus3);
   const tomorrowStr = dateStr(new Date(nowPlus3.getTime() + 86400000));
 
+  // Snapchat "last_7d" = last 7 COMPLETE days (not including today)
+  // i.e. from 7 days ago to yesterday end (same as Snapchat dashboard)
   const startMap = {
     today:      todayStr,
     yesterday:  daysAgo(1),
-    last_7d:    daysAgo(6),
-    last_30d:   daysAgo(29),
+    last_7d:    daysAgo(7),   // 7 complete days back
+    last_30d:   daysAgo(30),  // 30 complete days back
     this_month: `${todayStr.slice(0, 7)}-01`,
-    last_90d:   daysAgo(89),
+    last_90d:   daysAgo(90),
     maximum:    daysAgo(1095),
   };
+
+  // For ranges that exclude today, endTime = today (not tomorrow)
+  const endDate = (preset === "today") ? tomorrowStr : todayStr;
 
   const startDate = startMap[preset] || startMap.last_30d;
   return {
     startTime: snapTS(startDate),
-    endTime:   snapTS(tomorrowStr),
+    endTime:   snapTS(endDate),
   };
 }
 
