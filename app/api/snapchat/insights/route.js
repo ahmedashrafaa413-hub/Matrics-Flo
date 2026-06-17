@@ -3,426 +3,654 @@ import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
-const BASE = "https://adsapi.snapchat.com/v1";
+const SNAP_API_BASE = "https://adsapi.snapchat.com/v1";
 
-// Snapchat API verified field names — tested via debug route
+const DEFAULT_LIMIT = 20;
+const MAX_SAFE_LIMIT = 40;
+const DELAY_BETWEEN_REQUESTS_MS = 350;
+
+/**
+ * Important:
+ * These are the safe fields we already tested successfully.
+ * Do not add unsupported Snapchat fields here before testing them first.
+ */
 const FIELDS = [
   "impressions",
   "spend",
   "swipes",
-  "swipe_up_percent",
   "conversion_purchases",
   "conversion_purchases_value",
-  "conversion_add_billing",      // ATC in Snapchat
-  "conversion_save",
-  "video_views",
-  "video_views_15s",
-  "view_completion",
-  "quartile_1",
-  "quartile_2",
-  "quartile_3",
+  "video_views"
 ].join(",");
 
-const BATCH_SIZE    = 50;
-const BATCH_DELAY   = 200;
-const CACHE_TTL     = 5 * 60 * 1000; // 5 min
-const cache         = new Map();
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function safeNum(v)       { const n = Number(v||0); return Number.isFinite(n) ? n : 0; }
-function safeDivide(a, b) { const x=safeNum(a), y=safeNum(b); return y ? x/y : 0; }
-function fromMicros(v)    { return safeNum(v) / 1_000_000; }
-function fix2(v)          { return Number(safeNum(v).toFixed(2)); }
-function sleep(ms)        { return new Promise(r => setTimeout(r, ms)); }
-function pad(v)           { return String(v).padStart(2,"0"); }
-
-// ── Cache ─────────────────────────────────────────────────────────────────────
-function getCached(key) {
-  const c = cache.get(key);
-  if (!c) return null;
-  if (Date.now() - c.ts > CACHE_TTL) { cache.delete(key); return null; }
-  return c.data;
-}
-function setCache(key, data) { cache.set(key, { ts: Date.now(), data }); }
-
-// ── Date helpers — UTC only (Snapchat requires UTC, not +03:00) ───────────────
-function getDateRange(preset) {
-  // Snapchat uses the ad account timezone (UTC+3 Saudi)
-  // We send timestamps with explicit +03:00 offset so Snapchat interprets correctly
-  const OFFSET_MS = 3 * 60 * 60 * 1000;
-
-  // Current time in UTC+3 — no double offset
-  const nowUTC   = new Date();
-  const nowPlus3 = new Date(nowUTC.getTime() + OFFSET_MS);
-
-  // Get YYYY-MM-DD in UTC+3 space by reading UTC values of the shifted date
-  function dateStr(d) {
-    const shifted = new Date(d.getTime() + OFFSET_MS);
-    const y = shifted.getUTCFullYear();
-    const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
-    const day = String(shifted.getUTCDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-
-  // Timestamp with explicit +03:00 offset — Snapchat matches dashboard timezone
-  function snapTS(ds) {
-    return `${ds}T00:00:00.000+03:00`;
-  }
-
-  // Subtract n days in local time
-  function daysAgo(n) {
-    return dateStr(new Date(nowPlus3.getTime() - n * 86400000));
-  }
-
-  const todayStr    = dateStr(nowPlus3);
-  const tomorrowStr = dateStr(new Date(nowPlus3.getTime() + 86400000));
-
-  // Snapchat "last_7d" = last 7 COMPLETE days (not including today)
-  // i.e. from 7 days ago to yesterday end (same as Snapchat dashboard)
-  const startMap = {
-    today:      todayStr,
-    yesterday:  daysAgo(1),
-    last_7d:    daysAgo(7),   // 7 complete days back
-    last_30d:   daysAgo(30),  // 30 complete days back
-    this_month: `${todayStr.slice(0, 7)}-01`,
-    last_90d:   daysAgo(90),
-    maximum:    daysAgo(1095),
-  };
-
-  // For ranges that exclude today, endTime = today (not tomorrow)
-  const endDate = (preset === "today") ? tomorrowStr : todayStr;
-
-  const startDate = startMap[preset] || startMap.last_30d;
-  return {
-    startTime: snapTS(startDate),
-    endTime:   snapTS(endDate),
-  };
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ── Attribution window ────────────────────────────────────────────────────────
-function toSnapWindow(raw) {
-  const n = parseInt(raw || "0");
-  if (!n) return "ZERO";
-  return `${n}_DAY`;
+function safeNumber(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
-// ── HTTP ──────────────────────────────────────────────────────────────────────
-async function snapGet(url, token, retries = 2) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    const text = await res.text();
-    // Retry on 429 rate limit
-    if (res.status === 429 && attempt < retries) {
-      await sleep(1500 * (attempt + 1));
-      continue;
-    }
-    try { return { ok: res.ok, status: res.status, data: JSON.parse(text) }; }
-    catch { return { ok: res.ok, status: res.status, data: null, raw: text.slice(0,500) }; }
-  }
-  return { ok: false, status: 429, data: null };
+function safeDivide(a, b) {
+  const x = safeNumber(a);
+  const y = safeNumber(b);
+
+  if (!y) return 0;
+
+  return x / y;
 }
 
-// ── Extract stats from Snapchat response ──────────────────────────────────────
-function extractStats(data, entityId) {
-  const arr = data?.total_stats || [];
-  // Try to match by id
-  for (const item of arr) {
-    const stat = item.total_stat || item;
-    if (stat.id === entityId || stat.campaign_id === entityId ||
-        stat.ad_squad_id === entityId || stat.ad_id === entityId) {
-      return stat.stats || stat;
-    }
-  }
-  // Fallback: first item
-  if (arr.length > 0) {
-    const stat = arr[0].total_stat || arr[0];
-    return stat.stats || stat;
-  }
-  return {};
+function microsToMoney(value) {
+  return safeNumber(value) / 1000000;
 }
 
-// ── Fetch single entity stats ─────────────────────────────────────────────────
-// ── Fetch stats using Snapchat async batch endpoint ──────────────────────────
-// This sends ONE request for all entities instead of N individual requests
-// Snapchat supports comma-separated IDs via their async stats endpoint
-async function fetchOneStats({ entityType, entityId, token, startTime, endTime }) {
-  const url =
-    `${BASE}/${entityType}/${entityId}/stats` +
-    `?granularity=TOTAL` +
-    `&fields=${encodeURIComponent(FIELDS)}` +
-    `&start_time=${encodeURIComponent(startTime)}` +
-    `&end_time=${encodeURIComponent(endTime)}`;
-  const r = await snapGet(url, token);
-  if (!r.ok) return {};
-  return extractStats(r.data, entityId);
+function clampLimit(value) {
+  const n = Number(value || DEFAULT_LIMIT);
+
+  if (!Number.isFinite(n)) return DEFAULT_LIMIT;
+  if (n < 1) return DEFAULT_LIMIT;
+  if (n > MAX_SAFE_LIMIT) return MAX_SAFE_LIMIT;
+
+  return n;
 }
 
-// ── Fetch stats for all entities with aggressive parallel processing ──────────
-async function fetchAllStats({ entities, entityType, token, startTime, endTime }) {
-  const statsMap = {};
+function toSnapEntityType(level) {
+  if (level === "campaign") return "campaigns";
+  if (level === "ad_squad") return "adsquads";
+  if (level === "ad") return "ads";
 
-  // Run all ACTIVE entities in parallel — no cap needed
-  // ACTIVE entities are typically < 30 per account
-  const toFetch = entities;
-
-  await Promise.all(toFetch.map(async (e) => {
-    try {
-      statsMap[e.id] = await fetchOneStats({
-        entityType, entityId: e.id, token, startTime, endTime
-      });
-    } catch {
-      statsMap[e.id] = {};
-    }
-  }));
-
-  return statsMap;
+  return "campaigns";
 }
 
-// ── Fetch account-level summary ───────────────────────────────────────────────
-async function fetchAccountSummary({ accountId, token, startTime, endTime }) {
-  const url =
-    `${BASE}/adaccounts/${accountId}/stats` +
-    `?granularity=TOTAL` +
-    `&fields=${encodeURIComponent(FIELDS)}` +
-    `&start_time=${encodeURIComponent(startTime)}` +
-    `&end_time=${encodeURIComponent(endTime)}`;
-  const r = await snapGet(url, token);
-  if (!r.ok) return null;
-  const s = extractStats(r.data, accountId);
-  return buildMetrics(s);
-}
-
-function normStatus(raw) {
-  const s = String(raw?.status || raw?.effective_status || "").toUpperCase();
-  // Active/Delivering states
-  if (["ACTIVE","RUNNING","DELIVERING","LIVE"].includes(s))           return "ACTIVE";
-  // Paused states
-  if (["PAUSED","INACTIVE","ADACCOUNT_PAUSED","CAMPAIGN_PAUSED",
-       "ADSQUAD_PAUSED","AD_PAUSED"].includes(s))                     return "PAUSED";
-  // Pending/Review states
-  if (["PENDING","UNDER_REVIEW","IN_REVIEW","REVIEW"].includes(s))    return "PENDING";
-  // Deleted/Archived
-  if (["DELETED","ARCHIVED"].includes(s))                             return s;
-  // Unknown/Other — treat as ACTIVE to not miss spend
-  return s || "ACTIVE";
-}
-
-async function fetchEntities(accountId, level, token) {
-  const pathMap = { campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
-  const path    = pathMap[level] || "campaigns";
-
-  // Paginate to get ALL entities — Snapchat max per page is 200
-  let allRaw  = [];
-  let nextUrl = `${BASE}/adaccounts/${accountId}/${path}?limit=200`;
-  let pages   = 0;
-
-  while (nextUrl && pages < 10) {
-    const r = await snapGet(nextUrl, token);
-    if (!r.ok) return { ok: false, error: r.data || r.raw, entities: [] };
-
-    const items = r.data?.[path] || [];
-    allRaw = allRaw.concat(items);
-
-    // Follow next_link for pagination
-    nextUrl = r.data?.paging?.next_link || null;
-    pages++;
-  }
-
-  let entities = [];
+function toSnapListPath(accountId, level) {
   if (level === "campaign") {
-    entities = allRaw.map(i => {
-      const c = i.campaign || i;
-      return { id: c.id, name: c.name||"Unnamed", campaign_name: c.name||"Unnamed", status: normStatus(c) };
-    });
-  } else if (level === "adsquad") {
-    entities = allRaw.map(i => {
-      const a = i.adsquad || i;
-      return { id: a.id, name: a.name||"Unnamed", adsquad_name: a.name||"Unnamed", campaign_id: a.campaign_id||"", status: normStatus(a) };
-    });
-  } else {
-    entities = allRaw.map(i => {
-      const a = i.ad || i;
-      // Snapchat ad status can come from effective_status or status field
-      const adStatus = a.status || a.effective_status || "ACTIVE";
-      return {
-        id:          a.id,
-        name:        a.name || "Unnamed",
-        ad_name:     a.name || "Unnamed",
-        adsquad_id:  a.ad_squad_id || a.adsquad_id || "",
-        campaign_id: a.campaign_id || "",
-        status:      normStatus({ status: adStatus }),
-      };
-    });
+    return `/adaccounts/${accountId}/campaigns`;
   }
 
-  return { ok: true, entities, total_fetched: allRaw.length };
+  if (level === "ad_squad") {
+    return `/adaccounts/${accountId}/adsquads`;
+  }
+
+  if (level === "ad") {
+    return `/adaccounts/${accountId}/ads`;
+  }
+
+  return `/adaccounts/${accountId}/campaigns`;
 }
 
-// ── Build metrics from raw stats ───────────────────────────────────────────────
-function buildMetrics(s) {
-  const spend  = fromMicros(s.spend);
-  const rev    = fromMicros(s.conversion_purchases_value);
-  const pur    = safeNum(s.conversion_purchases);
-  // Snapchat uses conversion_add_billing for Add to Cart
-  const atc    = safeNum(s.conversion_add_billing || s.conversion_add_cart || 0);
-  const imp    = safeNum(s.impressions);
-  const sw     = safeNum(s.swipes);
-  const vv     = safeNum(s.video_views);
-  const vv15   = safeNum(s.video_views_15s);
-  const vc     = safeNum(s.view_completion);
-  const q1     = safeNum(s.quartile_1);
-  const q3     = safeNum(s.quartile_3);
+function getEntityId(entity, level) {
+  if (!entity) return "";
 
-  return {
-    spend:           fix2(spend),
-    revenue:         fix2(rev),
-    purchase_value:  fix2(rev),
-    purchases:       pur,
-    add_to_cart:     atc,
-    impressions:     imp,
-    swipes:          sw,
-    clicks:          sw,
-    video_views:     vv,
-    video_views_15s: vv15,
-    view_completion: vc,
-    quartile_1:      q1,
-    quartile_3:      q3,
-    roas:            fix2(safeDivide(rev, spend)),
-    cpa:             fix2(safeDivide(spend, pur)),
-    cost_per_atc:    fix2(safeDivide(spend, atc)),
-    ctr:             fix2(safeDivide(sw, imp) * 100),
-    cpc:             fix2(safeDivide(spend, sw)),
-    cpm:             fix2(safeDivide(spend, imp) * 1000),
-    // Hook Rate = video_views / impressions
-    hook_rate:       fix2(safeDivide(vv, imp) * 100),
-    // Hold Rate = video_views_15s / video_views
-    hold_rate:       fix2(safeDivide(vv15, vv) * 100),
-    // Completion Rate = view_completion / video_views
-    completion_rate: fix2(safeDivide(vc, vv) * 100),
-    // Quartile 3 rate = watched 75% of video
-    q3_rate:         fix2(safeDivide(q3, vv) * 100),
+  if (level === "campaign") {
+    return entity.id || entity.campaign_id || entity.campaign?.id || "";
+  }
+
+  if (level === "ad_squad") {
+    return entity.id || entity.adsquad_id || entity.ad_squad_id || entity.adsquad?.id || "";
+  }
+
+  if (level === "ad") {
+    return entity.id || entity.ad_id || entity.ad?.id || "";
+  }
+
+  return entity.id || "";
+}
+
+function getEntityName(entity, level) {
+  if (!entity) return "Untitled";
+
+  if (entity.name) return entity.name;
+
+  if (level === "campaign") {
+    return entity.campaign?.name || entity.campaign_name || "Untitled Campaign";
+  }
+
+  if (level === "ad_squad") {
+    return (
+      entity.adsquad?.name ||
+      entity.ad_squad?.name ||
+      entity.adsquad_name ||
+      "Untitled Ad Squad"
+    );
+  }
+
+  if (level === "ad") {
+    return entity.ad?.name || entity.ad_name || "Untitled Ad";
+  }
+
+  return "Untitled";
+}
+
+function normalizeStatus(value) {
+  const status = String(value || "").toUpperCase();
+
+  if (
+    status.includes("ACTIVE") ||
+    status.includes("RUNNING") ||
+    status.includes("DELIVERING")
+  ) {
+    return "ACTIVE";
+  }
+
+  if (
+    status.includes("PAUSED") ||
+    status.includes("STOPPED") ||
+    status.includes("INACTIVE")
+  ) {
+    return "PAUSED";
+  }
+
+  if (status.includes("DELETED") || status.includes("ARCHIVED")) {
+    return "DELETED";
+  }
+
+  if (status.includes("PENDING")) {
+    return "PENDING";
+  }
+
+  return status || "UNKNOWN";
+}
+
+function getEntityStatus(entity) {
+  return normalizeStatus(
+    entity?.effective_status ||
+      entity?.delivery_status ||
+      entity?.configured_status ||
+      entity?.status ||
+      entity?.campaign?.status ||
+      entity?.adsquad?.status ||
+      entity?.ad?.status
+  );
+}
+
+function getUpdatedAt(entity) {
+  return (
+    entity?.updated_at ||
+    entity?.created_at ||
+    entity?.campaign?.updated_at ||
+    entity?.campaign?.created_at ||
+    entity?.adsquad?.updated_at ||
+    entity?.adsquad?.created_at ||
+    entity?.ad?.updated_at ||
+    entity?.ad?.created_at ||
+    ""
+  );
+}
+
+function sortEntitiesActiveFirst(entities) {
+  return [...entities].sort((a, b) => {
+    const aActive = getEntityStatus(a) === "ACTIVE";
+    const bActive = getEntityStatus(b) === "ACTIVE";
+
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+
+    const aDate = new Date(getUpdatedAt(a)).getTime() || 0;
+    const bDate = new Date(getUpdatedAt(b)).getTime() || 0;
+
+    return bDate - aDate;
+  });
+}
+
+function normalizeSnapchatContainer(data, level) {
+  if (!data) return [];
+
+  const possibleKeys = {
+    campaign: ["campaigns", "campaign"],
+    ad_squad: ["adsquads", "ad_squads", "adsquad", "adSquads"],
+    ad: ["ads", "ad"]
   };
-}
 
-// ── Build summary from rows ────────────────────────────────────────────────────
-function buildSummary(rows) {
-  const t = rows.reduce((acc, r) => {
-    acc.spend       += safeNum(r.spend);
-    acc.revenue     += safeNum(r.revenue);
-    acc.purchases   += safeNum(r.purchases);
-    acc.add_to_cart += safeNum(r.add_to_cart);
-    acc.impressions += safeNum(r.impressions);
-    acc.swipes      += safeNum(r.swipes);
-    acc.vv          += safeNum(r.video_views);
-    acc.vv15        += safeNum(r.video_views_15s);
-    acc.vc          += safeNum(r.view_completion);
-    return acc;
-  }, { spend:0,revenue:0,purchases:0,add_to_cart:0,impressions:0,swipes:0,vv:0,vv15:0,vc:0 });
+  const keys = possibleKeys[level] || possibleKeys.campaign;
 
-  return {
-    spend:           fix2(t.spend),
-    revenue:         fix2(t.revenue),
-    purchase_value:  fix2(t.revenue),
-    purchases:       t.purchases,
-    add_to_cart:     t.add_to_cart,
-    impressions:     t.impressions,
-    swipes:          t.swipes,
-    clicks:          t.swipes,
-    video_views:     t.vv,
-    video_views_15s: t.vv15,
-    roas:            fix2(safeDivide(t.revenue, t.spend)),
-    cpa:             fix2(safeDivide(t.spend, t.purchases)),
-    cost_per_atc:    fix2(safeDivide(t.spend, t.add_to_cart)),
-    ctr:             fix2(safeDivide(t.swipes, t.impressions) * 100),
-    cpc:             fix2(safeDivide(t.spend, t.swipes)),
-    cpm:             fix2(safeDivide(t.spend, t.impressions) * 1000),
-    hook_rate:       fix2(safeDivide(t.vv, t.impressions) * 100),
-    hold_rate:       fix2(safeDivide(t.vv15, t.vv) * 100),
-    completion_rate: fix2(safeDivide(t.vc, t.vv) * 100),
-  };
-}
-
-// ── Main handler ───────────────────────────────────────────────────────────────
-export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const accountId   = searchParams.get("account_id");
-  const level       = searchParams.get("level")       || "campaign";
-  const datePreset  = searchParams.get("date_preset") || "last_30d";
-  const activeOnly  = searchParams.get("active_only") === "1";
-  const force       = searchParams.get("force")       === "1";
-  const snapToken   = searchParams.get("snap_token")  || null;
-
-  if (!accountId) return NextResponse.json({ success: false, error: "account_id is required" });
-
-  const cacheKey = `${accountId}:${level}:${datePreset}:${activeOnly?1:0}`;
-  if (!force) {
-    const cached = getCached(cacheKey);
-    if (cached) return NextResponse.json({ ...cached, cached: true });
+  for (const key of keys) {
+    if (Array.isArray(data[key])) return data[key];
   }
 
-  const token = snapToken || await getSnapchatToken();
-  if (!token) return NextResponse.json({ success: false, error: "Not connected to Snapchat" });
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data)) return data;
 
-  const { startTime, endTime } = getDateRange(datePreset);
-  const entityTypeMap = { campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
-  const entityType    = entityTypeMap[level] || "campaigns";
+  return [];
+}
 
-  // 1. Fetch entities + account summary in parallel
-  const [entitiesResult, accountSummary] = await Promise.all([
-    fetchEntities(accountId, level, token),
-    fetchAccountSummary({ accountId, token, startTime, endTime }),
-  ]);
-
-  if (!entitiesResult.ok) {
-    return NextResponse.json({ success: false, error: entitiesResult.error });
-  }
-
-  const allEntities = entitiesResult.entities;
-
-  // 2. Smart filter — always use ACTIVE to avoid Vercel timeout
-  // Snapchat accounts can have 200+ entities; we can only handle ~30 in 10s
-  // ACTIVE entities cover 99% of current spend
-  const toLoad = allEntities.filter(e => e.status === "ACTIVE");
-
-  // 3. Fetch stats for each entity
-  const statsMap = await fetchAllStats({
-    entities: toLoad, entityType, token, startTime, endTime
+function getRiyadhDateParts(date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
   });
 
-  // 4. Build rows
-  const allRows = toLoad.map(e => ({
-    ...e,
-    ...buildMetrics(statsMap[e.id] || {}),
-  }));
+  const parts = formatter.formatToParts(date);
 
-  // 5. Filter: only rows with actual spend > 0 (remove ghosts)
-  const rows = allRows.filter(r => safeNum(r.spend) > 0.001);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
 
-  // 6. Sort by spend descending
-  rows.sort((a, b) => safeNum(b.spend) - safeNum(a.spend));
+  return { year, month, day };
+}
 
-  // 7. Summary — account-level is most accurate
-  const summary = accountSummary || buildSummary(rows);
+function riyadhStartOfDay(date) {
+  const { year, month, day } = getRiyadhDateParts(date);
+  return `${year}-${month}-${day}T00:00:00.000+03:00`;
+}
 
-  const payload = {
-    success:         true,
-    provider:        "Snapchat Ads",
-    account_id:      accountId,
-    level,
-    date_preset:     datePreset,
-    start_time:      startTime,
-    end_time:        endTime,
-    total_entities:  allEntities.length,
-    active_entities: allEntities.filter(e => e.status === "ACTIVE").length,
-    loaded_count:    rows.length,
-    active_only:     activeOnly,
-    summary,
-    data: rows,
+function riyadhEndOfDay(date) {
+  const { year, month, day } = getRiyadhDateParts(date);
+  return `${year}-${month}-${day}T23:00:00.000+03:00`;
+}
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function getDateRange(datePreset) {
+  const now = new Date();
+
+  if (datePreset === "today") {
+    return {
+      start_time: riyadhStartOfDay(now),
+      end_time: riyadhEndOfDay(now)
+    };
+  }
+
+  if (datePreset === "yesterday") {
+    const yesterday = addDays(now, -1);
+
+    return {
+      start_time: riyadhStartOfDay(yesterday),
+      end_time: riyadhEndOfDay(yesterday)
+    };
+  }
+
+  if (datePreset === "last_7d") {
+    return {
+      start_time: riyadhStartOfDay(addDays(now, -7)),
+      end_time: riyadhEndOfDay(now)
+    };
+  }
+
+  if (datePreset === "last_30d") {
+    return {
+      start_time: riyadhStartOfDay(addDays(now, -30)),
+      end_time: riyadhEndOfDay(now)
+    };
+  }
+
+  if (datePreset === "this_month") {
+    const { year, month } = getRiyadhDateParts(now);
+
+    return {
+      start_time: `${year}-${month}-01T00:00:00.000+03:00`,
+      end_time: riyadhEndOfDay(now)
+    };
+  }
+
+  if (datePreset === "last_90d") {
+    return {
+      start_time: riyadhStartOfDay(addDays(now, -90)),
+      end_time: riyadhEndOfDay(now)
+    };
+  }
+
+  if (datePreset === "maximum") {
+    return {
+      start_time: "2020-01-01T00:00:00.000+03:00",
+      end_time: riyadhEndOfDay(now)
+    };
+  }
+
+  return {
+    start_time: riyadhStartOfDay(addDays(now, -30)),
+    end_time: riyadhEndOfDay(now)
   };
+}
 
-  setCache(cacheKey, payload);
-  return NextResponse.json(payload);
+async function snapchatFetch(path, accessToken) {
+  const url = `${SNAP_API_BASE}${path}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    cache: "no-store"
+  });
+
+  const text = await response.text();
+
+  let data = null;
+
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = {
+      raw_response: text
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      success: false,
+      status: response.status,
+      error: data?.request_status || data?.message || data?.debug_message || text,
+      data
+    };
+  }
+
+  return {
+    success: true,
+    status: response.status,
+    data
+  };
+}
+
+async function getEntities({ accountId, level, accessToken }) {
+  const path = toSnapListPath(accountId, level);
+  const result = await snapchatFetch(path, accessToken);
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.error,
+      status: result.status,
+      entities: []
+    };
+  }
+
+  const entities = normalizeSnapchatContainer(result.data, level);
+
+  return {
+    success: true,
+    entities
+  };
+}
+
+function extractStatsObject(data) {
+  if (!data) return {};
+
+  const root =
+    data.timeseries_stats ||
+    data.total_stats ||
+    data.stats ||
+    data.lifetime_stats ||
+    data;
+
+  if (Array.isArray(root)) {
+    const first = root[0] || {};
+    return first.stats || first;
+  }
+
+  if (Array.isArray(root.timeseries)) {
+    const first = root.timeseries[0] || {};
+    return first.stats || first;
+  }
+
+  if (root.stats) return root.stats;
+
+  return root;
+}
+
+async function getEntityStats({
+  entityType,
+  entityId,
+  accessToken,
+  startTime,
+  endTime
+}) {
+  const params = new URLSearchParams();
+
+  params.set("granularity", "TOTAL");
+  params.set("fields", FIELDS);
+  params.set("start_time", startTime);
+  params.set("end_time", endTime);
+
+  const path = `/${entityType}/${entityId}/stats?${params.toString()}`;
+
+  const result = await snapchatFetch(path, accessToken);
+
+  if (!result.success) {
+    return result;
+  }
+
+  return {
+    success: true,
+    status: result.status,
+    data: extractStatsObject(result.data)
+  };
+}
+
+function normalizeRow({ entity, level, stats }) {
+  const spend = microsToMoney(stats.spend);
+  const revenue = microsToMoney(stats.conversion_purchases_value);
+  const impressions = safeNumber(stats.impressions);
+  const swipes = safeNumber(stats.swipes);
+  const purchases = safeNumber(stats.conversion_purchases);
+  const videoViews = safeNumber(stats.video_views);
+
+  const ctr = safeDivide(swipes, impressions) * 100;
+  const cpc = safeDivide(spend, swipes);
+  const cpm = safeDivide(spend, impressions) * 1000;
+  const roas = safeDivide(revenue, spend);
+  const cpa = safeDivide(spend, purchases);
+  const videoViewRate = safeDivide(videoViews, impressions) * 100;
+
+  const id = getEntityId(entity, level);
+
+  return {
+    id,
+    name: getEntityName(entity, level),
+    status: getEntityStatus(entity),
+    level,
+
+    spend,
+    revenue,
+    impressions,
+    swipes,
+    clicks: swipes,
+    purchases,
+    video_views: videoViews,
+
+    ctr,
+    cpc,
+    cpm,
+    roas,
+    cpa,
+    video_view_rate: videoViewRate,
+
+    currency: "USD",
+    updated_at: getUpdatedAt(entity)
+  };
+}
+
+function buildSummary(rows) {
+  const spend = rows.reduce((sum, row) => sum + safeNumber(row.spend), 0);
+  const revenue = rows.reduce((sum, row) => sum + safeNumber(row.revenue), 0);
+  const impressions = rows.reduce(
+    (sum, row) => sum + safeNumber(row.impressions),
+    0
+  );
+  const swipes = rows.reduce((sum, row) => sum + safeNumber(row.swipes), 0);
+  const purchases = rows.reduce(
+    (sum, row) => sum + safeNumber(row.purchases),
+    0
+  );
+  const videoViews = rows.reduce(
+    (sum, row) => sum + safeNumber(row.video_views),
+    0
+  );
+
+  return {
+    currency: "USD",
+
+    spend,
+    revenue,
+    impressions,
+    swipes,
+    clicks: swipes,
+    purchases,
+    video_views: videoViews,
+
+    ctr: safeDivide(swipes, impressions) * 100,
+    cpc: safeDivide(spend, swipes),
+    cpm: safeDivide(spend, impressions) * 1000,
+    roas: safeDivide(revenue, spend),
+    cpa: safeDivide(spend, purchases),
+    video_view_rate: safeDivide(videoViews, impressions) * 100
+  };
+}
+
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+
+  const accountId = searchParams.get("account_id");
+  const level = searchParams.get("level") || "campaign";
+  const datePreset = searchParams.get("date_preset") || "last_30d";
+  const limit = clampLimit(searchParams.get("limit"));
+
+  if (!accountId) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Missing account_id"
+      },
+      { status: 400 }
+    );
+  }
+
+  const allowedLevels = ["campaign", "ad_squad", "ad"];
+
+  if (!allowedLevels.includes(level)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Invalid level. Use campaign, ad_squad, or ad."
+      },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const accessToken = await getSnapchatToken();
+
+    if (!accessToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Missing Snapchat access token. Please reconnect Snapchat."
+        },
+        { status: 401 }
+      );
+    }
+
+    const { start_time, end_time } = getDateRange(datePreset);
+
+    const entitiesResult = await getEntities({
+      accountId,
+      level,
+      accessToken
+    });
+
+    if (!entitiesResult.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: entitiesResult.error || "Failed to load Snapchat entities",
+          status: entitiesResult.status || null
+        },
+        { status: entitiesResult.status || 500 }
+      );
+    }
+
+    const allEntities = sortEntitiesActiveFirst(entitiesResult.entities);
+    const selectedEntities = allEntities.slice(0, limit);
+
+    const entityType = toSnapEntityType(level);
+
+    const rows = [];
+    const errors = [];
+    let rateLimited = false;
+
+    for (const entity of selectedEntities) {
+      const entityId = getEntityId(entity, level);
+
+      if (!entityId) {
+        errors.push({
+          name: getEntityName(entity, level),
+          error: "Missing entity id"
+        });
+        continue;
+      }
+
+      const statsResult = await getEntityStats({
+        entityType,
+        entityId,
+        accessToken,
+        startTime: start_time,
+        endTime: end_time
+      });
+
+      if (!statsResult.success) {
+        if (statsResult.status === 429) {
+          rateLimited = true;
+        }
+
+        errors.push({
+          id: entityId,
+          name: getEntityName(entity, level),
+          status: statsResult.status,
+          error: statsResult.error
+        });
+
+        await wait(DELAY_BETWEEN_REQUESTS_MS);
+        continue;
+      }
+
+      rows.push(
+        normalizeRow({
+          entity,
+          level,
+          stats: statsResult.data || {}
+        })
+      );
+
+      await wait(DELAY_BETWEEN_REQUESTS_MS);
+    }
+
+    const summary = buildSummary(rows);
+
+    return NextResponse.json({
+      success: true,
+      version: "snapchat-insights-v7-safe-fields-active-first",
+      account_id: accountId,
+      level,
+      date_preset,
+      start_time,
+      end_time,
+      currency: "USD",
+
+      total_entities_available: allEntities.length,
+      loaded_limit: limit,
+      loaded_rows: rows.length,
+      partial_data: rows.length < allEntities.length,
+      rate_limited: rateLimited,
+      active_first: true,
+
+      summary,
+      rows,
+      errors
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Snapchat insights failed"
+      },
+      { status: 500 }
+    );
+  }
 }
