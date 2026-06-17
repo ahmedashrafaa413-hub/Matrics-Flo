@@ -3,54 +3,188 @@ import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
-const BASE = "https://adsapi.snapchat.com/v1";
+const SNAPCHAT_API_BASE = "https://adsapi.snapchat.com/v1";
 
-async function snap(path, token) {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+function jsonResponse(payload, status = 200) {
+  return NextResponse.json(payload, { status });
+}
+
+async function snapFetch(path, token) {
+  const url = `${SNAPCHAT_API_BASE}${path}`;
+
+  const response = await fetch(url, {
+    method: "GET",
     cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json"
+    }
   });
-  return res.json();
+
+  const text = await response.text();
+
+  let data = null;
+
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return {
+      ok: false,
+      status: response.status,
+      data: null,
+      error: `Snapchat API did not return JSON. Response starts with: ${text.slice(
+        0,
+        120
+      )}`
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      data,
+      error:
+        data?.request_status ||
+        data?.debug_message ||
+        data?.message ||
+        `Snapchat API request failed: ${response.status}`
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    data,
+    error: null
+  };
+}
+
+function extractOrganizations(data) {
+  const organizations = data?.organizations || data?.organization || [];
+
+  if (!Array.isArray(organizations)) return [];
+
+  return organizations
+    .map((item) => item?.organization || item)
+    .filter((org) => org?.id);
+}
+
+function extractAdAccounts(data) {
+  const adaccounts =
+    data?.adaccounts || data?.ad_accounts || data?.accounts || [];
+
+  if (!Array.isArray(adaccounts)) return [];
+
+  return adaccounts
+    .map((item) => item?.adaccount || item?.ad_account || item?.account || item)
+    .filter((account) => account?.id);
+}
+
+function normalizeAccount(account, organizationId = "") {
+  return {
+    id: account.id,
+    name: account.name || account.account_name || "Snapchat Account",
+    currency: account.currency || account.account_currency || "USD",
+    org_id: account.organization_id || organizationId,
+    status: account.status || account.account_status || "UNKNOWN",
+    timezone: account.timezone || "Asia/Riyadh"
+  };
 }
 
 export async function GET() {
-  const token = await getSnapchatToken();
-
-  if (!token) {
-    return NextResponse.json(
-      { success: false, error: "Not connected to Snapchat" },
-      { status: 401 }
-    );
-  }
-
   try {
-    const orgsData = await snap("/me/organizations", token);
-    const orgs     = orgsData.organizations || [];
+    const token = await getSnapchatToken();
 
-    if (!orgs.length) {
-      return NextResponse.json(
-        { success: false, error: "No organizations found" },
-        { status: 404 }
+    if (!token) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "Missing Snapchat access token. Please reconnect Snapchat.",
+          data: [],
+          accounts: []
+        },
+        401
       );
     }
 
-    const accountsResults = await Promise.all(
-      orgs.map(org => snap(`/organizations/${org.organization.id}/adaccounts`, token))
+    const orgsResult = await snapFetch("/me/organizations", token);
+
+    if (!orgsResult.ok) {
+      return jsonResponse(
+        {
+          success: false,
+          error: orgsResult.error,
+          status: orgsResult.status,
+          data: [],
+          accounts: []
+        },
+        orgsResult.status || 500
+      );
+    }
+
+    const organizations = extractOrganizations(orgsResult.data);
+
+    if (!organizations.length) {
+      return jsonResponse({
+        success: true,
+        provider: "Snapchat Ads",
+        warning: "No Snapchat organizations found for this token.",
+        data: [],
+        accounts: []
+      });
+    }
+
+    const allAccounts = [];
+    const errors = [];
+
+    for (const org of organizations) {
+      const accountsResult = await snapFetch(
+        `/organizations/${encodeURIComponent(org.id)}/adaccounts`,
+        token
+      );
+
+      if (!accountsResult.ok) {
+        errors.push({
+          organization_id: org.id,
+          status: accountsResult.status,
+          error: accountsResult.error
+        });
+        continue;
+      }
+
+      const accounts = extractAdAccounts(accountsResult.data).map((account) =>
+        normalizeAccount(account, org.id)
+      );
+
+      allAccounts.push(...accounts);
+    }
+
+    const uniqueAccounts = Array.from(
+      new Map(allAccounts.map((account) => [account.id, account])).values()
     );
 
-    const accounts = accountsResults
-      .flatMap(res => res.adaccounts || [])
-      .map(a => ({
-        id:       a.adaccount.id,
-        name:     a.adaccount.name,
-        currency: a.adaccount.currency,
-        org_id:   a.adaccount.organization_id,
-        status:   a.adaccount.status,
-        timezone: a.adaccount.timezone,
-      }));
-
-    return NextResponse.json({ success: true, data: accounts });
-  } catch (err) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return jsonResponse({
+      success: true,
+      provider: "Snapchat Ads",
+      organizations: organizations.map((org) => ({
+        id: org.id,
+        name: org.name || org.organization_name || "Organization"
+      })),
+      count: uniqueAccounts.length,
+      data: uniqueAccounts,
+      accounts: uniqueAccounts,
+      errors
+    });
+  } catch (error) {
+    return jsonResponse(
+      {
+        success: false,
+        error: error.message || "Failed to load Snapchat accounts",
+        data: [],
+        accounts: []
+      },
+      500
+    );
   }
 }
