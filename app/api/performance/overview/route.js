@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { safeNumber, safeDivide, toSAR } from "../../../../lib/currency";
-import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
@@ -148,24 +146,7 @@ function buildSummary(sources) {
 }
 
 function getMetaSummary(metaResult) {
-  // الـ route بيرجع summary object مع totals — نستخدمه مباشرة
-  const summary = metaResult.data?.summary;
-  if (summary && summary.spend !== undefined) return summary;
-
-  // Fallback: نجمع من الـ rows يدوياً
-  const rows = metaResult.data?.data || [];
-  if (rows.length === 0) return {};
-
-  const totals = rows.reduce((acc, row) => {
-    acc.spend         += Number(row.spend         || 0);
-    acc.impressions   += Number(row.impressions   || 0);
-    acc.clicks        += Number(row.clicks        || 0);
-    acc.purchases     += Number(row.purchases     || 0);
-    acc.purchase_value+= Number(row.purchase_value|| 0);
-    return acc;
-  }, { spend:0, impressions:0, clicks:0, purchases:0, purchase_value:0 });
-
-  return totals;
+  return metaResult.data?.summary || metaResult.data?.data?.[0] || {};
 }
 
 function getSnapchatSummary(snapResult) {
@@ -183,16 +164,12 @@ export async function GET(request) {
 
   const datePreset = searchParams.get("date_preset") || "last_30d";
 
-  const metaAccountId     = searchParams.get("meta_account_id")     || "";
+  const metaAccountId = searchParams.get("meta_account_id") || "";
   const snapchatAccountId = searchParams.get("snapchat_account_id") || "";
 
-  const metaCurrency      = searchParams.get("meta_currency")      || "USD";
-  const snapchatCurrency  = searchParams.get("snapchat_currency")  || "USD";
-  const sallaCurrency     = searchParams.get("salla_currency")     || "SAR";
-
-  // ── Read tokens here — cookies are accessible in this route context ──
-  const metaToken     = cookies().get("meta_token")?.value || "";
-  const snapchatToken = await getSnapchatToken() || "";
+  const metaCurrency = searchParams.get("meta_currency") || "USD";
+  const snapchatCurrency = searchParams.get("snapchat_currency") || "USD";
+  const sallaCurrency = searchParams.get("salla_currency") || "SAR";
 
   const sources = [];
   const debug = [];
@@ -201,9 +178,8 @@ export async function GET(request) {
     const metaUrl =
       `${baseUrl}/api/meta/insights` +
       `?account_id=${encodeURIComponent(metaAccountId)}` +
-      `&level=campaign` +
-      `&date_preset=${encodeURIComponent(datePreset)}` +
-      (metaToken ? `&token=${encodeURIComponent(metaToken)}` : "");
+      `&level=account` +
+      `&date_preset=${encodeURIComponent(datePreset)}`;
 
     const metaResult = await fetchJson(metaUrl);
 
@@ -221,12 +197,14 @@ export async function GET(request) {
         source: "Meta Ads",
         type: "ads",
         spend: summary.spend,
-        spendCurrency: summary.currency || summary.account_currency || metaCurrency,
+        spendCurrency:
+          summary.currency || summary.account_currency || metaCurrency,
         clicks: summary.clicks || summary.inline_link_clicks,
         impressions: summary.impressions,
         purchases: summary.purchases,
         sales: summary.purchase_value || summary.revenue,
-        salesCurrency: summary.currency || summary.account_currency || metaCurrency
+        salesCurrency:
+          summary.currency || summary.account_currency || metaCurrency
       })
     );
   } else {
@@ -246,8 +224,7 @@ export async function GET(request) {
       `?account_id=${encodeURIComponent(snapchatAccountId)}` +
       `&level=campaign` +
       `&date_preset=${encodeURIComponent(datePreset)}` +
-      `&active_only=1` +
-      (snapchatToken ? `&snap_token=${encodeURIComponent(snapchatToken)}` : "");
+      `&limit=20`;
 
     const snapResult = await fetchJson(snapUrl);
 
