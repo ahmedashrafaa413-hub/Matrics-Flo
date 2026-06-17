@@ -1243,3 +1243,235 @@ body::after {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ════════════════════════════════════════════════════════════
+   METRICSFLO — FULL MOBILE RESPONSIVE OVERRIDES
+   Breakpoints: 1280px | 960px | 768px | 480px | 360px
+   ════════════════════════════════════════════════════════════ */
+
+/* ── 1280px — Large tablets / small laptops ── */
+@media (max-width: 1280px) {
+  .sidebar { width: 220px; }
+  .main { padding: 28px 28px; }
+  .dash-kpi-grid { grid-template-columns: repeat(3, 1fr); }
+  .ga-kpi-grid   { grid-template-columns: repeat(3, 1fr); }
+  .dash-chart-card, .ga-card { min-width: 0; }
+}
+
+/* ── 960px — Tablets ── */
+@media (max-width: 960px) {
+  /* Layout */
+  .app-shell { flex-direction: column; }
+
+  /* Sidebar → bottom nav on mobile */
+  .sidebar {
+    width: 100%;
+    height: auto;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    top: auto;
+    flex-direction: row;
+    z-index: 200;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding: 0;
+  }
+
+  .sidebar-header { display: none; }
+  .sidebar-footer { display: none; }
+
+  .sidebar-nav {
+    flex-direction: row;
+    flex: 1;
+    padding: 0;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .sidebar-nav::-webkit-scrollbar { display: none; }
+
+  .nav-section-label { display: none; }
+
+  .nav-item {
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 0;
+    min-width: 60px;
+    flex: 1;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .nav-item.active::after { display: none; }
+  .nav-item.active { background: transparent; border-top: 2px solid var(--primary); }
+
+  .nav-item-icon { font-size: 18px; width: auto; }
+
+  /* Main */
+  .main {
+    padding: 20px 16px;
+    padding-bottom: 90px; /* space for bottom nav */
+  }
+
+  /* Headers */
+  .dash-pro-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .dash-pro-header h1 { font-size: 20px; }
+  .dash-header-actions { width: 100%; }
+  .dash-refresh { width: 100%; }
+
+  /* Grids → single column */
+  .dash-filter-grid   { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dash-insights-grid { grid-template-columns: 1fr; }
+  .dash-kpi-grid      { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .ga-kpi-grid        { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .ga-main-grid       { grid-template-columns: 1fr; }
+  .ga-mini-grid       { grid-template-columns: 1fr; }
+  .ga-toolbar         { flex-direction: column; gap: 10px; }
+  .ga-property-switcher { width: 100%; }
+  .ga-property-switcher select { width: 100%; }
+
+  /* Charts */
+  .dash-chart-box { height: 220px !important; }
+  .ga-chart-box   { height: 220px !important; }
+
+  /* Tables → horizontal scroll */
+  .dash-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .dash-data-table   { min-width: 700px; }
+  .ga-table          { min-width: 600px; }
+
+  /* Snapchat page */
+  .snap-tabs { overflow-x: auto; scrollbar-width: none; }
+
+  /* KPI cards */
+  .dash-kpi-card { padding: 14px 12px; }
+}
+
+/* ── 768px — Large phones / small tablets ── */
+@media (max-width: 768px) {
+  .main { padding: 16px 14px; padding-bottom: 88px; }
+
+  /* KPI grids */
+  .dash-kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .ga-kpi-grid   { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+  /* Filter row */
+  .dash-filter-grid { grid-template-columns: 1fr; }
+  .dash-filter-card select { width: 100%; font-size: 13px; }
+
+  /* Insight cards */
+  .dash-insight-card { padding: 14px; }
+  .dash-insight-card h3 { font-size: 13px; }
+  .dash-insight-card p  { font-size: 12px; }
+
+  /* Table cards */
+  .dash-table-card    { border-radius: 14px; }
+  .dash-table-head    { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .dash-table-head h2 { font-size: 15px; }
+
+  /* Charts */
+  .dash-chart-head    { flex-direction: column; gap: 8px; }
+  .dash-chart-box     { height: 200px !important; }
+  .ga-chart-box       { height: 200px !important; }
+
+  /* GA live card */
+  .ga-live-card       { padding: 24px 20px; }
+  .ga-live-number     { font-size: 48px !important; }
+
+  /* Snapchat header */
+  .snap-header { flex-direction: column; gap: 10px; }
+  .snap-controls { flex-wrap: wrap; gap: 8px; }
+  .snap-controls select,
+  .snap-controls button { flex: 1; min-width: 120px; font-size: 12px; }
+
+  /* Performance overview */
+  .perf-header { flex-direction: column; gap: 12px; }
+  .perf-controls { flex-wrap: wrap; gap: 8px; }
+
+  /* Auth panels */
+  .auth-card  { padding: 24px 18px; margin: 16px; }
+  .auth-grid  { grid-template-columns: 1fr !important; }
+}
+
+/* ── 480px — Phones ── */
+@media (max-width: 480px) {
+  /* Typography */
+  .dash-pro-header h1 { font-size: 18px; }
+  .dash-badge { font-size: 10px; padding: 4px 10px; }
+
+  /* KPI grids → 2 col */
+  .dash-kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .ga-kpi-grid   { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+  /* KPI card */
+  .dash-kpi-card      { padding: 12px 10px; }
+  .dash-kpi-card strong { font-size: 18px !important; }
+  .dash-kpi-label     { font-size: 10px; }
+
+  /* Charts */
+  .dash-chart-box     { height: 180px !important; }
+  .ga-chart-box       { height: 180px !important; }
+
+  /* Tables */
+  .dash-data-table    { min-width: 620px; font-size: 12px; }
+  .dash-data-table th,
+  .dash-data-table td { padding: 10px 10px !important; }
+
+  /* Nav items */
+  .nav-item           { min-width: 52px; padding: 8px 4px; font-size: 9px; }
+  .nav-item-icon      { font-size: 16px; }
+
+  /* GA */
+  .ga-live-number     { font-size: 40px !important; }
+  .ga-kpi-label       { font-size: 10px; }
+  .ga-kpi-value       { font-size: 20px !important; }
+
+  /* Auth */
+  .auth-card          { padding: 20px 16px; }
+
+  /* Snapchat creative gallery */
+  .snap-creative-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ── 360px — Small phones ── */
+@media (max-width: 360px) {
+  .main               { padding: 12px 10px; padding-bottom: 84px; }
+  .dash-kpi-grid      { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .dash-kpi-card      { padding: 10px 8px; }
+  .dash-kpi-card strong { font-size: 16px !important; }
+  .nav-item           { min-width: 44px; font-size: 8px; }
+}
+
+/* ── Utility: touch-friendly tap targets ── */
+@media (max-width: 960px) {
+  button, select, a.nav-item, .nav-item {
+    min-height: 44px;
+  }
+  select { font-size: 16px !important; } /* prevents iOS zoom on focus */
+
+  /* Scrollable tables hint shadow */
+  .dash-table-scroll {
+    position: relative;
+  }
+  .dash-table-scroll::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 32px;
+    background: linear-gradient(to left, var(--card-2), transparent);
+    pointer-events: none;
+    border-radius: 0 14px 14px 0;
+  }
+
+  /* Recharts responsive */
+  .recharts-cartesian-axis-tick text { font-size: 10px !important; }
+  .recharts-legend-item-text         { font-size: 11px !important; }
+}
