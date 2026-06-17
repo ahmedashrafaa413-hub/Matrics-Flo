@@ -8,11 +8,21 @@ function getBaseUrl(request) {
   return `${url.protocol}//${url.host}`;
 }
 
-async function fetchJson(url) {
+function getCookieHeader(request) {
+  return request.headers.get("cookie") || "";
+}
+
+async function fetchJson(url, request) {
   try {
+    const cookieHeader = getCookieHeader(request);
+
     const response = await fetch(url, {
       method: "GET",
-      cache: "no-store"
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        ...(cookieHeader ? { Cookie: cookieHeader } : {})
+      }
     });
 
     const text = await response.text();
@@ -24,7 +34,10 @@ async function fetchJson(url) {
     } catch {
       return {
         success: false,
-        error: "Invalid JSON response",
+        error: `Invalid JSON response from ${url}. Response starts with: ${text.slice(
+          0,
+          120
+        )}`,
         status: response.status,
         data: null
       };
@@ -33,7 +46,10 @@ async function fetchJson(url) {
     if (!response.ok || data?.success === false) {
       return {
         success: false,
-        error: data?.error || `Request failed: ${response.status}`,
+        error:
+          data?.error?.message ||
+          data?.error ||
+          `Request failed: ${response.status}`,
         status: response.status,
         data
       };
@@ -157,6 +173,11 @@ function getSallaSummary(sallaResult) {
   return sallaResult.data?.summary || sallaResult.data || {};
 }
 
+function getSelectedAccountCurrency(accountId, source, fallback) {
+  const found = source.find((account) => account.id === accountId);
+  return found?.currency || found?.account_currency || fallback;
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
 
@@ -167,12 +188,46 @@ export async function GET(request) {
   const metaAccountId = searchParams.get("meta_account_id") || "";
   const snapchatAccountId = searchParams.get("snapchat_account_id") || "";
 
-  const metaCurrency = searchParams.get("meta_currency") || "USD";
-  const snapchatCurrency = searchParams.get("snapchat_currency") || "USD";
+  let metaCurrency = searchParams.get("meta_currency") || "USD";
+  let snapchatCurrency = searchParams.get("snapchat_currency") || "USD";
   const sallaCurrency = searchParams.get("salla_currency") || "SAR";
 
   const sources = [];
   const debug = [];
+
+  const metaAccountsResult = await fetchJson(
+    `${baseUrl}/api/meta/accounts`,
+    request
+  );
+
+  const metaAccounts = Array.isArray(metaAccountsResult.data?.data)
+    ? metaAccountsResult.data.data
+    : [];
+
+  if (metaAccountId) {
+    metaCurrency = getSelectedAccountCurrency(
+      metaAccountId,
+      metaAccounts,
+      metaCurrency
+    );
+  }
+
+  const snapAccountsResult = await fetchJson(
+    `${baseUrl}/api/snapchat/accounts`,
+    request
+  );
+
+  const snapAccounts = Array.isArray(snapAccountsResult.data?.data)
+    ? snapAccountsResult.data.data
+    : [];
+
+  if (snapchatAccountId) {
+    snapchatCurrency = getSelectedAccountCurrency(
+      snapchatAccountId,
+      snapAccounts,
+      snapchatCurrency
+    );
+  }
 
   if (metaAccountId) {
     const metaUrl =
@@ -181,7 +236,7 @@ export async function GET(request) {
       `&level=account` +
       `&date_preset=${encodeURIComponent(datePreset)}`;
 
-    const metaResult = await fetchJson(metaUrl);
+    const metaResult = await fetchJson(metaUrl, request);
 
     debug.push({
       source: "Meta Ads",
@@ -208,6 +263,13 @@ export async function GET(request) {
       })
     );
   } else {
+    debug.push({
+      source: "Meta Ads",
+      success: false,
+      error: "No Meta account selected",
+      assumed_currency: metaCurrency
+    });
+
     sources.push(
       normalizeSource({
         source: "Meta Ads",
@@ -226,7 +288,7 @@ export async function GET(request) {
       `&date_preset=${encodeURIComponent(datePreset)}` +
       `&limit=20`;
 
-    const snapResult = await fetchJson(snapUrl);
+    const snapResult = await fetchJson(snapUrl, request);
 
     debug.push({
       source: "Snapchat Ads",
@@ -255,6 +317,13 @@ export async function GET(request) {
       })
     );
   } else {
+    debug.push({
+      source: "Snapchat Ads",
+      success: false,
+      error: "No Snapchat account selected",
+      assumed_currency: snapchatCurrency
+    });
+
     sources.push(
       normalizeSource({
         source: "Snapchat Ads",
@@ -269,7 +338,7 @@ export async function GET(request) {
     `${baseUrl}/api/salla/summary` +
     `?date_preset=${encodeURIComponent(datePreset)}`;
 
-  const sallaResult = await fetchJson(sallaUrl);
+  const sallaResult = await fetchJson(sallaUrl, request);
 
   debug.push({
     source: "Salla",
@@ -349,7 +418,7 @@ export async function GET(request) {
 
   return NextResponse.json({
     success: true,
-    version: "performance-overview-v2-sar-currency-fixed",
+    version: "performance-overview-v3-cookie-forwarding-sar",
     base_currency: "SAR",
     date_preset: datePreset,
     exchange_rates: {
@@ -359,6 +428,6 @@ export async function GET(request) {
     sources: rows,
     debug,
     note:
-      "All spend, sales, CPA, CPC and ROAS are normalized to SAR. Actual ROAS = Salla real sales in SAR / total ad spend in SAR."
+      "All internal API requests now forward the user cookies. All spend, sales, CPA, CPC and ROAS are normalized to SAR. Actual ROAS = Salla real sales in SAR / total ad spend in SAR."
   });
 }
