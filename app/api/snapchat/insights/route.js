@@ -3,18 +3,9 @@ import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
-const SNAP_API_BASE = "https://adsapi.snapchat.com/v1";
+const SNAPCHAT_API_BASE = "https://adsapi.snapchat.com/v1";
 
-const DEFAULT_LIMIT = 20;
-const MAX_SAFE_LIMIT = 40;
-const DELAY_BETWEEN_REQUESTS_MS = 350;
-
-/**
- * Important:
- * These are the safe fields we already tested successfully.
- * Do not add unsupported Snapchat fields here before testing them first.
- */
-const FIELDS = [
+const SAFE_FIELDS = [
   "impressions",
   "spend",
   "swipes",
@@ -23,7 +14,11 @@ const FIELDS = [
   "video_views"
 ].join(",");
 
-function wait(ms) {
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 40;
+const DELAY_MS = 350;
+
+function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
@@ -35,183 +30,58 @@ function safeNumber(value) {
 function safeDivide(a, b) {
   const x = safeNumber(a);
   const y = safeNumber(b);
-
   if (!y) return 0;
-
   return x / y;
 }
 
-function microsToMoney(value) {
+function moneyFromMicros(value) {
   return safeNumber(value) / 1000000;
 }
 
 function clampLimit(value) {
   const n = Number(value || DEFAULT_LIMIT);
-
-  if (!Number.isFinite(n)) return DEFAULT_LIMIT;
-  if (n < 1) return DEFAULT_LIMIT;
-  if (n > MAX_SAFE_LIMIT) return MAX_SAFE_LIMIT;
-
-  return n;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
+  return Math.min(Math.floor(n), MAX_LIMIT);
 }
 
-function toSnapEntityType(level) {
-  if (level === "campaign") return "campaigns";
-  if (level === "ad_squad") return "adsquads";
-  if (level === "ad") return "ads";
+function normalizeLevel(levelValue) {
+  const level = String(levelValue || "campaign").toLowerCase();
 
-  return "campaigns";
-}
-
-function toSnapListPath(accountId, level) {
-  if (level === "campaign") {
-    return `/adaccounts/${accountId}/campaigns`;
-  }
-
-  if (level === "ad_squad") {
-    return `/adaccounts/${accountId}/adsquads`;
-  }
-
-  if (level === "ad") {
-    return `/adaccounts/${accountId}/ads`;
-  }
-
-  return `/adaccounts/${accountId}/campaigns`;
-}
-
-function getEntityId(entity, level) {
-  if (!entity) return "";
-
-  if (level === "campaign") {
-    return entity.id || entity.campaign_id || entity.campaign?.id || "";
-  }
-
-  if (level === "ad_squad") {
-    return entity.id || entity.adsquad_id || entity.ad_squad_id || entity.adsquad?.id || "";
-  }
-
-  if (level === "ad") {
-    return entity.id || entity.ad_id || entity.ad?.id || "";
-  }
-
-  return entity.id || "";
-}
-
-function getEntityName(entity, level) {
-  if (!entity) return "Untitled";
-
-  if (entity.name) return entity.name;
-
-  if (level === "campaign") {
-    return entity.campaign?.name || entity.campaign_name || "Untitled Campaign";
-  }
-
-  if (level === "ad_squad") {
-    return (
-      entity.adsquad?.name ||
-      entity.ad_squad?.name ||
-      entity.adsquad_name ||
-      "Untitled Ad Squad"
-    );
-  }
-
-  if (level === "ad") {
-    return entity.ad?.name || entity.ad_name || "Untitled Ad";
-  }
-
-  return "Untitled";
-}
-
-function normalizeStatus(value) {
-  const status = String(value || "").toUpperCase();
-
-  if (
-    status.includes("ACTIVE") ||
-    status.includes("RUNNING") ||
-    status.includes("DELIVERING")
-  ) {
-    return "ACTIVE";
+  if (level === "campaign" || level === "campaigns") {
+    return {
+      level: "campaign",
+      listPath: "campaigns",
+      statsPath: "campaigns",
+      responseKeys: ["campaigns", "campaign"]
+    };
   }
 
   if (
-    status.includes("PAUSED") ||
-    status.includes("STOPPED") ||
-    status.includes("INACTIVE")
+    level === "ad_squad" ||
+    level === "ad_squads" ||
+    level === "adsquad" ||
+    level === "adsquads" ||
+    level === "adset" ||
+    level === "adsets"
   ) {
-    return "PAUSED";
+    return {
+      level: "ad_squad",
+      listPath: "adsquads",
+      statsPath: "adsquads",
+      responseKeys: ["adsquads", "ad_squads", "adsquad", "ad_squad"]
+    };
   }
 
-  if (status.includes("DELETED") || status.includes("ARCHIVED")) {
-    return "DELETED";
+  if (level === "ad" || level === "ads") {
+    return {
+      level: "ad",
+      listPath: "ads",
+      statsPath: "ads",
+      responseKeys: ["ads", "ad"]
+    };
   }
 
-  if (status.includes("PENDING")) {
-    return "PENDING";
-  }
-
-  return status || "UNKNOWN";
-}
-
-function getEntityStatus(entity) {
-  return normalizeStatus(
-    entity?.effective_status ||
-      entity?.delivery_status ||
-      entity?.configured_status ||
-      entity?.status ||
-      entity?.campaign?.status ||
-      entity?.adsquad?.status ||
-      entity?.ad?.status
-  );
-}
-
-function getUpdatedAt(entity) {
-  return (
-    entity?.updated_at ||
-    entity?.created_at ||
-    entity?.campaign?.updated_at ||
-    entity?.campaign?.created_at ||
-    entity?.adsquad?.updated_at ||
-    entity?.adsquad?.created_at ||
-    entity?.ad?.updated_at ||
-    entity?.ad?.created_at ||
-    ""
-  );
-}
-
-function sortEntitiesActiveFirst(entities) {
-  return [...entities].sort((a, b) => {
-    const aActive = getEntityStatus(a) === "ACTIVE";
-    const bActive = getEntityStatus(b) === "ACTIVE";
-
-    if (aActive && !bActive) return -1;
-    if (!aActive && bActive) return 1;
-
-    const aDate = new Date(getUpdatedAt(a)).getTime() || 0;
-    const bDate = new Date(getUpdatedAt(b)).getTime() || 0;
-
-    return bDate - aDate;
-  });
-}
-
-function normalizeSnapchatContainer(data, level) {
-  if (!data) return [];
-
-  const possibleKeys = {
-    campaign: ["campaigns", "campaign"],
-    ad_squad: ["adsquads", "ad_squads", "adsquad", "adSquads"],
-    ad: ["ads", "ad"]
-  };
-
-  const keys = possibleKeys[level] || possibleKeys.campaign;
-
-  for (const key of keys) {
-    if (Array.isArray(data[key])) return data[key];
-  }
-
-  if (Array.isArray(data.data)) return data.data;
-  if (Array.isArray(data)) return data;
-
-  return [];
+  return null;
 }
 
 function getRiyadhDateParts(date) {
@@ -224,11 +94,17 @@ function getRiyadhDateParts(date) {
 
   const parts = formatter.formatToParts(date);
 
-  const year = parts.find((part) => part.type === "year")?.value;
-  const month = parts.find((part) => part.type === "month")?.value;
-  const day = parts.find((part) => part.type === "day")?.value;
+  return {
+    year: parts.find((part) => part.type === "year")?.value,
+    month: parts.find((part) => part.type === "month")?.value,
+    day: parts.find((part) => part.type === "day")?.value
+  };
+}
 
-  return { year, month, day };
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy;
 }
 
 function riyadhStartOfDay(date) {
@@ -241,14 +117,9 @@ function riyadhEndOfDay(date) {
   return `${year}-${month}-${day}T23:00:00.000+03:00`;
 }
 
-function addDays(date, days) {
-  const d = new Date(date);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d;
-}
-
-function getDateRange(datePreset) {
+function getDateRange(datePresetValue) {
   const now = new Date();
+  const datePreset = String(datePresetValue || "last_30d").toLowerCase();
 
   if (datePreset === "today") {
     return {
@@ -259,7 +130,6 @@ function getDateRange(datePreset) {
 
   if (datePreset === "yesterday") {
     const yesterday = addDays(now, -1);
-
     return {
       start_time: riyadhStartOfDay(yesterday),
       end_time: riyadhEndOfDay(yesterday)
@@ -273,16 +143,8 @@ function getDateRange(datePreset) {
     };
   }
 
-  if (datePreset === "last_30d") {
-    return {
-      start_time: riyadhStartOfDay(addDays(now, -30)),
-      end_time: riyadhEndOfDay(now)
-    };
-  }
-
   if (datePreset === "this_month") {
     const { year, month } = getRiyadhDateParts(now);
-
     return {
       start_time: `${year}-${month}-01T00:00:00.000+03:00`,
       end_time: riyadhEndOfDay(now)
@@ -309,16 +171,14 @@ function getDateRange(datePreset) {
   };
 }
 
-async function snapchatFetch(path, accessToken) {
-  const url = `${SNAP_API_BASE}${path}`;
-
-  const response = await fetch(url, {
+async function snapFetch(path, token) {
+  const response = await fetch(`${SNAPCHAT_API_BASE}${path}`, {
     method: "GET",
+    cache: "no-store",
     headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json"
-    },
-    cache: "no-store"
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json"
+    }
   });
 
   const text = await response.text();
@@ -328,142 +188,191 @@ async function snapchatFetch(path, accessToken) {
   try {
     data = JSON.parse(text);
   } catch {
-    data = {
-      raw_response: text
+    return {
+      ok: false,
+      status: response.status,
+      data: null,
+      error: `Snapchat API did not return JSON. Response starts with: ${text.slice(
+        0,
+        120
+      )}`
     };
   }
 
   if (!response.ok) {
     return {
-      success: false,
+      ok: false,
       status: response.status,
-      error: data?.request_status || data?.message || data?.debug_message || text,
-      data
+      data,
+      error:
+        data?.request_status ||
+        data?.debug_message ||
+        data?.message ||
+        `Snapchat API failed with status ${response.status}`
     };
   }
 
   return {
-    success: true,
+    ok: true,
     status: response.status,
-    data
+    data,
+    error: null
   };
 }
 
-async function getEntities({ accountId, level, accessToken }) {
-  const path = toSnapListPath(accountId, level);
-  const result = await snapchatFetch(path, accessToken);
-
-  if (!result.success) {
-    return {
-      success: false,
-      error: result.error,
-      status: result.status,
-      entities: []
-    };
+function extractList(data, keys) {
+  for (const key of keys) {
+    if (Array.isArray(data?.[key])) return data[key];
   }
 
-  const entities = normalizeSnapchatContainer(result.data, level);
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data)) return data;
 
-  return {
-    success: true,
-    entities
-  };
+  return [];
 }
 
-function extractStatsObject(data) {
-  if (!data) return {};
+function unwrapEntity(item, config) {
+  for (const key of config.responseKeys) {
+    if (item?.[key]) return item[key];
+  }
 
+  return item;
+}
+
+function getEntityId(entity, level) {
+  if (!entity) return "";
+
+  if (level === "campaign") {
+    return entity.id || entity.campaign_id || "";
+  }
+
+  if (level === "ad_squad") {
+    return entity.id || entity.adsquad_id || entity.ad_squad_id || "";
+  }
+
+  if (level === "ad") {
+    return entity.id || entity.ad_id || "";
+  }
+
+  return entity.id || "";
+}
+
+function getEntityName(entity, level) {
+  if (!entity) return "Untitled";
+
+  return (
+    entity.name ||
+    entity.campaign_name ||
+    entity.adsquad_name ||
+    entity.ad_squad_name ||
+    entity.ad_name ||
+    `Untitled ${level}`
+  );
+}
+
+function getEntityStatus(entity) {
+  const raw =
+    entity?.effective_status ||
+    entity?.delivery_status ||
+    entity?.configured_status ||
+    entity?.status ||
+    "";
+
+  const status = String(raw || "").toUpperCase();
+
+  if (
+    status.includes("ACTIVE") ||
+    status.includes("RUNNING") ||
+    status.includes("DELIVERING")
+  ) {
+    return "ACTIVE";
+  }
+
+  if (
+    status.includes("PAUSED") ||
+    status.includes("STOPPED") ||
+    status.includes("INACTIVE")
+  ) {
+    return "PAUSED";
+  }
+
+  if (status.includes("DELETED") || status.includes("ARCHIVED")) {
+    return "DELETED";
+  }
+
+  return raw || "UNKNOWN";
+}
+
+function getUpdatedAt(entity) {
+  return entity?.updated_at || entity?.created_at || entity?.start_time || "";
+}
+
+function sortActiveFirst(a, b) {
+  const aActive = getEntityStatus(a) === "ACTIVE";
+  const bActive = getEntityStatus(b) === "ACTIVE";
+
+  if (aActive && !bActive) return -1;
+  if (!aActive && bActive) return 1;
+
+  const aTime = new Date(getUpdatedAt(a)).getTime() || 0;
+  const bTime = new Date(getUpdatedAt(b)).getTime() || 0;
+
+  return bTime - aTime;
+}
+
+function extractStats(data) {
   const root =
-    data.timeseries_stats ||
-    data.total_stats ||
-    data.stats ||
-    data.lifetime_stats ||
+    data?.timeseries_stats ||
+    data?.total_stats ||
+    data?.lifetime_stats ||
+    data?.stats ||
     data;
 
   if (Array.isArray(root)) {
     const first = root[0] || {};
-    return first.stats || first;
+    return (
+      first?.timeseries_stat?.stats ||
+      first?.total_stat?.stats ||
+      first?.lifetime_stat?.stats ||
+      first?.stats ||
+      first ||
+      {}
+    );
   }
 
-  if (Array.isArray(root.timeseries)) {
-    const first = root.timeseries[0] || {};
-    return first.stats || first;
-  }
+  if (root?.timeseries_stat?.stats) return root.timeseries_stat.stats;
+  if (root?.total_stat?.stats) return root.total_stat.stats;
+  if (root?.lifetime_stat?.stats) return root.lifetime_stat.stats;
+  if (root?.stats) return root.stats;
 
-  if (root.stats) return root.stats;
-
-  return root;
+  return root || {};
 }
 
-async function getEntityStats({
-  entityType,
-  entityId,
-  accessToken,
-  startTime,
-  endTime
-}) {
-  const params = new URLSearchParams();
+function normalizeStats(stats) {
+  const spend = moneyFromMicros(stats.spend);
+  const revenue = moneyFromMicros(stats.conversion_purchases_value);
 
-  params.set("granularity", "TOTAL");
-  params.set("fields", FIELDS);
-  params.set("start_time", startTime);
-  params.set("end_time", endTime);
-
-  const path = `/${entityType}/${entityId}/stats?${params.toString()}`;
-
-  const result = await snapchatFetch(path, accessToken);
-
-  if (!result.success) {
-    return result;
-  }
-
-  return {
-    success: true,
-    status: result.status,
-    data: extractStatsObject(result.data)
-  };
-}
-
-function normalizeRow({ entity, level, stats }) {
-  const spend = microsToMoney(stats.spend);
-  const revenue = microsToMoney(stats.conversion_purchases_value);
   const impressions = safeNumber(stats.impressions);
   const swipes = safeNumber(stats.swipes);
   const purchases = safeNumber(stats.conversion_purchases);
   const videoViews = safeNumber(stats.video_views);
 
-  const ctr = safeDivide(swipes, impressions) * 100;
-  const cpc = safeDivide(spend, swipes);
-  const cpm = safeDivide(spend, impressions) * 1000;
-  const roas = safeDivide(revenue, spend);
-  const cpa = safeDivide(spend, purchases);
-  const videoViewRate = safeDivide(videoViews, impressions) * 100;
-
-  const id = getEntityId(entity, level);
-
   return {
-    id,
-    name: getEntityName(entity, level),
-    status: getEntityStatus(entity),
-    level,
-
+    currency: "USD",
     spend,
     revenue,
+    purchase_value: revenue,
     impressions,
     swipes,
     clicks: swipes,
     purchases,
     video_views: videoViews,
-
-    ctr,
-    cpc,
-    cpm,
-    roas,
-    cpa,
-    video_view_rate: videoViewRate,
-
-    currency: "USD",
-    updated_at: getUpdatedAt(entity)
+    ctr: safeDivide(swipes, impressions) * 100,
+    cpc: safeDivide(spend, swipes),
+    cpm: safeDivide(spend, impressions) * 1000,
+    roas: safeDivide(revenue, spend),
+    cpa: safeDivide(spend, purchases),
+    video_view_rate: safeDivide(videoViews, impressions) * 100
   };
 }
 
@@ -486,15 +395,14 @@ function buildSummary(rows) {
 
   return {
     currency: "USD",
-
     spend,
     revenue,
+    purchase_value: revenue,
     impressions,
     swipes,
     clicks: swipes,
     purchases,
     video_views: videoViews,
-
     ctr: safeDivide(swipes, impressions) * 100,
     cpc: safeDivide(spend, swipes),
     cpm: safeDivide(spend, impressions) * 1000,
@@ -507,8 +415,8 @@ function buildSummary(rows) {
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
 
-  const accountId = searchParams.get("account_id");
-  const level = searchParams.get("level") || "campaign";
+  const accountId = searchParams.get("account_id") || "";
+  const levelParam = searchParams.get("level") || "campaign";
   const datePreset = searchParams.get("date_preset") || "last_30d";
   const limit = clampLimit(searchParams.get("limit"));
 
@@ -522,9 +430,9 @@ export async function GET(request) {
     );
   }
 
-  const allowedLevels = ["campaign", "ad_squad", "ad"];
+  const config = normalizeLevel(levelParam);
 
-  if (!allowedLevels.includes(level)) {
+  if (!config) {
     return NextResponse.json(
       {
         success: false,
@@ -535,9 +443,9 @@ export async function GET(request) {
   }
 
   try {
-    const accessToken = await getSnapchatToken();
+    const token = await getSnapchatToken();
 
-    if (!accessToken) {
+    if (!token) {
       return NextResponse.json(
         {
           success: false,
@@ -549,99 +457,111 @@ export async function GET(request) {
 
     const { start_time, end_time } = getDateRange(datePreset);
 
-    const entitiesResult = await getEntities({
-      accountId,
-      level,
-      accessToken
-    });
+    const listResult = await snapFetch(
+      `/adaccounts/${encodeURIComponent(accountId)}/${config.listPath}`,
+      token
+    );
 
-    if (!entitiesResult.success) {
+    if (!listResult.ok) {
       return NextResponse.json(
         {
           success: false,
-          error: entitiesResult.error || "Failed to load Snapchat entities",
-          status: entitiesResult.status || null
+          error: listResult.error,
+          status: listResult.status,
+          raw: listResult.data
         },
-        { status: entitiesResult.status || 500 }
+        { status: listResult.status || 500 }
       );
     }
 
-    const allEntities = sortEntitiesActiveFirst(entitiesResult.entities);
-    const selectedEntities = allEntities.slice(0, limit);
+    const allEntities = extractList(listResult.data, [
+      config.listPath,
+      ...config.responseKeys,
+      "data"
+    ])
+      .map((item) => unwrapEntity(item, config))
+      .filter((entity) => getEntityId(entity, config.level))
+      .sort(sortActiveFirst);
 
-    const entityType = toSnapEntityType(level);
+    const selectedEntities = allEntities.slice(0, limit);
 
     const rows = [];
     const errors = [];
     let rateLimited = false;
 
     for (const entity of selectedEntities) {
-      const entityId = getEntityId(entity, level);
+      const entityId = getEntityId(entity, config.level);
 
-      if (!entityId) {
-        errors.push({
-          name: getEntityName(entity, level),
-          error: "Missing entity id"
-        });
-        continue;
-      }
+      const params = new URLSearchParams();
+      params.set("granularity", "TOTAL");
+      params.set("fields", SAFE_FIELDS);
+      params.set("start_time", start_time);
+      params.set("end_time", end_time);
 
-      const statsResult = await getEntityStats({
-        entityType,
-        entityId,
-        accessToken,
-        startTime: start_time,
-        endTime: end_time
-      });
+      const statsResult = await snapFetch(
+        `/${config.statsPath}/${encodeURIComponent(
+          entityId
+        )}/stats?${params.toString()}`,
+        token
+      );
 
-      if (!statsResult.success) {
-        if (statsResult.status === 429) {
-          rateLimited = true;
-        }
-
+      if (!statsResult.ok) {
         errors.push({
           id: entityId,
-          name: getEntityName(entity, level),
+          name: getEntityName(entity, config.level),
           status: statsResult.status,
           error: statsResult.error
         });
 
-        await wait(DELAY_BETWEEN_REQUESTS_MS);
+        if (statsResult.status === 429) {
+          rateLimited = true;
+          break;
+        }
+
+        await sleep(DELAY_MS);
         continue;
       }
 
-      rows.push(
-        normalizeRow({
-          entity,
-          level,
-          stats: statsResult.data || {}
-        })
-      );
+      const stats = extractStats(statsResult.data);
 
-      await wait(DELAY_BETWEEN_REQUESTS_MS);
+      rows.push({
+        id: entityId,
+        name: getEntityName(entity, config.level),
+        status: getEntityStatus(entity),
+        raw_status:
+          entity.effective_status ||
+          entity.delivery_status ||
+          entity.configured_status ||
+          entity.status ||
+          "",
+        level: config.level,
+        updated_at: getUpdatedAt(entity),
+        ...normalizeStats(stats)
+      });
+
+      await sleep(DELAY_MS);
     }
-
-    const summary = buildSummary(rows);
 
     return NextResponse.json({
       success: true,
-      version: "snapchat-insights-v7-safe-fields-active-first",
+      version: "snapchat-insights-v8-date-preset-fixed",
       account_id: accountId,
-      level,
-      date_preset,
+      level: config.level,
+      date_preset: datePreset,
+      timezone: "Asia/Riyadh",
       start_time,
       end_time,
       currency: "USD",
-
+      fields: SAFE_FIELDS.split(","),
       total_entities_available: allEntities.length,
       loaded_limit: limit,
       loaded_rows: rows.length,
       partial_data: rows.length < allEntities.length,
       rate_limited: rateLimited,
       active_first: true,
-
-      summary,
+      summary: buildSummary(rows),
       rows,
+      data: rows,
       errors
     });
   } catch (error) {
