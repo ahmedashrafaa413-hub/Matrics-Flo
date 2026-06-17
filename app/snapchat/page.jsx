@@ -36,6 +36,15 @@ function safeNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function safeDivide(a, b) {
+  const x = safeNumber(a);
+  const y = safeNumber(b);
+
+  if (!y) return 0;
+
+  return x / y;
+}
+
 function toSAR(value, currency = "USD") {
   const amount = safeNumber(value);
   const normalized = String(currency || "USD").toUpperCase();
@@ -91,17 +100,21 @@ function getAccountName(account) {
 
 function normalizeAccountsResponse(response) {
   const raw =
-    response?.accounts ||
     response?.data ||
+    response?.accounts ||
     response?.adaccounts ||
     response?.snap_ad_accounts ||
     [];
 
   if (!Array.isArray(raw)) return [];
 
-  return raw
+  const mapped = raw
     .map((item) => item?.adaccount || item?.account || item)
     .filter((item) => getAccountId(item));
+
+  return Array.from(
+    new Map(mapped.map((account) => [getAccountId(account), account])).values()
+  );
 }
 
 function getSnapchatApiLevel(tab) {
@@ -155,7 +168,7 @@ function statusColor(status) {
   return "#8b95c9";
 }
 
-function KpiCard({ label, value, icon, color }) {
+function KpiCard({ label, value, sub, icon, color }) {
   return (
     <div className="dash-kpi-card" style={{ position: "relative" }}>
       <div
@@ -185,6 +198,12 @@ function KpiCard({ label, value, icon, color }) {
       >
         {value}
       </strong>
+
+      {sub && (
+        <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
+          {sub}
+        </p>
+      )}
     </div>
   );
 }
@@ -207,7 +226,7 @@ function EmptyState({ message }) {
   );
 }
 
-function SnapchatTable({ rows, activeTab }) {
+function SnapchatTable({ rows }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortKey, setSortKey] = useState("spend");
   const [sortDirection, setSortDirection] = useState("desc");
@@ -302,10 +321,10 @@ function SnapchatTable({ rows, activeTab }) {
               <th>Name</th>
               <th>Status</th>
               <th onClick={() => changeSort("spend")} style={{ cursor: "pointer" }}>
-                Spend USD
+                Spend SAR
               </th>
               <th onClick={() => changeSort("revenue")} style={{ cursor: "pointer" }}>
-                Revenue USD
+                Revenue SAR
               </th>
               <th onClick={() => changeSort("roas")} style={{ cursor: "pointer" }}>
                 ROAS
@@ -314,7 +333,7 @@ function SnapchatTable({ rows, activeTab }) {
                 Purchases
               </th>
               <th onClick={() => changeSort("cpa")} style={{ cursor: "pointer" }}>
-                CPA
+                CPA SAR
               </th>
               <th onClick={() => changeSort("impressions")} style={{ cursor: "pointer" }}>
                 Impressions
@@ -347,15 +366,15 @@ function SnapchatTable({ rows, activeTab }) {
                   </span>
                 </td>
 
-                <td>{formatUSD(row.spend)}</td>
-                <td>{formatUSD(row.revenue)}</td>
+                <td>{formatSAR(toSAR(row.spend, row.currency || "USD"))}</td>
+                <td>{formatSAR(toSAR(row.revenue, row.currency || "USD"))}</td>
 
                 <td style={{ color: roasColor(row.roas), fontWeight: 900 }}>
                   {formatROAS(row.roas)}
                 </td>
 
                 <td>{formatNumber(row.purchases)}</td>
-                <td>{formatUSD(row.cpa)}</td>
+                <td>{formatSAR(toSAR(row.cpa, row.currency || "USD"))}</td>
                 <td>{formatNumber(row.impressions)}</td>
                 <td>{formatNumber(row.swipes || row.clicks)}</td>
                 <td>{formatPercent(row.ctr)}</td>
@@ -365,18 +384,6 @@ function SnapchatTable({ rows, activeTab }) {
           </tbody>
         </table>
       </div>
-
-      {activeTab !== "overview" && (
-        <p
-          style={{
-            color: "var(--muted)",
-            fontSize: 12,
-            marginTop: 12
-          }}
-        >
-          Loaded rows are limited to protect the Snapchat API from rate limits.
-        </p>
-      )}
     </div>
   );
 }
@@ -385,11 +392,11 @@ export default function SnapchatPage() {
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [selectedAccountName, setSelectedAccountName] = useState("");
-  const [datePreset, setDatePreset] = useState("last_30d");
+  const [datePreset, setDatePreset] = useState("maximum");
   const [activeTab, setActiveTab] = useState("overview");
 
-  const [overviewData, setOverviewData] = useState(null);
-  const [tabData, setTabData] = useState({
+  const [dataByTab, setDataByTab] = useState({
+    overview: null,
     campaigns: null,
     ad_squads: null,
     ads: null
@@ -405,6 +412,7 @@ export default function SnapchatPage() {
 
   useEffect(() => {
     if (!selectedAccountId) return;
+
     loadSnapchatData(activeTab);
   }, [selectedAccountId, datePreset, activeTab]);
 
@@ -458,32 +466,16 @@ export default function SnapchatPage() {
 
       const response = await apiGet(`/api/snapchat/insights?${params.toString()}`);
 
-      if (tab === "overview") {
-        setOverviewData(response);
-      }
-
-      if (tab === "campaigns") {
-        setTabData((current) => ({
-          ...current,
-          campaigns: response
-        }));
-      }
-
-      if (tab === "ad_squads") {
-        setTabData((current) => ({
-          ...current,
-          ad_squads: response
-        }));
-      }
-
-      if (tab === "ads") {
-        setTabData((current) => ({
-          ...current,
-          ads: response
-        }));
-      }
+      setDataByTab((current) => ({
+        ...current,
+        [tab]: response
+      }));
     } catch (err) {
       setError(err.message || "Failed to load Snapchat data");
+      setDataByTab((current) => ({
+        ...current,
+        [tab]: null
+      }));
     } finally {
       setLoadingData(false);
     }
@@ -497,8 +489,8 @@ export default function SnapchatPage() {
     setSelectedAccountName(name);
     saveSetting("primary_snapchat_account", accountId);
 
-    setOverviewData(null);
-    setTabData({
+    setDataByTab({
+      overview: null,
       campaigns: null,
       ad_squads: null,
       ads: null
@@ -514,24 +506,16 @@ export default function SnapchatPage() {
     loadSnapchatData(activeTab);
   }
 
-  const currentData = useMemo(() => {
-    if (activeTab === "overview") return overviewData;
-    if (activeTab === "campaigns") return tabData.campaigns;
-    if (activeTab === "ad_squads") return tabData.ad_squads;
-    if (activeTab === "ads") return tabData.ads;
-
-    return overviewData;
-  }, [activeTab, overviewData, tabData]);
-
+  const currentData = dataByTab[activeTab] || null;
   const summary = currentData?.summary || {};
   const rows = currentData?.rows || currentData?.data || [];
 
   const summarySAR = {
-    spend: toSAR(summary.spend, "USD"),
-    revenue: toSAR(summary.revenue, "USD"),
-    cpa: toSAR(summary.cpa, "USD"),
-    cpc: toSAR(summary.cpc, "USD"),
-    cpm: toSAR(summary.cpm, "USD")
+    spend: toSAR(summary.spend, summary.currency || "USD"),
+    revenue: toSAR(summary.revenue, summary.currency || "USD"),
+    cpa: toSAR(summary.cpa, summary.currency || "USD"),
+    cpc: toSAR(summary.cpc, summary.currency || "USD"),
+    cpm: toSAR(summary.cpm, summary.currency || "USD")
   };
 
   return (
@@ -545,7 +529,48 @@ export default function SnapchatPage() {
           alignItems: "center"
         }}
       >
+        <div>
+          <h1
+            style={{
+              color: "var(--text)",
+              fontSize: 26,
+              fontWeight: 900,
+              marginBottom: 4
+            }}
+          >
+            Snapchat Ads 👻
+          </h1>
+
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>
+            {selectedAccountName || "Connect Snapchat to load data"}
+          </p>
+
+          <p style={{ color: "#06d6a0", fontSize: 12, fontWeight: 900 }}>
+            Base currency in page: SAR • Snapchat account: USD
+          </p>
+        </div>
+
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            className="dash-refresh"
+            onClick={refreshCurrentTab}
+            disabled={loadingData || loadingAccounts}
+          >
+            {loadingData ? "Loading..." : "Refresh ↺"}
+          </button>
+
+          <select
+            value={datePreset}
+            onChange={(event) => setDatePreset(event.target.value)}
+            disabled={loadingData}
+          >
+            {DATE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
           <select
             value={selectedAccountId}
             onChange={(event) => handleAccountChange(event.target.value)}
@@ -570,47 +595,6 @@ export default function SnapchatPage() {
               })
             )}
           </select>
-
-          <select
-            value={datePreset}
-            onChange={(event) => setDatePreset(event.target.value)}
-            disabled={loadingData}
-          >
-            {DATE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          <button
-            className="dash-refresh"
-            onClick={refreshCurrentTab}
-            disabled={loadingData || loadingAccounts}
-          >
-            {loadingData ? "Loading..." : "Refresh ↺"}
-          </button>
-        </div>
-
-        <div style={{ textAlign: "right" }}>
-          <h1
-            style={{
-              color: "var(--text)",
-              fontSize: 26,
-              fontWeight: 900,
-              marginBottom: 4
-            }}
-          >
-            Snapchat Ads 👻
-          </h1>
-
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>
-            {selectedAccountName || "Connect Snapchat to load data"}
-          </p>
-
-          <p style={{ color: "#06d6a0", fontSize: 12, fontWeight: 900 }}>
-            Base currency in page: SAR • Snapchat account: USD
-          </p>
         </div>
       </div>
 
@@ -683,21 +667,6 @@ export default function SnapchatPage() {
         </div>
       )}
 
-      {currentData?.rate_limited && (
-        <div
-          style={{
-            padding: "12px 14px",
-            borderRadius: 14,
-            border: "1px solid rgba(255,71,126,0.35)",
-            background: "rgba(255,71,126,0.08)",
-            color: "#ff477e",
-            fontWeight: 800
-          }}
-        >
-          Snapchat rate limit reached. Try again after a few minutes.
-        </div>
-      )}
-
       {activeTab === "creative" ? (
         <div className="dash-table-card">
           <EmptyState message="Creative analysis will use Snapchat Ads data in the next step." />
@@ -708,6 +677,7 @@ export default function SnapchatPage() {
             <KpiCard
               label="Spend (SAR)"
               value={loadingData ? "—" : formatSAR(summarySAR.spend)}
+              sub={`Original: ${formatUSD(summary.spend)}`}
               icon="💰"
               color="#fffc00"
             />
@@ -715,6 +685,7 @@ export default function SnapchatPage() {
             <KpiCard
               label="Revenue (SAR)"
               value={loadingData ? "—" : formatSAR(summarySAR.revenue)}
+              sub={`Original: ${formatUSD(summary.revenue)}`}
               icon="💵"
               color="#06d6a0"
             />
@@ -723,7 +694,7 @@ export default function SnapchatPage() {
               label="ROAS"
               value={loadingData ? "—" : formatROAS(summary.roas)}
               icon="📈"
-              color="#ff477e"
+              color={roasColor(summary.roas)}
             />
 
             <KpiCard
@@ -798,7 +769,8 @@ export default function SnapchatPage() {
                     ["Impressions", summary.impressions],
                     ["Video Views", summary.video_views],
                     ["Swipes", summary.swipes],
-                    ["Purchases", summary.purchases]
+                    ["Purchases", summary.purchases],
+                    ["ROAS", formatROAS(summary.roas)]
                   ].map(([label, value]) => (
                     <div
                       key={label}
@@ -811,7 +783,7 @@ export default function SnapchatPage() {
                     >
                       <span style={{ color: "var(--muted)" }}>{label}</span>
                       <strong style={{ color: "var(--text)" }}>
-                        {formatNumber(value)}
+                        {typeof value === "string" ? value : formatNumber(value)}
                       </strong>
                     </div>
                   ))}
@@ -826,7 +798,7 @@ export default function SnapchatPage() {
                   <p>
                     {loadingData
                       ? "Loading..."
-                      : `${rows.length} rows • ${currentData?.currency || "USD"}`}
+                      : `${rows.length} rows • original ${currentData?.currency || "USD"} • display SAR`}
                   </p>
                 </div>
               </div>
@@ -834,7 +806,7 @@ export default function SnapchatPage() {
               {loadingData ? (
                 <EmptyState message="Loading Snapchat data..." />
               ) : (
-                <SnapchatTable rows={rows} activeTab={activeTab} />
+                <SnapchatTable rows={rows} />
               )}
             </div>
           </section>
