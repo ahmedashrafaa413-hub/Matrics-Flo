@@ -3,476 +3,561 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
+import { formatSAR, formatNumber, formatROAS } from "../../lib/currency";
 
 const DATE_OPTIONS = [
-  { value: "today",      label: "اليوم" },
-  { value: "yesterday",  label: "أمس" },
-  { value: "last_7d",    label: "آخر 7 أيام" },
-  { value: "last_30d",   label: "آخر 30 يوم" },
+  { value: "today", label: "اليوم" },
+  { value: "yesterday", label: "أمس" },
+  { value: "last_7d", label: "آخر 7 أيام" },
+  { value: "last_30d", label: "آخر 30 يوم" },
   { value: "this_month", label: "هذا الشهر" },
-  { value: "last_90d",   label: "آخر 90 يوم" },
-  { value: "maximum",    label: "الكل" },
+  { value: "last_90d", label: "آخر 90 يوم" },
+  { value: "maximum", label: "كل الفترة" }
 ];
 
-// ── Formatters ─────────────────────────────────────────────────────────────────
-const fmt = {
-  sar:    (v) => `${Number(v || 0).toLocaleString("ar-SA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ﷼`,
-  num:    (v) => Number(v || 0).toLocaleString("ar-SA"),
-  x:      (v) => `${Number(v || 0).toFixed(2)}x`,
-  pct:    (v) => `${Number(v || 0).toFixed(1)}%`,
-};
+function getAccountId(account) {
+  return (
+    account?.id ||
+    account?.account_id ||
+    account?.ad_account_id ||
+    account?.snapchat_account_id ||
+    account?.adaccount_id ||
+    ""
+  );
+}
 
-function roasColor(v) {
-  const r = Number(v || 0);
-  if (r >= 5) return "#06d6a0";
-  if (r >= 2) return "#f59e0b";
+function getAccountName(account) {
+  return (
+    account?.name ||
+    account?.account_name ||
+    account?.business_name ||
+    account?.organization_name ||
+    "Account"
+  );
+}
+
+function normalizeMetaAccounts(response) {
+  const raw = response?.data || response?.accounts || [];
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => item?.account || item?.adaccount || item)
+    .filter((item) => getAccountId(item));
+}
+
+function normalizeSnapchatAccounts(response) {
+  const raw = response?.data || response?.accounts || response?.adaccounts || [];
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => item?.account || item?.adaccount || item)
+    .filter((item) => getAccountId(item));
+}
+
+function roasColor(value) {
+  const roas = Number(value || 0);
+
+  if (roas >= 5) return "#06d6a0";
+  if (roas >= 2) return "#f59e0b";
+
   return "#ff477e";
 }
 
-// ── KPI Card ───────────────────────────────────────────────────────────────────
-function KPICard({ label, value, icon, color, sub }) {
+function KPICard({ label, value, sub, icon, color }) {
   return (
     <div className="dash-kpi-card" style={{ position: "relative" }}>
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: color, borderRadius: "20px 20px 0 0" }} />
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 2,
+          background: color,
+          borderRadius: "20px 20px 0 0"
+        }}
+      />
+
       <div className="dash-kpi-top">
         <span className="dash-kpi-label">{label}</span>
         <span className="dash-kpi-icon">{icon}</span>
       </div>
-      <strong style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 22, color: "var(--text)" }}>
+
+      <strong
+        style={{
+          fontFamily: "'Space Grotesk', sans-serif",
+          fontSize: 22,
+          color: "var(--text)"
+        }}
+      >
         {value}
       </strong>
-      {sub && <span style={{ fontSize: 11, color: "var(--muted)", marginTop: 4, display: "block" }}>{sub}</span>}
+
+      {sub && (
+        <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
+          {sub}
+        </p>
+      )}
     </div>
   );
 }
 
-// ── Source Icon ────────────────────────────────────────────────────────────────
-function SourceBadge({ source }) {
+function SourceIcon({ source }) {
   const s = String(source || "").toLowerCase();
-  const cfg =
-    s.includes("meta")     ? { icon: "ⓕ", color: "#1877f2" } :
-    s.includes("snapchat") ? { icon: "👻", color: "#fffc00" } :
-    s.includes("google")   ? { icon: "G",  color: "#34a853" } :
-    s.includes("tiktok")   ? { icon: "♪",  color: "#ff477e" } :
-    s.includes("salla")    ? { icon: "س",  color: "#8b5cf6" } :
-    s.includes("total")    ? { icon: "Σ",  color: "#06d6a0" } :
-                             { icon: "📊", color: "#8b95c9" };
+
+  let icon = "📊";
+  let color = "#8b95c9";
+
+  if (s.includes("meta")) {
+    icon = "f";
+    color = "#1877f2";
+  }
+
+  if (s.includes("snapchat")) {
+    icon = "👻";
+    color = "#fffc00";
+  }
+
+  if (s.includes("salla")) {
+    icon = "س";
+    color = "#8b5cf6";
+  }
+
+  if (s.includes("total") || s.includes("الإجمالي")) {
+    icon = "Σ";
+    color = "#06d6a0";
+  }
+
   return (
-    <span style={{
-      width: 26, height: 26, borderRadius: 999,
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      background: `${cfg.color}22`, color: cfg.color, fontWeight: 900, fontSize: 13,
-    }}>
-      {cfg.icon}
+    <span
+      style={{
+        width: 24,
+        height: 24,
+        borderRadius: 999,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: `${color}22`,
+        color,
+        fontWeight: 900,
+        fontSize: 12
+      }}
+    >
+      {icon}
     </span>
   );
 }
 
-// ── Winner Badge ───────────────────────────────────────────────────────────────
-function WinnerBadge({ label, color }) {
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 800, padding: "2px 8px",
-      borderRadius: 999, background: `${color}22`, color, border: `1px solid ${color}44`,
-      marginRight: 6, whiteSpace: "nowrap",
-    }}>
-      {label}
-    </span>
-  );
-}
-
-// ── Stats Bar (Funnel visual) ──────────────────────────────────────────────────
-function StatBar({ label, value, max, color }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
-  return (
-    <div style={{ marginBottom: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginBottom: 3 }}>
-        <span>{label}</span>
-        <span style={{ color: "var(--text)", fontWeight: 700 }}>{fmt.num(value)}</span>
-      </div>
-      <div style={{ height: 4, background: "var(--border)", borderRadius: 99 }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 99, transition: "width 0.6s ease" }} />
-      </div>
-    </div>
-  );
-}
-
-// ── Account Selector ──────────────────────────────────────────────────────────
-function AccountSelect({ label, icon, accounts, value, onChange, loading }) {
-  if (!accounts || accounts.length === 0) return null;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700 }}>{icon} {label}</span>
-      <select value={value} onChange={e => onChange(e.target.value)} disabled={loading}
-        style={{ minWidth: 160, fontSize: 12 }}>
-        {accounts.map(a => (
-          <option key={a.id} value={a.id}>{a.name} — {a.currency || ""}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function PerformanceOverviewPage() {
-  const [datePreset, setDatePreset]           = useState("last_30d");
-  const [metaAccountId, setMetaAccountId]     = useState("");
-  const [snapAccountId, setSnapAccountId]     = useState("");
-  const [metaAccounts, setMetaAccounts]       = useState([]);
-  const [snapAccounts, setSnapAccounts]       = useState([]);
-  const [data, setData]                       = useState(null);
-  const [activeTab, setActiveTab]             = useState("all");
-  const [loading, setLoading]                 = useState(false);
-  const [error, setError]                     = useState("");
+  const [datePreset, setDatePreset] = useState("last_30d");
 
-  // Load account lists + saved selections
+  const [metaAccounts, setMetaAccounts] = useState([]);
+  const [snapchatAccounts, setSnapchatAccounts] = useState([]);
+
+  const [metaAccountId, setMetaAccountId] = useState("");
+  const [snapchatAccountId, setSnapchatAccountId] = useState("");
+
+  const [data, setData] = useState(null);
+  const [activeTab, setActiveTab] = useState("all");
+
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
+  const [error, setError] = useState("");
+
   useEffect(() => {
-    const savedMeta = getSetting("primary_meta_account", "");
-    const savedSnap = getSetting("primary_snapchat_account", "");
-    if (savedMeta) setMetaAccountId(savedMeta);
-    if (savedSnap) setSnapAccountId(savedSnap);
-
-    // Fetch Meta accounts
-    fetch("/api/meta/accounts", { cache: "no-store" })
-      .then(r => r.json())
-      .then(d => {
-        const list = d.data || [];
-        setMetaAccounts(list);
-        if (!savedMeta && list.length > 0) {
-          setMetaAccountId(list[0].id);
-          saveSetting("primary_meta_account", list[0].id);
-        }
-      }).catch(() => {});
-
-    // Fetch Snapchat accounts
-    fetch("/api/snapchat/accounts", { cache: "no-store" })
-      .then(r => r.json())
-      .then(d => {
-        const list = d.data || [];
-        setSnapAccounts(list);
-        if (!savedSnap && list.length > 0) {
-          setSnapAccountId(list[0].id);
-          saveSetting("primary_snapchat_account", list[0].id);
-        }
-      }).catch(() => {});
+    loadAccounts();
   }, []);
 
-  useEffect(() => { loadData(); }, [datePreset, metaAccountId, snapAccountId]);
+  useEffect(() => {
+    if (!metaAccountId && !snapchatAccountId) return;
+    loadData();
+  }, [datePreset, metaAccountId, snapchatAccountId]);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadAccounts() {
+    setLoadingAccounts(true);
     setError("");
+
     try {
-      const params = new URLSearchParams({ date_preset: datePreset });
-      if (metaAccountId)  params.set("meta_account_id", metaAccountId);
-      if (snapAccountId)  params.set("snapchat_account_id", snapAccountId);
-      const result = await apiGet(`/api/performance/overview?${params.toString()}`);
-      setData(result);
+      const [metaResponse, snapchatResponse] = await Promise.allSettled([
+        apiGet("/api/meta/accounts"),
+        apiGet("/api/snapchat/accounts")
+      ]);
+
+      let nextMetaAccounts = [];
+      let nextSnapchatAccounts = [];
+
+      if (metaResponse.status === "fulfilled") {
+        nextMetaAccounts = normalizeMetaAccounts(metaResponse.value);
+      }
+
+      if (snapchatResponse.status === "fulfilled") {
+        nextSnapchatAccounts = normalizeSnapchatAccounts(snapchatResponse.value);
+      }
+
+      setMetaAccounts(nextMetaAccounts);
+      setSnapchatAccounts(nextSnapchatAccounts);
+
+      const savedMetaId = getSetting("primary_meta_account", "");
+      const savedSnapId = getSetting("primary_snapchat_account", "");
+
+      const validMeta =
+        nextMetaAccounts.find((account) => getAccountId(account) === savedMetaId) ||
+        nextMetaAccounts[0];
+
+      const validSnap =
+        nextSnapchatAccounts.find(
+          (account) => getAccountId(account) === savedSnapId
+        ) || nextSnapchatAccounts[0];
+
+      if (validMeta) {
+        const id = getAccountId(validMeta);
+        setMetaAccountId(id);
+        saveSetting("primary_meta_account", id);
+      }
+
+      if (validSnap) {
+        const id = getAccountId(validSnap);
+        setSnapchatAccountId(id);
+        saveSetting("primary_snapchat_account", id);
+      }
     } catch (err) {
-      setData(null);
-      setError(err.message || "فشل تحميل البيانات");
+      setError(err.message || "Failed to load accounts");
     } finally {
-      setLoading(false);
+      setLoadingAccounts(false);
     }
   }
 
-  function handleMetaChange(val) {
-    setMetaAccountId(val);
-    saveSetting("primary_meta_account", val);
+  async function loadData() {
+    setLoadingData(true);
+    setError("");
+
+    try {
+      const params = new URLSearchParams();
+
+      params.set("date_preset", datePreset);
+
+      if (metaAccountId) {
+        params.set("meta_account_id", metaAccountId);
+      }
+
+      if (snapchatAccountId) {
+        params.set("snapchat_account_id", snapchatAccountId);
+      }
+
+      params.set("salla_currency", "SAR");
+
+      const result = await apiGet(
+        `/api/performance/overview?${params.toString()}`
+      );
+
+      setData(result);
+    } catch (err) {
+      setData(null);
+      setError(err.message || "Failed to load performance overview");
+    } finally {
+      setLoadingData(false);
+    }
   }
-  function handleSnapChange(val) {
-    setSnapAccountId(val);
-    saveSetting("primary_snapchat_account", val);
+
+  function handleMetaChange(value) {
+    setMetaAccountId(value);
+    saveSetting("primary_meta_account", value);
+  }
+
+  function handleSnapchatChange(value) {
+    setSnapchatAccountId(value);
+    saveSetting("primary_snapchat_account", value);
   }
 
   const summary = data?.summary || {};
   const sources = data?.sources || [];
 
-  // Filtered sources by tab
   const filteredSources = useMemo(() => {
-    const rows = sources.filter(r => r.source !== "Total");
-    if (activeTab === "ads")     return rows.filter(r => r.type === "ads");
-    if (activeTab === "organic") return rows.filter(r => r.type === "organic");
-    return rows;
+    if (activeTab === "ads") {
+      return sources.filter((row) => row.type === "ads" || row.type === "total");
+    }
+
+    if (activeTab === "organic") {
+      return sources.filter(
+        (row) => row.type === "organic" || row.type === "total"
+      );
+    }
+
+    return sources;
   }, [sources, activeTab]);
 
-  const totalRow = sources.find(r => r.source === "Total");
-
-  // ── Winner detection ────────────────────────────────────────────────────────
-  const winners = useMemo(() => {
-    const adSources = sources.filter(r => r.type === "ads" && r.spend > 0);
-    if (adSources.length === 0) return {};
-    const byROAS     = [...adSources].sort((a, b) => b.roas - a.roas)[0];
-    const byOrders   = [...adSources].sort((a, b) => b.purchases - a.purchases)[0];
-    const byRevenue  = [...adSources].sort((a, b) => b.sales - a.sales)[0];
-    const byEfficiency = [...adSources].sort((a, b) => a.cost_per_purchase - b.cost_per_purchase)[0];
-    return {
-      roas:       byROAS?.source,
-      orders:     byOrders?.source,
-      revenue:    byRevenue?.source,
-      efficiency: byEfficiency?.source,
-    };
-  }, [sources]);
-
-  // ── Funnel data for stats bars ──────────────────────────────────────────────
-  const maxClicks    = Math.max(...sources.filter(r => r.type === "ads").map(r => r.clicks || 0), 1);
-  const maxPurchases = Math.max(...sources.filter(r => r.type === "ads").map(r => r.purchases || 0), 1);
-
   return (
-    <main style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-
-      {/* ── Header ── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+    <main dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+          flexWrap: "wrap"
+        }}
+      >
         <div>
-          <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 900, marginBottom: 4 }}>
-            📊 نظرة عامة على الأداء
+          <h1
+            style={{
+              color: "var(--text)",
+              fontSize: 24,
+              fontWeight: 900,
+              marginBottom: 4
+            }}
+          >
+            نظرة عامة على الأداء 📊
           </h1>
-          <p style={{ color: "var(--muted)", fontSize: 12 }}>
+
+          <p style={{ color: "var(--muted)", fontSize: 13 }}>
             ROAS الفعلي = مبيعات سلة ÷ إجمالي الإنفاق الإعلاني — كل الأرقام بالريال السعودي
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <AccountSelect
-            label="حساب Meta"
-            icon="ⓕ"
-            accounts={metaAccounts}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <select
             value={metaAccountId}
-            onChange={handleMetaChange}
-            loading={loading}
-          />
-          <AccountSelect
-            label="حساب Snapchat"
-            icon="👻"
-            accounts={snapAccounts}
-            value={snapAccountId}
-            onChange={handleSnapChange}
-            loading={loading}
-          />
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700 }}>📅 الفترة</span>
-            <select value={datePreset} onChange={e => setDatePreset(e.target.value)} disabled={loading}>
-              {DATE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          <button className="dash-refresh" onClick={loadData} disabled={loading}>
-            {loading ? "جاري التحميل..." : "↺ تحديث"}
+            onChange={(event) => handleMetaChange(event.target.value)}
+            disabled={loadingAccounts}
+            style={{ minWidth: 240 }}
+          >
+            {metaAccounts.length === 0 ? (
+              <option value="">لا يوجد حساب Meta</option>
+            ) : (
+              metaAccounts.map((account) => {
+                const id = getAccountId(account);
+                const currency =
+                  account.currency || account.account_currency || "USD";
+
+                return (
+                  <option key={id} value={id}>
+                    {getAccountName(account)} — {currency}
+                  </option>
+                );
+              })
+            )}
+          </select>
+
+          <select
+            value={snapchatAccountId}
+            onChange={(event) => handleSnapchatChange(event.target.value)}
+            disabled={loadingAccounts}
+            style={{ minWidth: 260 }}
+          >
+            {snapchatAccounts.length === 0 ? (
+              <option value="">لا يوجد حساب Snapchat</option>
+            ) : (
+              snapchatAccounts.map((account) => {
+                const id = getAccountId(account);
+                const currency =
+                  account.currency || account.account_currency || "USD";
+
+                return (
+                  <option key={id} value={id}>
+                    {getAccountName(account)} — {currency}
+                  </option>
+                );
+              })
+            )}
+          </select>
+
+          <select
+            value={datePreset}
+            onChange={(event) => setDatePreset(event.target.value)}
+            disabled={loadingData}
+          >
+            {DATE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <button
+            className="dash-refresh"
+            onClick={loadData}
+            disabled={loadingData || loadingAccounts}
+          >
+            {loadingData ? "جاري التحميل..." : "تحديث ↺"}
           </button>
         </div>
       </div>
 
       {error && <div className="dash-message error">⚠ {error}</div>}
 
-      {/* ── KPI Cards ── */}
+      {data?.note && <div className="dash-message warning">⚠ {data.note}</div>}
+
       <div className="dash-kpi-grid">
-        <KPICard label="إجمالي المبيعات" value={loading ? "—" : fmt.sar(summary.total_sales)}
-          color="#06d6a0" icon="📦" sub="سلة — كل المصادر" />
-        <KPICard label="مبيعات الإعلانات" value={loading ? "—" : fmt.sar(summary.total_ads_sales)}
-          color="#38bdf8" icon="📣" sub="مبيعات منسوبة للإعلانات" />
-        <KPICard label="مبيعات عضوية / أخرى" value={loading ? "—" : fmt.sar(summary.total_organic_sales)}
-          color="#8b5cf6" icon="🌱" sub="مبيعات بدون إعلانات" />
-        <KPICard label="إجمالي الإنفاق" value={loading ? "—" : fmt.sar(summary.total_ads_spend)}
-          color="#f59e0b" icon="💳" sub="Meta + Snapchat" />
-        <KPICard label="ROAS الفعلي" value={loading ? "—" : fmt.x(summary.actual_roas)}
-          color={roasColor(summary.actual_roas)} icon="📈"
-          sub="مبيعات سلة ÷ إنفاق إعلاني" />
-        <KPICard label="تكلفة الشراء" value={loading ? "—" : fmt.sar(summary.cost_per_purchase)}
-          color="#ff477e" icon="🎯" sub="إنفاق ÷ عدد الطلبات" />
+        <KPICard
+          label="إجمالي المبيعات"
+          value={loadingData ? "—" : formatSAR(summary.total_sales)}
+          sub="سلة — كل المصادر"
+          color="#06d6a0"
+          icon="📦"
+        />
+
+        <KPICard
+          label="مبيعات الإعلانات"
+          value={loadingData ? "—" : formatSAR(summary.total_ads_sales)}
+          sub="مبيعات منسوبة للإعلانات"
+          color="#38bdf8"
+          icon="📣"
+        />
+
+        <KPICard
+          label="مبيعات عضوية / أخرى"
+          value={loadingData ? "—" : formatSAR(summary.total_organic_sales)}
+          sub="مبيعات بدون إعلانات"
+          color="#8b5cf6"
+          icon="🌱"
+        />
+
+        <KPICard
+          label="إجمالي الإنفاق"
+          value={loadingData ? "—" : formatSAR(summary.total_ads_spend)}
+          sub="Meta + Snapchat"
+          color="#f59e0b"
+          icon="💳"
+        />
+
+        <KPICard
+          label="ROAS الفعلي"
+          value={loadingData ? "—" : formatROAS(summary.actual_roas)}
+          sub="مبيعات سلة ÷ إنفاق إعلاني"
+          color={roasColor(summary.actual_roas)}
+          icon="📈"
+        />
+
+        <KPICard
+          label="تكلفة الشراء"
+          value={loadingData ? "—" : formatSAR(summary.cost_per_purchase)}
+          sub="إنفاق ÷ عدد الطلبات"
+          color="#ff477e"
+          icon="🎯"
+        />
       </div>
 
-      {/* ── Winner Cards ── */}
-      {!loading && sources.some(r => r.type === "ads" && r.spend > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-          {[
-            { label: "أعلى ROAS", key: "roas",       icon: "🏆", color: "#06d6a0" },
-            { label: "أكثر طلبات", key: "orders",    icon: "🛒", color: "#38bdf8" },
-            { label: "أعلى إيراد",  key: "revenue",  icon: "💵", color: "#f59e0b" },
-            { label: "أكفأ CPA",    key: "efficiency",icon: "⚡", color: "#8b5cf6" },
-          ].map(w => {
-            const src = sources.find(r => r.source === winners[w.key]);
-            if (!src) return null;
-            return (
-              <div key={w.key} style={{
-                background: "var(--card)", border: `1px solid ${w.color}33`,
-                borderRadius: 14, padding: "14px 16px",
-                borderTop: `3px solid ${w.color}`,
-              }}>
-                <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, marginBottom: 6 }}>
-                  {w.icon} {w.label}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <SourceBadge source={src.source} />
-                  <span style={{ fontWeight: 800, color: "var(--text)", fontSize: 14 }}>{src.source}</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: "var(--muted)" }}>ROAS</div>
-                    <div style={{ fontWeight: 800, color: roasColor(src.roas) }}>{fmt.x(src.roas)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: "var(--muted)" }}>الطلبات</div>
-                    <div style={{ fontWeight: 800, color: "var(--text)" }}>{fmt.num(src.purchases)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: "var(--muted)" }}>المبيعات</div>
-                    <div style={{ fontWeight: 700, color: "var(--text)", fontSize: 12 }}>{fmt.sar(src.sales)}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: "var(--muted)" }}>CPA</div>
-                    <div style={{ fontWeight: 700, color: "var(--text)", fontSize: 12 }}>{fmt.sar(src.cost_per_purchase)}</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          borderBottom: "1px solid var(--border)",
+          paddingBottom: 8
+        }}
+      >
+        {[
+          { key: "all", label: "الكل" },
+          { key: "ads", label: "إعلانات" },
+          { key: "organic", label: "عضوي" }
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: activeTab === tab.key ? "var(--text)" : "var(--muted)",
+              fontWeight: 900,
+              cursor: "pointer",
+              padding: "8px 4px",
+              borderBottom:
+                activeTab === tab.key
+                  ? "2px solid #ffcc00"
+                  : "2px solid transparent"
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      {/* ── Sources Table ── */}
       <div className="dash-table-card">
         <div className="dash-table-head">
           <div>
             <h2>أداء المصادر</h2>
-            <p>{loading ? "جاري التحميل..." : `${filteredSources.length} مصدر • موحد بالريال السعودي`}</p>
-          </div>
-          <div style={{ display: "flex", gap: 4 }}>
-            {[
-              { key: "all",     label: "الكل" },
-              { key: "ads",     label: "إعلانات" },
-              { key: "organic", label: "عضوي" },
-            ].map(tab => (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
-                border: "none", cursor: "pointer", padding: "6px 14px", borderRadius: 8,
-                fontSize: 12, fontWeight: 700, fontFamily: "inherit",
-                background: activeTab === tab.key ? "var(--card-2)" : "transparent",
-                color: activeTab === tab.key ? "var(--text)" : "var(--muted)",
-                borderBottom: activeTab === tab.key ? "2px solid #ffcc00" : "2px solid transparent",
-              }}>
-                {tab.label}
-              </button>
-            ))}
+            <p>
+              {loadingData
+                ? "جاري التحميل..."
+                : `${filteredSources.length} مصادر • موحد بالريال السعودي`}
+            </p>
           </div>
         </div>
 
-        {loading ? (
-          <div className="dash-empty"><h3>⏳ جاري التحميل...</h3></div>
+        {loadingData ? (
+          <div className="dash-empty">
+            <h3>⏳ جاري تحميل البيانات...</h3>
+          </div>
         ) : filteredSources.length === 0 ? (
-          <div className="dash-empty"><h3>لا توجد بيانات</h3></div>
+          <div className="dash-empty">
+            <h3>لا توجد بيانات</h3>
+          </div>
         ) : (
           <div className="dash-table-scroll">
             <table className="dash-data-table">
               <thead>
                 <tr>
                   <th>المصدر</th>
-                  <th>الإنفاق ﷼</th>
+                  <th>الإنفاق ريال</th>
                   <th>الكليكات</th>
                   <th>الطلبات</th>
-                  <th>تكلفة الشراء ﷼</th>
-                  <th>المبيعات ﷼</th>
+                  <th>تكلفة الشراء ريال</th>
+                  <th>المبيعات ريال</th>
                   <th>ROAS</th>
                   <th>نسبة المبيعات</th>
                 </tr>
               </thead>
+
               <tbody>
-                {filteredSources.map(row => {
-                  const totalSales = summary.total_sales || 1;
-                  const sharePct = totalSales > 0 ? (row.sales / totalSales) * 100 : 0;
+                {filteredSources.map((row) => {
+                  const salesShare =
+                    summary.total_sales > 0
+                      ? (Number(row.sales || 0) / Number(summary.total_sales)) * 100
+                      : 0;
+
                   return (
-                    <tr key={row.source}>
+                    <tr
+                      key={row.source}
+                      style={{
+                        fontWeight: row.source === "Total" ? 900 : 600,
+                        borderTop:
+                          row.source === "Total"
+                            ? "1px solid var(--border-2)"
+                            : undefined
+                      }}
+                    >
                       <td className="dash-name-cell">
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                          <SourceBadge source={row.source} />
-                          <span>{row.source}</span>
-                          {winners.roas     === row.source && <WinnerBadge label="🏆 أعلى ROAS"    color="#06d6a0" />}
-                          {winners.orders   === row.source && <WinnerBadge label="🛒 أكثر طلبات"   color="#38bdf8" />}
-                          {winners.revenue  === row.source && <WinnerBadge label="💵 أعلى إيراد"   color="#f59e0b" />}
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 10
+                          }}
+                        >
+                          <SourceIcon source={row.source} />
+                          {row.source === "Total" ? "الإجمالي" : row.source}
                         </span>
                       </td>
-                      <td>{fmt.sar(row.spend)}</td>
-                      <td>{fmt.num(row.clicks)}</td>
-                      <td>{fmt.num(row.purchases)}</td>
-                      <td>{row.cost_per_purchase > 0 ? fmt.sar(row.cost_per_purchase) : "—"}</td>
-                      <td style={{ fontWeight: 700 }}>{fmt.sar(row.sales)}</td>
-                      <td style={{ color: roasColor(row.roas), fontWeight: 900 }}>{fmt.x(row.roas)}</td>
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ flex: 1, height: 4, background: "var(--border)", borderRadius: 99, minWidth: 60 }}>
-                            <div style={{ height: "100%", width: `${Math.min(sharePct, 100)}%`, background: "#6557ff", borderRadius: 99 }} />
-                          </div>
-                          <span style={{ fontSize: 11, color: "var(--muted)", minWidth: 36 }}>{fmt.pct(sharePct)}</span>
-                        </div>
+
+                      <td>{formatSAR(row.spend)}</td>
+                      <td>{formatNumber(row.clicks)}</td>
+                      <td>{formatNumber(row.purchases)}</td>
+                      <td>{formatSAR(row.cost_per_purchase)}</td>
+                      <td>{formatSAR(row.sales)}</td>
+                      <td style={{ color: roasColor(row.roas), fontWeight: 900 }}>
+                        {formatROAS(row.roas)}
                       </td>
+                      <td>{salesShare.toFixed(1)}%</td>
                     </tr>
                   );
                 })}
               </tbody>
-
-              {/* Total Row */}
-              {totalRow && (
-                <tfoot>
-                  <tr style={{ borderTop: "2px solid var(--border)", fontWeight: 900 }}>
-                    <td className="dash-name-cell">
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                        <SourceBadge source="total" />
-                        <span style={{ color: "#06d6a0" }}>الإجمالي</span>
-                      </span>
-                    </td>
-                    <td style={{ color: "#f59e0b" }}>{fmt.sar(totalRow.spend)}</td>
-                    <td>{fmt.num(totalRow.clicks)}</td>
-                    <td style={{ color: "#38bdf8" }}>{fmt.num(totalRow.purchases)}</td>
-                    <td>{totalRow.cost_per_purchase > 0 ? fmt.sar(totalRow.cost_per_purchase) : "—"}</td>
-                    <td style={{ color: "#06d6a0" }}>{fmt.sar(totalRow.sales)}</td>
-                    <td style={{ color: roasColor(totalRow.roas) }}>{fmt.x(totalRow.roas)}</td>
-                    <td>100%</td>
-                  </tr>
-                </tfoot>
-              )}
             </table>
           </div>
         )}
       </div>
 
-      {/* ── Funnel Comparison ── */}
-      {!loading && sources.some(r => r.type === "ads" && r.spend > 0) && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-          {sources.filter(r => r.type === "ads" && r.spend > 0).map(src => (
-            <div key={src.source} style={{
-              background: "var(--card)", border: "1px solid var(--border)",
-              borderRadius: 14, padding: "16px",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-                <SourceBadge source={src.source} />
-                <span style={{ fontWeight: 800, color: "var(--text)" }}>{src.source}</span>
-                <span style={{ marginRight: "auto", fontWeight: 900, color: roasColor(src.roas) }}>{fmt.x(src.roas)}</span>
-              </div>
-              <StatBar label="الكليكات"  value={src.clicks}    max={maxClicks}    color="#6557ff" />
-              <StatBar label="الطلبات"   value={src.purchases} max={maxPurchases} color="#06d6a0" />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-                <div style={{ fontSize: 11 }}>
-                  <div style={{ color: "var(--muted)" }}>الإنفاق</div>
-                  <div style={{ fontWeight: 700, color: "var(--text)" }}>{fmt.sar(src.spend)}</div>
-                </div>
-                <div style={{ fontSize: 11 }}>
-                  <div style={{ color: "var(--muted)" }}>المبيعات</div>
-                  <div style={{ fontWeight: 700, color: "#06d6a0" }}>{fmt.sar(src.sales)}</div>
-                </div>
-                <div style={{ fontSize: 11 }}>
-                  <div style={{ color: "var(--muted)" }}>CPA</div>
-                  <div style={{ fontWeight: 700, color: "var(--text)" }}>{fmt.sar(src.cost_per_purchase)}</div>
-                </div>
-                <div style={{ fontSize: 11 }}>
-                  <div style={{ color: "var(--muted)" }}>CVR</div>
-                  <div style={{ fontWeight: 700, color: "var(--text)" }}>
-                    {fmt.pct(src.clicks > 0 ? (src.purchases / src.clicks) * 100 : 0)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Debug / Data Sources Status ── */}
       {data?.debug?.length > 0 && (
         <div className="dash-table-card">
           <div className="dash-table-head">
@@ -481,19 +566,25 @@ export default function PerformanceOverviewPage() {
               <p>اتصال وصحة الـ API</p>
             </div>
           </div>
+
           <div className="dash-table-scroll">
             <table className="dash-data-table">
               <thead>
-                <tr><th>المصدر</th><th>الحالة</th><th>الخطأ</th></tr>
+                <tr>
+                  <th>المصدر</th>
+                  <th>الحالة</th>
+                  <th>العملة</th>
+                  <th>الخطأ</th>
+                </tr>
               </thead>
+
               <tbody>
-                {data.debug.map(row => (
+                {data.debug.map((row) => (
                   <tr key={row.source}>
                     <td>{row.source}</td>
-                    <td style={{ color: row.success ? "#06d6a0" : "#ff477e", fontWeight: 700 }}>
-                      {row.success ? "✅ متصل" : "❌ مشكلة"}
-                    </td>
-                    <td style={{ color: "var(--muted)", fontSize: 12 }}>{row.error || "—"}</td>
+                    <td>{row.success ? "✅ متصل" : "❌ مشكلة"}</td>
+                    <td>{row.assumed_currency || "—"}</td>
+                    <td>{row.error || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -501,7 +592,6 @@ export default function PerformanceOverviewPage() {
           </div>
         </div>
       )}
-
     </main>
   );
 }
