@@ -14,13 +14,11 @@ const SAFE_FIELDS = [
   "video_views"
 ].join(",");
 
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 40;
-const DELAY_MS = 350;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const DEFAULT_LIMIT = 80;
+const MAX_LIMIT = 120;
+const DEFAULT_CANDIDATE_LIMIT = 160;
+const MAX_CANDIDATE_LIMIT = 300;
+const CONCURRENCY = 8;
 
 function safeNumber(value) {
   const n = Number(value || 0);
@@ -38,16 +36,16 @@ function moneyFromMicros(value) {
   return safeNumber(value) / 1000000;
 }
 
-function clampLimit(value) {
-  const n = Number(value || DEFAULT_LIMIT);
-  if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
-  return Math.min(Math.floor(n), MAX_LIMIT);
+function clamp(value, fallback, max) {
+  const n = Number(value || fallback);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
 }
 
 function normalizeLevel(levelValue) {
   const level = String(levelValue || "campaign").toLowerCase();
 
-  if (level === "campaign" || level === "campaigns") {
+  if (level === "overview" || level === "campaign" || level === "campaigns") {
     return {
       level: "campaign",
       listPath: "campaigns",
@@ -270,15 +268,27 @@ function getEntityName(entity, level) {
   );
 }
 
-function getEntityStatus(entity) {
-  const raw =
-    entity?.effective_status ||
+function getRawStatus(entity) {
+  return (
     entity?.delivery_status ||
+    entity?.effective_status ||
     entity?.configured_status ||
     entity?.status ||
-    "";
+    ""
+  );
+}
 
+function getEntityStatus(entity) {
+  const raw = getRawStatus(entity);
   const status = String(raw || "").toUpperCase();
+
+  if (
+    status.includes("INVALID") ||
+    status.includes("REJECTED") ||
+    status.includes("NOT_DELIVERING")
+  ) {
+    return "ISSUE";
+  }
 
   if (
     status.includes("ACTIVE") ||
@@ -307,12 +317,14 @@ function getUpdatedAt(entity) {
   return entity?.updated_at || entity?.created_at || entity?.start_time || "";
 }
 
-function sortActiveFirst(a, b) {
-  const aActive = getEntityStatus(a) === "ACTIVE";
-  const bActive = getEntityStatus(b) === "ACTIVE";
+function sortEntitiesForCandidateScan(a, b) {
+  const aStatus = getEntityStatus(a);
+  const bStatus = getEntityStatus(b);
 
-  if (aActive && !bActive) return -1;
-  if (!aActive && bActive) return 1;
+  const aPriority = aStatus === "ACTIVE" ? 3 : aStatus === "ISSUE" ? 1 : 2;
+  const bPriority = bStatus === "ACTIVE" ? 3 : bStatus === "ISSUE" ? 1 : 2;
+
+  if (aPriority !== bPriority) return bPriority - aPriority;
 
   const aTime = new Date(getUpdatedAt(a)).getTime() || 0;
   const bTime = new Date(getUpdatedAt(b)).getTime() || 0;
@@ -412,13 +424,82 @@ function buildSummary(rows) {
   };
 }
 
+function sortRowsByPerformance(a, b) {
+  const aScore =
+    safeNumber(a.spend) * 1000000 +
+    safeNumber(a.revenue) * 1000 +
+    safeNumber(a.purchases) * 100 +
+    safeNumber(a.impressions);
+
+  const bScore =
+    safeNumber(b.spend) * 1000000 +
+    safeNumber(b.revenue) * 1000 +
+    safeNumber(b.purchases) * 100 +
+    safeNumber(b.impressions);
+
+  if (aScore !== bScore) return bScore - aScore;
+
+  const aActive = a.status === "ACTIVE";
+  const bActive = b.status === "ACTIVE";
+
+  if (aActive && !bActive) return -1;
+  if (!aActive && bActive) return 1;
+
+  return 0;
+}
+
+async function runWithConcurrency(items, concurrency, handler) {
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const currentIndex = cursor;
+      cursor += 1;
+      results[currentIndex] = await handler(items[currentIndex], currentIndex);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker()
+  );
+
+  await Promise.all(workers);
+
+  return results;
+}
+
+async function getAccountLevelStats({ accountId, token, startTime, endTime }) {
+  const params = new URLSearchParams();
+  params.set("granularity", "TOTAL");
+  params.set("fields", SAFE_FIELDS);
+  params.set("start_time", startTime);
+  params.set("end_time", endTime);
+
+  const result = await snapFetch(
+    `/adaccounts/${encodeURIComponent(accountId)}/stats?${params.toString()}`,
+    token
+  );
+
+  if (!result.ok) return null;
+
+  const stats = extractStats(result.data);
+  return normalizeStats(stats);
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
 
   const accountId = searchParams.get("account_id") || "";
   const levelParam = searchParams.get("level") || "campaign";
   const datePreset = searchParams.get("date_preset") || "last_30d";
-  const limit = clampLimit(searchParams.get("limit"));
+  const limit = clamp(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT);
+  const candidateLimit = clamp(
+    searchParams.get("candidate_limit"),
+    Math.max(DEFAULT_CANDIDATE_LIMIT, limit),
+    MAX_CANDIDATE_LIMIT
+  );
 
   if (!accountId) {
     return NextResponse.json(
@@ -481,70 +562,83 @@ export async function GET(request) {
     ])
       .map((item) => unwrapEntity(item, config))
       .filter((entity) => getEntityId(entity, config.level))
-      .sort(sortActiveFirst);
+      .sort(sortEntitiesForCandidateScan);
 
-    const selectedEntities = allEntities.slice(0, limit);
+    const selectedCandidates = allEntities.slice(0, candidateLimit);
 
-    const rows = [];
-    const errors = [];
     let rateLimited = false;
 
-    for (const entity of selectedEntities) {
-      const entityId = getEntityId(entity, config.level);
+    const statResults = await runWithConcurrency(
+      selectedCandidates,
+      CONCURRENCY,
+      async (entity) => {
+        const entityId = getEntityId(entity, config.level);
 
-      const params = new URLSearchParams();
-      params.set("granularity", "TOTAL");
-      params.set("fields", SAFE_FIELDS);
-      params.set("start_time", start_time);
-      params.set("end_time", end_time);
+        const params = new URLSearchParams();
+        params.set("granularity", "TOTAL");
+        params.set("fields", SAFE_FIELDS);
+        params.set("start_time", start_time);
+        params.set("end_time", end_time);
 
-      const statsResult = await snapFetch(
-        `/${config.statsPath}/${encodeURIComponent(
-          entityId
-        )}/stats?${params.toString()}`,
-        token
-      );
+        const statsResult = await snapFetch(
+          `/${config.statsPath}/${encodeURIComponent(
+            entityId
+          )}/stats?${params.toString()}`,
+          token
+        );
 
-      if (!statsResult.ok) {
-        errors.push({
-          id: entityId,
-          name: getEntityName(entity, config.level),
-          status: statsResult.status,
-          error: statsResult.error
-        });
+        if (!statsResult.ok) {
+          if (statsResult.status === 429) rateLimited = true;
 
-        if (statsResult.status === 429) {
-          rateLimited = true;
-          break;
+          return {
+            row: null,
+            error: {
+              id: entityId,
+              name: getEntityName(entity, config.level),
+              status: statsResult.status,
+              error: statsResult.error
+            }
+          };
         }
 
-        await sleep(DELAY_MS);
-        continue;
+        const stats = extractStats(statsResult.data);
+
+        return {
+          row: {
+            id: entityId,
+            name: getEntityName(entity, config.level),
+            status: getEntityStatus(entity),
+            raw_status: getRawStatus(entity),
+            level: config.level,
+            updated_at: getUpdatedAt(entity),
+            ...normalizeStats(stats)
+          },
+          error: null
+        };
       }
+    );
 
-      const stats = extractStats(statsResult.data);
+    const rowsWithStats = statResults
+      .map((item) => item?.row)
+      .filter(Boolean)
+      .sort(sortRowsByPerformance);
 
-      rows.push({
-        id: entityId,
-        name: getEntityName(entity, config.level),
-        status: getEntityStatus(entity),
-        raw_status:
-          entity.effective_status ||
-          entity.delivery_status ||
-          entity.configured_status ||
-          entity.status ||
-          "",
-        level: config.level,
-        updated_at: getUpdatedAt(entity),
-        ...normalizeStats(stats)
-      });
+    const rows = rowsWithStats.slice(0, limit);
 
-      await sleep(DELAY_MS);
-    }
+    const errors = statResults.map((item) => item?.error).filter(Boolean);
+
+    const accountSummary = await getAccountLevelStats({
+      accountId,
+      token,
+      startTime: start_time,
+      endTime: end_time
+    });
+
+    const summary = accountSummary || buildSummary(rowsWithStats);
 
     return NextResponse.json({
       success: true,
-      version: "snapchat-insights-v8-date-preset-fixed",
+      version: "snapchat-insights-v9-concurrent-top-performing",
       account_id: accountId,
       level: config.level,
       date_preset: datePreset,
@@ -554,12 +648,15 @@ export async function GET(request) {
       currency: "USD",
       fields: SAFE_FIELDS.split(","),
       total_entities_available: allEntities.length,
+      scanned_entities: selectedCandidates.length,
       loaded_limit: limit,
       loaded_rows: rows.length,
       partial_data: rows.length < allEntities.length,
+      summary_source: accountSummary ? "account_stats" : "scanned_entities",
       rate_limited: rateLimited,
-      active_first: true,
-      summary: buildSummary(rows),
+      active_first: false,
+      sorted_by: "spend_revenue_purchases",
+      summary,
       rows,
       data: rows,
       errors
