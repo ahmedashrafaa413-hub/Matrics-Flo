@@ -5,13 +5,13 @@ import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 
 const DATE_OPTIONS = [
+  { value: "maximum", label: "Maximum" },
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
   { value: "last_7d", label: "Last 7 Days" },
   { value: "last_30d", label: "Last 30 Days" },
   { value: "this_month", label: "This Month" },
-  { value: "last_90d", label: "Last 90 Days" },
-  { value: "maximum", label: "Maximum" }
+  { value: "last_90d", label: "Last 90 Days" }
 ];
 
 const TABS = [
@@ -34,15 +34,6 @@ const EXCHANGE_RATES_TO_SAR = {
 function safeNumber(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
-}
-
-function safeDivide(a, b) {
-  const x = safeNumber(a);
-  const y = safeNumber(b);
-
-  if (!y) return 0;
-
-  return x / y;
 }
 
 function toSAR(value, currency = "USD") {
@@ -120,7 +111,7 @@ function normalizeAccountsResponse(response) {
 function getSnapchatApiLevel(tab) {
   const value = String(tab || "").toLowerCase();
 
-  if (value === "overview") return "campaign";
+  if (value === "overview") return "overview";
   if (value === "campaign" || value === "campaigns") return "campaign";
 
   if (
@@ -136,14 +127,14 @@ function getSnapchatApiLevel(tab) {
 
   if (value === "ad" || value === "ads") return "ad";
 
-  return "campaign";
+  return "overview";
 }
 
 function getTabTitle(tab) {
   if (tab === "overview") return "Account Overview";
-  if (tab === "campaigns") return "Campaigns";
-  if (tab === "ad_squads") return "Ad Squads";
-  if (tab === "ads") return "Ads";
+  if (tab === "campaigns") return "Top Campaigns";
+  if (tab === "ad_squads") return "Top Ad Squads";
+  if (tab === "ads") return "Top Ads";
   if (tab === "creative") return "Creative";
 
   return "Snapchat";
@@ -162,6 +153,7 @@ function statusColor(status) {
   const s = String(status || "").toUpperCase();
 
   if (s.includes("ACTIVE")) return "#06d6a0";
+  if (s.includes("ISSUE")) return "#f59e0b";
   if (s.includes("PAUSED")) return "#f59e0b";
   if (s.includes("DELETED")) return "#ff477e";
 
@@ -247,12 +239,6 @@ function SnapchatTable({ rows }) {
     }
 
     list.sort((a, b) => {
-      const aActive = String(a.status || "").toUpperCase().includes("ACTIVE");
-      const bActive = String(b.status || "").toUpperCase().includes("ACTIVE");
-
-      if (aActive && !bActive) return -1;
-      if (!aActive && bActive) return 1;
-
       const aValue = safeNumber(a[sortKey]);
       const bValue = safeNumber(b[sortKey]);
 
@@ -412,6 +398,7 @@ export default function SnapchatPage() {
 
   useEffect(() => {
     if (!selectedAccountId) return;
+    if (activeTab === "creative") return;
 
     loadSnapchatData(activeTab);
   }, [selectedAccountId, datePreset, activeTab]);
@@ -462,8 +449,14 @@ export default function SnapchatPage() {
       params.set("account_id", selectedAccountId);
       params.set("level", apiLevel);
       params.set("date_preset", datePreset);
-      params.set("limit", "80");
-      params.set("candidate_limit", "160");
+
+      if (apiLevel === "overview") {
+        params.set("limit", "0");
+        params.set("candidate_limit", "0");
+      } else {
+        params.set("limit", "80");
+        params.set("candidate_limit", "160");
+      }
 
       const response = await apiGet(`/api/snapchat/insights?${params.toString()}`);
 
@@ -504,6 +497,8 @@ export default function SnapchatPage() {
       return;
     }
 
+    if (activeTab === "creative") return;
+
     loadSnapchatData(activeTab);
   }
 
@@ -515,8 +510,7 @@ export default function SnapchatPage() {
     spend: toSAR(summary.spend, summary.currency || "USD"),
     revenue: toSAR(summary.revenue, summary.currency || "USD"),
     cpa: toSAR(summary.cpa, summary.currency || "USD"),
-    cpc: toSAR(summary.cpc, summary.currency || "USD"),
-    cpm: toSAR(summary.cpm, summary.currency || "USD")
+    cpc: toSAR(summary.cpc, summary.currency || "USD")
   };
 
   return (
@@ -651,7 +645,7 @@ export default function SnapchatPage() {
         </div>
       )}
 
-      {currentData?.partial_data && (
+      {currentData?.partial_data && activeTab !== "overview" && (
         <div
           style={{
             padding: "12px 14px",
@@ -662,9 +656,8 @@ export default function SnapchatPage() {
             fontWeight: 800
           }}
         >
-          Partial data: loaded {currentData.loaded_rows || rows.length} of{" "}
-          {currentData.total_entities_available || 0} entities to avoid Snapchat
-          rate limits.
+          Top performers only: scanned {currentData.scanned_entities || 0} of{" "}
+          {currentData.total_entities_available || 0} entities. Full historical entity table needs background sync.
         </div>
       )}
 
@@ -760,8 +753,8 @@ export default function SnapchatPage() {
               <div className="dash-table-card">
                 <div className="dash-table-head">
                   <div>
-                    <h2>Video Funnel</h2>
-                    <p>Account level performance</p>
+                    <h2>Account Summary</h2>
+                    <p>{currentData?.summary_source || "account_stats"}</p>
                   </div>
                 </div>
 
@@ -799,6 +792,8 @@ export default function SnapchatPage() {
                   <p>
                     {loadingData
                       ? "Loading..."
+                      : activeTab === "overview"
+                      ? `Fast account-level summary • ${currentData?.currency || "USD"}`
                       : `${rows.length} rows • original ${currentData?.currency || "USD"} • display SAR`}
                   </p>
                 </div>
@@ -806,6 +801,8 @@ export default function SnapchatPage() {
 
               {loadingData ? (
                 <EmptyState message="Loading Snapchat data..." />
+              ) : activeTab === "overview" ? (
+                <EmptyState message="Overview uses account-level KPIs above. Open Campaigns, Ad Squads or Ads for top performer rows." />
               ) : (
                 <SnapchatTable rows={rows} />
               )}
