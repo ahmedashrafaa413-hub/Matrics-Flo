@@ -462,7 +462,8 @@ export default function SnapchatPage() {
       params.set("account_id", selectedAccountId);
       params.set("level", apiLevel);
       params.set("date_preset", datePreset);
-      params.set("limit", "20");
+      params.set("limit", "80");
+      params.set("candidate_limit", "160");
 
       const response = await apiGet(`/api/snapchat/insights?${params.toString()}`);
 
