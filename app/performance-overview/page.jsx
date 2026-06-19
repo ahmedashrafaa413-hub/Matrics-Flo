@@ -36,32 +36,34 @@ function getAccountName(account) {
   );
 }
 
+// Meta accounts response shape: { success, data: [...] }
 function normalizeMetaAccounts(response) {
   const raw = response?.data || response?.accounts || [];
-
   if (!Array.isArray(raw)) return [];
-
   return raw
     .map((item) => item?.account || item?.adaccount || item)
     .filter((item) => getAccountId(item));
 }
 
+// Snapchat accounts response shape: { success, data: [...], accounts: [...] }
 function normalizeSnapchatAccounts(response) {
-  const raw = response?.data || response?.accounts || response?.adaccounts || [];
-
+  const raw =
+    response?.data ||
+    response?.accounts ||
+    response?.adaccounts ||
+    [];
   if (!Array.isArray(raw)) return [];
-
-  return raw
+  const mapped = raw
     .map((item) => item?.account || item?.adaccount || item)
     .filter((item) => getAccountId(item));
+  // De-dupe by id
+  return Array.from(new Map(mapped.map((a) => [getAccountId(a), a])).values());
 }
 
 function roasColor(value) {
   const roas = Number(value || 0);
-
   if (roas >= 5) return "#06d6a0";
   if (roas >= 2) return "#f59e0b";
-
   return "#ff477e";
 }
 
@@ -70,81 +72,31 @@ function KPICard({ label, value, sub, icon, color }) {
     <div className="dash-kpi-card" style={{ position: "relative" }}>
       <div
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 2,
-          background: color,
-          borderRadius: "20px 20px 0 0"
+          position: "absolute", top: 0, left: 0, right: 0, height: 2,
+          background: color, borderRadius: "20px 20px 0 0"
         }}
       />
-
       <div className="dash-kpi-top">
         <span className="dash-kpi-label">{label}</span>
         <span className="dash-kpi-icon">{icon}</span>
       </div>
-
-      <strong
-        style={{
-          fontFamily: "'Space Grotesk', sans-serif",
-          fontSize: 22,
-          color: "var(--text)"
-        }}
-      >
+      <strong style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, color: "var(--text)" }}>
         {value}
       </strong>
-
-      {sub && (
-        <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
-          {sub}
-        </p>
-      )}
+      {sub && <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>{sub}</p>}
     </div>
   );
 }
 
 function SourceIcon({ source }) {
   const s = String(source || "").toLowerCase();
-
-  let icon = "📊";
-  let color = "#8b95c9";
-
-  if (s.includes("meta")) {
-    icon = "f";
-    color = "#1877f2";
-  }
-
-  if (s.includes("snapchat")) {
-    icon = "👻";
-    color = "#fffc00";
-  }
-
-  if (s.includes("salla")) {
-    icon = "س";
-    color = "#8b5cf6";
-  }
-
-  if (s.includes("total") || s.includes("الإجمالي")) {
-    icon = "Σ";
-    color = "#06d6a0";
-  }
-
+  let icon = "📊", color = "#8b95c9";
+  if (s.includes("meta"))     { icon = "f";  color = "#1877f2"; }
+  if (s.includes("snapchat")) { icon = "👻"; color = "#fffc00"; }
+  if (s.includes("salla"))    { icon = "س";  color = "#8b5cf6"; }
+  if (s.includes("total") || s.includes("الإجمالي")) { icon = "Σ"; color = "#06d6a0"; }
   return (
-    <span
-      style={{
-        width: 24,
-        height: 24,
-        borderRadius: 999,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: `${color}22`,
-        color,
-        fontWeight: 900,
-        fontSize: 12
-      }}
-    >
+    <span style={{ width: 24, height: 24, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: `${color}22`, color, fontWeight: 900, fontSize: 12 }}>
       {icon}
     </span>
   );
@@ -165,19 +117,21 @@ export default function PerformanceOverviewPage() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState("");
+  const [accountsError, setAccountsError] = useState("");
 
   useEffect(() => {
     loadAccounts();
   }, []);
 
   useEffect(() => {
-    if (!metaAccountId && !snapchatAccountId) return;
+    // Only fetch performance data once we've finished resolving accounts
+    if (loadingAccounts) return;
     loadData();
-  }, [datePreset, metaAccountId, snapchatAccountId]);
+  }, [datePreset, metaAccountId, snapchatAccountId, loadingAccounts]);
 
   async function loadAccounts() {
     setLoadingAccounts(true);
-    setError("");
+    setAccountsError("");
 
     try {
       const [metaResponse, snapchatResponse] = await Promise.allSettled([
@@ -187,43 +141,56 @@ export default function PerformanceOverviewPage() {
 
       let nextMetaAccounts = [];
       let nextSnapchatAccounts = [];
+      const errs = [];
 
       if (metaResponse.status === "fulfilled") {
         nextMetaAccounts = normalizeMetaAccounts(metaResponse.value);
+      } else {
+        errs.push(`Meta: ${metaResponse.reason?.message || "failed to load"}`);
       }
 
       if (snapchatResponse.status === "fulfilled") {
         nextSnapchatAccounts = normalizeSnapchatAccounts(snapchatResponse.value);
+        if (nextSnapchatAccounts.length === 0) {
+          errs.push("Snapchat: no accounts returned (check connection)");
+        }
+      } else {
+        errs.push(`Snapchat: ${snapchatResponse.reason?.message || "failed to load"}`);
       }
 
       setMetaAccounts(nextMetaAccounts);
       setSnapchatAccounts(nextSnapchatAccounts);
+      if (errs.length) setAccountsError(errs.join(" • "));
 
+      // Resolve Meta selection: saved → first available
       const savedMetaId = getSetting("primary_meta_account", "");
-      const savedSnapId = getSetting("primary_snapchat_account", "");
-
       const validMeta =
-        nextMetaAccounts.find((account) => getAccountId(account) === savedMetaId) ||
+        nextMetaAccounts.find((a) => getAccountId(a) === savedMetaId) ||
         nextMetaAccounts[0];
-
-      const validSnap =
-        nextSnapchatAccounts.find(
-          (account) => getAccountId(account) === savedSnapId
-        ) || nextSnapchatAccounts[0];
 
       if (validMeta) {
         const id = getAccountId(validMeta);
         setMetaAccountId(id);
         saveSetting("primary_meta_account", id);
+      } else {
+        setMetaAccountId("");
       }
+
+      // Resolve Snapchat selection: saved → first available
+      const savedSnapId = getSetting("primary_snapchat_account", "");
+      const validSnap =
+        nextSnapchatAccounts.find((a) => getAccountId(a) === savedSnapId) ||
+        nextSnapchatAccounts[0];
 
       if (validSnap) {
         const id = getAccountId(validSnap);
         setSnapchatAccountId(id);
         saveSetting("primary_snapchat_account", id);
+      } else {
+        setSnapchatAccountId("");
       }
     } catch (err) {
-      setError(err.message || "Failed to load accounts");
+      setAccountsError(err.message || "Failed to load accounts");
     } finally {
       setLoadingAccounts(false);
     }
@@ -235,23 +202,14 @@ export default function PerformanceOverviewPage() {
 
     try {
       const params = new URLSearchParams();
-
       params.set("date_preset", datePreset);
 
-      if (metaAccountId) {
-        params.set("meta_account_id", metaAccountId);
-      }
-
-      if (snapchatAccountId) {
-        params.set("snapchat_account_id", snapchatAccountId);
-      }
+      if (metaAccountId) params.set("meta_account_id", metaAccountId);
+      if (snapchatAccountId) params.set("snapchat_account_id", snapchatAccountId);
 
       params.set("salla_currency", "SAR");
 
-      const result = await apiGet(
-        `/api/performance/overview?${params.toString()}`
-      );
-
+      const result = await apiGet(`/api/performance/overview?${params.toString()}`);
       setData(result);
     } catch (err) {
       setData(null);
@@ -278,39 +236,19 @@ export default function PerformanceOverviewPage() {
     if (activeTab === "ads") {
       return sources.filter((row) => row.type === "ads" || row.type === "total");
     }
-
     if (activeTab === "organic") {
-      return sources.filter(
-        (row) => row.type === "organic" || row.type === "total"
-      );
+      return sources.filter((row) => row.type === "organic" || row.type === "total");
     }
-
     return sources;
   }, [sources, activeTab]);
 
   return (
     <main dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap"
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <div>
-          <h1
-            style={{
-              color: "var(--text)",
-              fontSize: 24,
-              fontWeight: 900,
-              marginBottom: 4
-            }}
-          >
+          <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 900, marginBottom: 4 }}>
             نظرة عامة على الأداء 📊
           </h1>
-
           <p style={{ color: "var(--muted)", fontSize: 13 }}>
             ROAS الفعلي = مبيعات سلة ÷ إجمالي الإنفاق الإعلاني — كل الأرقام بالريال السعودي
           </p>
@@ -319,18 +257,16 @@ export default function PerformanceOverviewPage() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select
             value={metaAccountId}
-            onChange={(event) => handleMetaChange(event.target.value)}
+            onChange={(e) => handleMetaChange(e.target.value)}
             disabled={loadingAccounts}
-            style={{ minWidth: 240 }}
+            style={{ minWidth: 220 }}
           >
             {metaAccounts.length === 0 ? (
-              <option value="">لا يوجد حساب Meta</option>
+              <option value="">{loadingAccounts ? "جاري التحميل..." : "لا يوجد حساب Meta"}</option>
             ) : (
               metaAccounts.map((account) => {
                 const id = getAccountId(account);
-                const currency =
-                  account.currency || account.account_currency || "USD";
-
+                const currency = account.currency || account.account_currency || "USD";
                 return (
                   <option key={id} value={id}>
                     {getAccountName(account)} — {currency}
@@ -342,18 +278,16 @@ export default function PerformanceOverviewPage() {
 
           <select
             value={snapchatAccountId}
-            onChange={(event) => handleSnapchatChange(event.target.value)}
+            onChange={(e) => handleSnapchatChange(e.target.value)}
             disabled={loadingAccounts}
-            style={{ minWidth: 260 }}
+            style={{ minWidth: 220 }}
           >
             {snapchatAccounts.length === 0 ? (
-              <option value="">لا يوجد حساب Snapchat</option>
+              <option value="">{loadingAccounts ? "جاري التحميل..." : "لا يوجد حساب Snapchat"}</option>
             ) : (
               snapchatAccounts.map((account) => {
                 const id = getAccountId(account);
-                const currency =
-                  account.currency || account.account_currency || "USD";
-
+                const currency = account.currency || account.account_currency || "USD";
                 return (
                   <option key={id} value={id}>
                     {getAccountName(account)} — {currency}
@@ -363,90 +297,34 @@ export default function PerformanceOverviewPage() {
             )}
           </select>
 
-          <select
-            value={datePreset}
-            onChange={(event) => setDatePreset(event.target.value)}
-            disabled={loadingData}
-          >
+          <select value={datePreset} onChange={(e) => setDatePreset(e.target.value)} disabled={loadingData}>
             {DATE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
+              <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
 
-          <button
-            className="dash-refresh"
-            onClick={loadData}
-            disabled={loadingData || loadingAccounts}
-          >
-            {loadingData ? "جاري التحميل..." : "تحديث ↺"}
+          <button className="dash-refresh" onClick={() => { loadAccounts(); }} disabled={loadingData || loadingAccounts}>
+            {loadingAccounts ? "جاري التحديث..." : "تحديث الحسابات ↺"}
           </button>
         </div>
       </div>
 
+      {accountsError && (
+        <div className="dash-message error">⚠ {accountsError}</div>
+      )}
       {error && <div className="dash-message error">⚠ {error}</div>}
-
       {data?.note && <div className="dash-message warning">⚠ {data.note}</div>}
 
       <div className="dash-kpi-grid">
-        <KPICard
-          label="إجمالي المبيعات"
-          value={loadingData ? "—" : formatSAR(summary.total_sales)}
-          sub="سلة — كل المصادر"
-          color="#06d6a0"
-          icon="📦"
-        />
-
-        <KPICard
-          label="مبيعات الإعلانات"
-          value={loadingData ? "—" : formatSAR(summary.total_ads_sales)}
-          sub="مبيعات منسوبة للإعلانات"
-          color="#38bdf8"
-          icon="📣"
-        />
-
-        <KPICard
-          label="مبيعات عضوية / أخرى"
-          value={loadingData ? "—" : formatSAR(summary.total_organic_sales)}
-          sub="مبيعات بدون إعلانات"
-          color="#8b5cf6"
-          icon="🌱"
-        />
-
-        <KPICard
-          label="إجمالي الإنفاق"
-          value={loadingData ? "—" : formatSAR(summary.total_ads_spend)}
-          sub="Meta + Snapchat"
-          color="#f59e0b"
-          icon="💳"
-        />
-
-        <KPICard
-          label="ROAS الفعلي"
-          value={loadingData ? "—" : formatROAS(summary.actual_roas)}
-          sub="مبيعات سلة ÷ إنفاق إعلاني"
-          color={roasColor(summary.actual_roas)}
-          icon="📈"
-        />
-
-        <KPICard
-          label="تكلفة الشراء"
-          value={loadingData ? "—" : formatSAR(summary.cost_per_purchase)}
-          sub="إنفاق ÷ عدد الطلبات"
-          color="#ff477e"
-          icon="🎯"
-        />
+        <KPICard label="إجمالي المبيعات" value={loadingData ? "—" : formatSAR(summary.total_sales)} sub="سلة — كل المصادر" color="#06d6a0" icon="📦" />
+        <KPICard label="مبيعات الإعلانات" value={loadingData ? "—" : formatSAR(summary.total_ads_sales)} sub="مبيعات منسوبة للإعلانات" color="#38bdf8" icon="📣" />
+        <KPICard label="مبيعات عضوية / أخرى" value={loadingData ? "—" : formatSAR(summary.total_organic_sales)} sub="مبيعات بدون إعلانات" color="#8b5cf6" icon="🌱" />
+        <KPICard label="إجمالي الإنفاق" value={loadingData ? "—" : formatSAR(summary.total_ads_spend)} sub="Meta + Snapchat" color="#f59e0b" icon="💳" />
+        <KPICard label="ROAS الفعلي" value={loadingData ? "—" : formatROAS(summary.actual_roas)} sub="مبيعات سلة ÷ إنفاق إعلاني" color={roasColor(summary.actual_roas)} icon="📈" />
+        <KPICard label="تكلفة الشراء" value={loadingData ? "—" : formatSAR(summary.cost_per_purchase)} sub="إنفاق ÷ عدد الطلبات" color="#ff477e" icon="🎯" />
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          borderBottom: "1px solid var(--border)",
-          paddingBottom: 8
-        }}
-      >
+      <div style={{ display: "flex", gap: 10, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
         {[
           { key: "all", label: "الكل" },
           { key: "ads", label: "إعلانات" },
@@ -456,16 +334,10 @@ export default function PerformanceOverviewPage() {
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             style={{
-              border: "none",
-              background: "transparent",
+              border: "none", background: "transparent",
               color: activeTab === tab.key ? "var(--text)" : "var(--muted)",
-              fontWeight: 900,
-              cursor: "pointer",
-              padding: "8px 4px",
-              borderBottom:
-                activeTab === tab.key
-                  ? "2px solid #ffcc00"
-                  : "2px solid transparent"
+              fontWeight: 900, cursor: "pointer", padding: "8px 4px",
+              borderBottom: activeTab === tab.key ? "2px solid #ffcc00" : "2px solid transparent"
             }}
           >
             {tab.label}
@@ -477,77 +349,42 @@ export default function PerformanceOverviewPage() {
         <div className="dash-table-head">
           <div>
             <h2>أداء المصادر</h2>
-            <p>
-              {loadingData
-                ? "جاري التحميل..."
-                : `${filteredSources.length} مصادر • موحد بالريال السعودي`}
-            </p>
+            <p>{loadingData ? "جاري التحميل..." : `${filteredSources.length} مصادر • موحد بالريال السعودي`}</p>
           </div>
         </div>
 
         {loadingData ? (
-          <div className="dash-empty">
-            <h3>⏳ جاري تحميل البيانات...</h3>
-          </div>
+          <div className="dash-empty"><h3>⏳ جاري تحميل البيانات...</h3></div>
         ) : filteredSources.length === 0 ? (
-          <div className="dash-empty">
-            <h3>لا توجد بيانات</h3>
-          </div>
+          <div className="dash-empty"><h3>لا توجد بيانات</h3></div>
         ) : (
           <div className="dash-table-scroll">
             <table className="dash-data-table">
               <thead>
                 <tr>
-                  <th>المصدر</th>
-                  <th>الإنفاق ريال</th>
-                  <th>الكليكات</th>
-                  <th>الطلبات</th>
-                  <th>تكلفة الشراء ريال</th>
-                  <th>المبيعات ريال</th>
-                  <th>ROAS</th>
-                  <th>نسبة المبيعات</th>
+                  <th>المصدر</th><th>الإنفاق ريال</th><th>الكليكات</th><th>الطلبات</th>
+                  <th>تكلفة الشراء ريال</th><th>المبيعات ريال</th><th>ROAS</th><th>نسبة المبيعات</th>
                 </tr>
               </thead>
-
               <tbody>
                 {filteredSources.map((row) => {
-                  const salesShare =
-                    summary.total_sales > 0
-                      ? (Number(row.sales || 0) / Number(summary.total_sales)) * 100
-                      : 0;
-
+                  const salesShare = summary.total_sales > 0
+                    ? (Number(row.sales || 0) / Number(summary.total_sales)) * 100
+                    : 0;
                   return (
-                    <tr
-                      key={row.source}
-                      style={{
-                        fontWeight: row.source === "Total" ? 900 : 600,
-                        borderTop:
-                          row.source === "Total"
-                            ? "1px solid var(--border-2)"
-                            : undefined
-                      }}
-                    >
+                    <tr key={row.source} style={{ fontWeight: row.source === "Total" ? 900 : 600, borderTop: row.source === "Total" ? "1px solid var(--border-2)" : undefined }}>
                       <td className="dash-name-cell">
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 10
-                          }}
-                        >
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
                           <SourceIcon source={row.source} />
                           {row.source === "Total" ? "الإجمالي" : row.source}
                         </span>
                       </td>
-
                       <td>{formatSAR(row.spend)}</td>
                       <td>{formatNumber(row.clicks)}</td>
                       <td>{formatNumber(row.purchases)}</td>
                       <td>{formatSAR(row.cost_per_purchase)}</td>
                       <td>{formatSAR(row.sales)}</td>
-                      <td style={{ color: roasColor(row.roas), fontWeight: 900 }}>
-                        {formatROAS(row.roas)}
-                      </td>
+                      <td style={{ color: roasColor(row.roas), fontWeight: 900 }}>{formatROAS(row.roas)}</td>
                       <td>{salesShare.toFixed(1)}%</td>
                     </tr>
                   );
@@ -561,23 +398,11 @@ export default function PerformanceOverviewPage() {
       {data?.debug?.length > 0 && (
         <div className="dash-table-card">
           <div className="dash-table-head">
-            <div>
-              <h2>حالة مصادر البيانات</h2>
-              <p>اتصال وصحة الـ API</p>
-            </div>
+            <div><h2>حالة مصادر البيانات</h2><p>اتصال وصحة الـ API</p></div>
           </div>
-
           <div className="dash-table-scroll">
             <table className="dash-data-table">
-              <thead>
-                <tr>
-                  <th>المصدر</th>
-                  <th>الحالة</th>
-                  <th>العملة</th>
-                  <th>الخطأ</th>
-                </tr>
-              </thead>
-
+              <thead><tr><th>المصدر</th><th>الحالة</th><th>العملة</th><th>الخطأ</th></tr></thead>
               <tbody>
                 {data.debug.map((row) => (
                   <tr key={row.source}>
