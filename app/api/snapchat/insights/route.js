@@ -143,31 +143,31 @@ function buildMetrics(s) {
 }
 
 // ── Account-level summary ─────────────────────────────────────────────────────
-async function fetchAccountSummary({ accountId, token, startTime, endTime }) {
+async function fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }) {
   const url =
     `${BASE}/adaccounts/${accountId}/stats` +
     `?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}` +
     `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=7_DAY&view_attribution_window=1_DAY`;
+    `&swipe_up_attribution_window=${swipeWindow}&view_attribution_window=${viewWindow}`;
   const r = await snapFetch(url, token);
   if (!r.ok) return null;
   return buildMetrics(extractStats(r.data, accountId));
 }
 
 // ── Single entity stats ───────────────────────────────────────────────────────
-async function fetchOneStats({ entityType, entityId, token, startTime, endTime }) {
+async function fetchOneStats({ entityType, entityId, token, startTime, endTime, swipeWindow, viewWindow }) {
   const url =
     `${BASE}/${entityType}/${entityId}/stats` +
     `?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}` +
     `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=7_DAY&view_attribution_window=1_DAY`;
+    `&swipe_up_attribution_window=${swipeWindow}&view_attribution_window=${viewWindow}`;
   const r = await snapFetch(url, token);
   if (!r.ok) return { status: r.status, stats: {} };
   return { status: r.status, stats: extractStats(r.data, entityId) };
 }
 
 // ── Parallel batch stats ──────────────────────────────────────────────────────
-async function fetchStatsParallel({ entities, entityType, token, startTime, endTime }) {
+async function fetchStatsParallel({ entities, entityType, token, startTime, endTime, swipeWindow, viewWindow }) {
   const statsMap  = {};
   let rateLimited = false;
   for (let i = 0; i < entities.length; i += BATCH_SIZE) {
@@ -175,7 +175,7 @@ async function fetchStatsParallel({ entities, entityType, token, startTime, endT
     const batch = entities.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async e => {
       try {
-        const r = await fetchOneStats({ entityType, entityId: e.id, token, startTime, endTime });
+        const r = await fetchOneStats({ entityType, entityId: e.id, token, startTime, endTime, swipeWindow, viewWindow });
         statsMap[e.id] = r.stats || {};
         if (r.status === 429) rateLimited = true;
       } catch { statsMap[e.id] = {}; }
@@ -251,6 +251,9 @@ function buildSummaryFromRows(rows) {
   };
 }
 
+const VALID_SWIPE_WINDOWS = ["1_DAY","7_DAY","28_DAY"];
+const VALID_VIEW_WINDOWS  = ["1_HOUR","3_HOUR","6_HOUR","1_DAY","7_DAY","28_DAY"];
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -260,9 +263,16 @@ export async function GET(request) {
   const force      = searchParams.get("force")       === "1";
   const snapToken  = searchParams.get("snap_token")  || null;
 
+  // Attribution window — selectable from the page, defaults to Snapchat's own
+  // Ads Manager default (28-day click / 1-day view) so numbers match the UI.
+  const swipeWindowRaw = searchParams.get("swipe_window") || "28_DAY";
+  const viewWindowRaw  = searchParams.get("view_window")  || "1_DAY";
+  const swipeWindow = VALID_SWIPE_WINDOWS.includes(swipeWindowRaw) ? swipeWindowRaw : "28_DAY";
+  const viewWindow  = VALID_VIEW_WINDOWS.includes(viewWindowRaw)   ? viewWindowRaw  : "1_DAY";
+
   if (!accountId) return NextResponse.json({ success: false, error: "account_id is required" });
 
-  const cacheKey = `${accountId}:${level}:${datePreset}`;
+  const cacheKey = `${accountId}:${level}:${datePreset}:${swipeWindow}:${viewWindow}`;
   if (!force) {
     const cached = cacheGet(cacheKey);
     if (cached) return NextResponse.json({ ...cached, cached: true });
@@ -275,7 +285,7 @@ export async function GET(request) {
   const entityType = { campaign:"campaigns", adsquad:"adsquads", ad:"ads" }[level] || "campaigns";
 
   const [accountSummary, entitiesResult] = await Promise.all([
-    fetchAccountSummary({ accountId, token, startTime, endTime }),
+    fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }),
     fetchEntities({ accountId, level, token }),
   ]);
 
@@ -291,7 +301,7 @@ export async function GET(request) {
     : allEntities.filter(e => !skipStatus.includes(e.status));
 
   const { statsMap, rateLimited } = await fetchStatsParallel({
-    entities: toLoad, entityType, token, startTime, endTime,
+    entities: toLoad, entityType, token, startTime, endTime, swipeWindow, viewWindow,
   });
 
   const allRows = toLoad.map(e => ({ ...e, ...buildMetrics(statsMap[e.id] || {}) }));
@@ -306,7 +316,7 @@ export async function GET(request) {
     date_preset:    datePreset,
     start_time:     startTime,
     end_time:       endTime,
-    attribution:    "7_DAY swipe, 1_DAY view",
+    attribution:    { swipe_window: swipeWindow, view_window: viewWindow },
     total_entities: allEntities.length,
     active_entities:allEntities.filter(e => e.status === "ACTIVE").length,
     loaded_count:   rows.length,
