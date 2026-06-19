@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getSnapchatToken } from "../../../../../lib/snapchatToken";
+import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
