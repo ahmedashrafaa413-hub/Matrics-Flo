@@ -148,7 +148,7 @@ async function fetchAccountSummary({ accountId, token, startTime, endTime }) {
     `${BASE}/adaccounts/${accountId}/stats` +
     `?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}` +
     `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY`;
+    `&swipe_up_attribution_window=7_DAY&view_attribution_window=1_DAY`;
   const r = await snapFetch(url, token);
   if (!r.ok) return null;
   return buildMetrics(extractStats(r.data, accountId));
@@ -160,7 +160,7 @@ async function fetchOneStats({ entityType, entityId, token, startTime, endTime }
     `${BASE}/${entityType}/${entityId}/stats` +
     `?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}` +
     `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY`;
+    `&swipe_up_attribution_window=7_DAY&view_attribution_window=1_DAY`;
   const r = await snapFetch(url, token);
   if (!r.ok) return { status: r.status, stats: {} };
   return { status: r.status, stats: extractStats(r.data, entityId) };
@@ -306,7 +306,7 @@ export async function GET(request) {
     date_preset:    datePreset,
     start_time:     startTime,
     end_time:       endTime,
-    attribution:    "28_DAY swipe, 1_DAY view",
+    attribution:    "7_DAY swipe, 1_DAY view",
     total_entities: allEntities.length,
     active_entities:allEntities.filter(e => e.status === "ACTIVE").length,
     loaded_count:   rows.length,
