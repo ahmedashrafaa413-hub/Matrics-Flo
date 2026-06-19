@@ -3,675 +3,224 @@ import { getSnapchatToken } from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
-const SNAPCHAT_API_BASE = "https://adsapi.snapchat.com/v1";
-const SAFE_FIELDS = [
-  "impressions",
-  "spend",
-  "swipes",
-  "conversion_purchases",
-  "conversion_purchases_value",
-  "video_views"
+const BASE = "https://adsapi.snapchat.com/v1";
+
+// Verified Snapchat field names
+const FIELDS = [
+  "impressions","spend","swipes","swipe_up_percent",
+  "conversion_purchases","conversion_purchases_value",
+  "conversion_add_billing",
+  "video_views","video_views_15s","view_completion",
+  "quartile_1","quartile_3",
 ].join(",");
 
-const DEFAULT_LIMIT = 80;
-const MAX_LIMIT = 120;
-const DEFAULT_CANDIDATE_LIMIT = 160;
-const MAX_CANDIDATE_LIMIT = 300;
-const CONCURRENCY = 8;
+const memoryCache = new Map();
+const CACHE_TTL   = 5 * 60 * 1000;
+const BATCH_SIZE  = 25;
+const BATCH_DELAY = 150;
 
-function safeNumber(value) {
-  const n = Number(value || 0);
-  return Number.isFinite(n) ? n : 0;
+const sleep   = ms  => new Promise(r => setTimeout(r, ms));
+const safeNum = v   => { const n=Number(v||0); return Number.isFinite(n)?n:0; };
+const divide  = (a,b)=> { const x=safeNum(a),y=safeNum(b); return y?x/y:0; };
+const micros  = v   => safeNum(v)/1_000_000;
+const fix2    = v   => Number(safeNum(v).toFixed(2));
+const pad     = v   => String(v).padStart(2,"0");
+
+function cacheGet(key) {
+  const c = memoryCache.get(key);
+  if (!c) return null;
+  if (Date.now()-c.ts > CACHE_TTL) { memoryCache.delete(key); return null; }
+  return c.data;
 }
+function cacheSet(key,data) { memoryCache.set(key,{ts:Date.now(),data}); }
 
-function safeDivide(a, b) {
-  const x = safeNumber(a);
-  const y = safeNumber(b);
-  if (!y) return 0;
-  return x / y;
-}
-
-function moneyFromMicros(value) {
-  return safeNumber(value) / 1000000;
-}
-
-function clamp(value, fallback, max) {
-  const n = Number(value || fallback);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(Math.floor(n), max);
-}
-
-function normalizeLevel(levelValue) {
-  const level = String(levelValue || "overview").toLowerCase();
-
-  if (level === "overview") {
-    return {
-      level: "overview",
-      listPath: "campaigns",
-      statsPath: "campaigns",
-      responseKeys: ["campaigns", "campaign"],
-      summaryOnly: true
-    };
+function getDateRange(preset) {
+  const utcNow = new Date();
+  const rNow   = new Date(utcNow.getTime()+3*3600_000);
+  const today  = { y:rNow.getUTCFullYear(), m:rNow.getUTCMonth()+1, d:rNow.getUTCDate(), h:rNow.getUTCHours() };
+  function shift(n) {
+    const dt = new Date(Date.UTC(today.y,today.m-1,today.d));
+    dt.setUTCDate(dt.getUTCDate()+n);
+    return { y:dt.getUTCFullYear(), m:dt.getUTCMonth()+1, d:dt.getUTCDate() };
   }
-
-  if (level === "campaign" || level === "campaigns") {
-    return {
-      level: "campaign",
-      listPath: "campaigns",
-      statsPath: "campaigns",
-      responseKeys: ["campaigns", "campaign"],
-      summaryOnly: false
-    };
-  }
-
-  if (
-    level === "ad_squad" ||
-    level === "ad_squads" ||
-    level === "adsquad" ||
-    level === "adsquads" ||
-    level === "adset" ||
-    level === "adsets"
-  ) {
-    return {
-      level: "ad_squad",
-      listPath: "adsquads",
-      statsPath: "adsquads",
-      responseKeys: ["adsquads", "ad_squads", "adsquad", "ad_squad"],
-      summaryOnly: false
-    };
-  }
-
-  if (level === "ad" || level === "ads") {
-    return {
-      level: "ad",
-      listPath: "ads",
-      statsPath: "ads",
-      responseKeys: ["ads", "ad"],
-      summaryOnly: false
-    };
-  }
-
-  return null;
+  function stamp(p,h=0) { return `${p.y}-${pad(p.m)}-${pad(p.d)}T${pad(h)}:00:00.000+03:00`; }
+  const curH = Math.min(today.h+1,23);
+  const map  = {
+    today:     { s:today,       eH:curH },
+    yesterday: { s:shift(-1),   eH:0    },
+    last_7d:   { s:shift(-6),   eH:curH },
+    last_30d:  { s:shift(-29),  eH:curH },
+    this_month:{ s:{...today,d:1}, eH:curH },
+    last_90d:  { s:shift(-89),  eH:curH },
+    maximum:   { s:shift(-1095),eH:curH },
+  };
+  const p = map[preset]||map.last_30d;
+  return { startTime:stamp(p.s,0), endTime:stamp(today,p.eH) };
 }
 
-function getRiyadhDateParts(date) {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Riyadh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
+async function snapFetch(url,token,retries=2) {
+  for (let i=0;i<=retries;i++) {
+    const res  = await fetch(url,{headers:{Authorization:`Bearer ${token}`},cache:"no-store"});
+    const text = await res.text();
+    if (res.status===429 && i<retries) { await sleep(1500*(i+1)); continue; }
+    try   { return {ok:res.ok,status:res.status,data:JSON.parse(text)}; }
+    catch { return {ok:res.ok,status:res.status,data:null,raw:text.slice(0,600)}; }
+  }
+  return {ok:false,status:429,data:null};
+}
 
-  const parts = formatter.formatToParts(date);
+function extractStats(payload,id) {
+  const arr   = payload?.total_stats||[];
+  const match = arr.find(i=>{const s=i.total_stat||i; return s.id===id||s.campaign_id===id||s.ad_squad_id===id||s.ad_id===id;})||arr[0]||null;
+  return match?.total_stat?.stats||match?.stats||{};
+}
 
+function buildMetrics(s) {
+  const spend=micros(s.spend),rev=micros(s.conversion_purchases_value);
+  const pur=safeNum(s.conversion_purchases),atc=safeNum(s.conversion_add_billing||s.conversion_add_cart||0);
+  const imp=safeNum(s.impressions),sw=safeNum(s.swipes);
+  const vv=safeNum(s.video_views),vv15=safeNum(s.video_views_15s),vc=safeNum(s.view_completion);
   return {
-    year: parts.find((part) => part.type === "year")?.value,
-    month: parts.find((part) => part.type === "month")?.value,
-    day: parts.find((part) => part.type === "day")?.value
+    spend:fix2(spend),revenue:fix2(rev),purchase_value:fix2(rev),
+    purchases:pur,add_to_cart:atc,
+    impressions:imp,swipes:sw,clicks:sw,
+    video_views:vv,video_views_15s:vv15,view_completion:vc,
+    roas:fix2(divide(rev,spend)),cpa:fix2(divide(spend,pur)),cost_per_atc:fix2(divide(spend,atc)),
+    ctr:fix2(divide(sw,imp)*100),cpc:fix2(divide(spend,sw)),cpm:fix2(divide(spend,imp)*1000),
+    hook_rate:fix2(divide(vv,imp)*100),
+    hold_rate:fix2(divide(vv15,vv)*100),
+    completion_rate:fix2(divide(vc,vv)*100),
+    video_view_rate:fix2(divide(vv,imp)*100),
   };
 }
 
-function addDays(date, days) {
-  const copy = new Date(date);
-  copy.setUTCDate(copy.getUTCDate() + days);
-  return copy;
+async function fetchAccountSummary({accountId,token,startTime,endTime}) {
+  const url=`${BASE}/adaccounts/${accountId}/stats?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
+  const r=await snapFetch(url,token);
+  if (!r.ok) return null;
+  return buildMetrics(extractStats(r.data,accountId));
 }
 
-function riyadhStartOfDay(date) {
-  const { year, month, day } = getRiyadhDateParts(date);
-  return `${year}-${month}-${day}T00:00:00.000+03:00`;
+async function fetchOneStats({entityType,entityId,token,startTime,endTime}) {
+  const url=`${BASE}/${entityType}/${entityId}/stats?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
+  const r=await snapFetch(url,token);
+  if (!r.ok) return {status:r.status,stats:{}};
+  return {status:r.status,stats:extractStats(r.data,entityId)};
 }
 
-function riyadhEndOfDay(date) {
-  const { year, month, day } = getRiyadhDateParts(date);
-  return `${year}-${month}-${day}T23:00:00.000+03:00`;
+async function fetchStatsParallel({entities,entityType,token,startTime,endTime}) {
+  const statsMap={};let rateLimited=false;
+  for (let i=0;i<entities.length;i+=BATCH_SIZE) {
+    if (rateLimited) break;
+    const batch=entities.slice(i,i+BATCH_SIZE);
+    await Promise.all(batch.map(async e=>{
+      try {
+        const r=await fetchOneStats({entityType,entityId:e.id,token,startTime,endTime});
+        statsMap[e.id]=r.stats||{};
+        if (r.status===429) rateLimited=true;
+      } catch { statsMap[e.id]={}; }
+    }));
+    if (i+BATCH_SIZE<entities.length && !rateLimited) await sleep(BATCH_DELAY);
+  }
+  return {statsMap,rateLimited};
 }
 
-function getDateRange(datePresetValue) {
-  const now = new Date();
-  const datePreset = String(datePresetValue || "maximum").toLowerCase();
+function normStatus(raw) {
+  const s=String(raw?.status||raw?.effective_status||raw?.delivery_status||"").toUpperCase();
+  if (["ACTIVE","RUNNING","DELIVERING","LIVE"].includes(s)) return "ACTIVE";
+  if (["PAUSED","INACTIVE","AD_PAUSED","CAMPAIGN_PAUSED","ADSQUAD_PAUSED"].includes(s)) return "PAUSED";
+  if (["PENDING","UNDER_REVIEW","IN_REVIEW","REVIEW"].includes(s)) return "PENDING";
+  if (["DELETED","ARCHIVED"].includes(s)) return s;
+  return s||"ACTIVE";
+}
 
-  if (datePreset === "today") {
-    return {
-      start_time: riyadhStartOfDay(now),
-      end_time: riyadhEndOfDay(now)
-    };
+async function fetchEntities({accountId,level,token}) {
+  const pathMap={campaign:"campaigns",adsquad:"adsquads",ad:"ads"};
+  const path=pathMap[level]||"campaigns";
+  let allRaw=[],nextUrl=`${BASE}/adaccounts/${accountId}/${path}?limit=200`,pages=0;
+  while (nextUrl && pages<15) {
+    const r=await snapFetch(nextUrl,token);
+    if (!r.ok) { if (pages===0) return {ok:false,status:r.status,error:r.data||r.raw,entities:[]}; break; }
+    allRaw=allRaw.concat(r.data?.[path]||[]);
+    nextUrl=r.data?.paging?.next_link||null;
+    pages++;
   }
-
-  if (datePreset === "yesterday") {
-    const yesterday = addDays(now, -1);
-    return {
-      start_time: riyadhStartOfDay(yesterday),
-      end_time: riyadhEndOfDay(yesterday)
-    };
+  let entities=[];
+  if (level==="campaign") {
+    entities=allRaw.map(i=>{const c=i.campaign||i;return {id:c.id,name:c.name||"Unnamed",campaign_name:c.name||"Unnamed",status:normStatus(c)};});
+  } else if (level==="adsquad") {
+    entities=allRaw.map(i=>{const a=i.adsquad||i;return {id:a.id,name:a.name||"Unnamed",adsquad_name:a.name||"Unnamed",campaign_id:a.campaign_id||"",status:normStatus(a)};});
+  } else if (level==="ad") {
+    entities=allRaw.map(i=>{const a=i.ad||i;return {id:a.id,name:a.name||"Unnamed",ad_name:a.name||"Unnamed",adsquad_id:a.ad_squad_id||a.adsquad_id||"",status:normStatus({status:a.status||a.effective_status||"ACTIVE"})};});
   }
+  return {ok:true,entities,pages_fetched:pages};
+}
 
-  if (datePreset === "last_7d") {
-    return {
-      start_time: riyadhStartOfDay(addDays(now, -7)),
-      end_time: riyadhEndOfDay(now)
-    };
-  }
-
-  if (datePreset === "last_30d") {
-    return {
-      start_time: riyadhStartOfDay(addDays(now, -30)),
-      end_time: riyadhEndOfDay(now)
-    };
-  }
-
-  if (datePreset === "this_month") {
-    const { year, month } = getRiyadhDateParts(now);
-    return {
-      start_time: `${year}-${month}-01T00:00:00.000+03:00`,
-      end_time: riyadhEndOfDay(now)
-    };
-  }
-
-  if (datePreset === "last_90d") {
-    return {
-      start_time: riyadhStartOfDay(addDays(now, -90)),
-      end_time: riyadhEndOfDay(now)
-    };
-  }
-
+function buildSummaryFromRows(rows) {
+  const t=rows.reduce((a,r)=>({
+    spend:a.spend+safeNum(r.spend),revenue:a.revenue+safeNum(r.revenue),
+    purchases:a.purchases+safeNum(r.purchases),atc:a.atc+safeNum(r.add_to_cart),
+    imp:a.imp+safeNum(r.impressions),sw:a.sw+safeNum(r.swipes),
+    vv:a.vv+safeNum(r.video_views),vv15:a.vv15+safeNum(r.video_views_15s),vc:a.vc+safeNum(r.view_completion),
+  }),{spend:0,revenue:0,purchases:0,atc:0,imp:0,sw:0,vv:0,vv15:0,vc:0});
   return {
-    start_time: "2020-01-01T00:00:00.000+03:00",
-    end_time: riyadhEndOfDay(now)
+    spend:fix2(t.spend),revenue:fix2(t.revenue),purchase_value:fix2(t.revenue),
+    purchases:t.purchases,add_to_cart:t.atc,impressions:t.imp,swipes:t.sw,clicks:t.sw,
+    video_views:t.vv,video_views_15s:t.vv15,
+    roas:fix2(divide(t.revenue,t.spend)),cpa:fix2(divide(t.spend,t.purchases)),
+    cost_per_atc:fix2(divide(t.spend,t.atc)),
+    ctr:fix2(divide(t.sw,t.imp)*100),cpc:fix2(divide(t.spend,t.sw)),cpm:fix2(divide(t.spend,t.imp)*1000),
+    hook_rate:fix2(divide(t.vv,t.imp)*100),hold_rate:fix2(divide(t.vv15,t.vv)*100),
+    completion_rate:fix2(divide(t.vc,t.vv)*100),video_view_rate:fix2(divide(t.vv,t.imp)*100),
   };
-}
-
-async function snapFetch(path, token) {
-  const response = await fetch(`${SNAPCHAT_API_BASE}${path}`, {
-    method: "GET",
-    cache: "no-store",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json"
-    }
-  });
-
-  const text = await response.text();
-
-  let data = null;
-
-  try {
-    data = JSON.parse(text);
-  } catch {
-    return {
-      ok: false,
-      status: response.status,
-      data: null,
-      error: `Snapchat API did not return JSON. Response starts with: ${text.slice(0, 120)}`
-    };
-  }
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      data,
-      error:
-        data?.request_status ||
-        data?.debug_message ||
-        data?.message ||
-        `Snapchat API failed with status ${response.status}`
-    };
-  }
-
-  return {
-    ok: true,
-    status: response.status,
-    data,
-    error: null
-  };
-}
-
-function extractList(data, keys) {
-  for (const key of keys) {
-    if (Array.isArray(data?.[key])) return data[key];
-  }
-
-  if (Array.isArray(data?.data)) return data.data;
-  if (Array.isArray(data)) return data;
-
-  return [];
-}
-
-function unwrapEntity(item, config) {
-  for (const key of config.responseKeys) {
-    if (item?.[key]) return item[key];
-  }
-
-  return item;
-}
-
-function getEntityId(entity, level) {
-  if (!entity) return "";
-
-  if (level === "campaign") return entity.id || entity.campaign_id || "";
-  if (level === "ad_squad") return entity.id || entity.adsquad_id || entity.ad_squad_id || "";
-  if (level === "ad") return entity.id || entity.ad_id || "";
-
-  return entity.id || "";
-}
-
-function getEntityName(entity, level) {
-  if (!entity) return "Untitled";
-
-  return (
-    entity.name ||
-    entity.campaign_name ||
-    entity.adsquad_name ||
-    entity.ad_squad_name ||
-    entity.ad_name ||
-    `Untitled ${level}`
-  );
-}
-
-function getRawStatus(entity) {
-  return (
-    entity?.delivery_status ||
-    entity?.effective_status ||
-    entity?.configured_status ||
-    entity?.status ||
-    ""
-  );
-}
-
-function getEntityStatus(entity) {
-  const raw = getRawStatus(entity);
-  const status = String(raw || "").toUpperCase();
-
-  if (
-    status.includes("VALID") ||
-    status.includes("ACTIVE") ||
-    status.includes("RUNNING") ||
-    status.includes("DELIVERING")
-  ) {
-    return "ACTIVE";
-  }
-
-  if (
-    status.includes("INVALID") ||
-    status.includes("REJECTED") ||
-    status.includes("NOT_DELIVERING")
-  ) {
-    return "ISSUE";
-  }
-
-  if (
-    status.includes("PAUSED") ||
-    status.includes("STOPPED") ||
-    status.includes("INACTIVE")
-  ) {
-    return "PAUSED";
-  }
-
-  if (status.includes("DELETED") || status.includes("ARCHIVED")) {
-    return "DELETED";
-  }
-
-  return raw || "UNKNOWN";
-}
-
-function getUpdatedAt(entity) {
-  return entity?.updated_at || entity?.created_at || entity?.start_time || "";
-}
-
-function sortEntitiesForCandidateScan(a, b) {
-  const aStatus = getEntityStatus(a);
-  const bStatus = getEntityStatus(b);
-
-  const aPriority = aStatus === "ACTIVE" ? 3 : aStatus === "ISSUE" ? 1 : 2;
-  const bPriority = bStatus === "ACTIVE" ? 3 : bStatus === "ISSUE" ? 1 : 2;
-
-  if (aPriority !== bPriority) return bPriority - aPriority;
-
-  const aTime = new Date(getUpdatedAt(a)).getTime() || 0;
-  const bTime = new Date(getUpdatedAt(b)).getTime() || 0;
-
-  return bTime - aTime;
-}
-
-function extractStats(data) {
-  const root =
-    data?.timeseries_stats ||
-    data?.total_stats ||
-    data?.lifetime_stats ||
-    data?.stats ||
-    data;
-
-  if (Array.isArray(root)) {
-    const first = root[0] || {};
-    return (
-      first?.timeseries_stat?.stats ||
-      first?.total_stat?.stats ||
-      first?.lifetime_stat?.stats ||
-      first?.stats ||
-      first ||
-      {}
-    );
-  }
-
-  if (root?.timeseries_stat?.stats) return root.timeseries_stat.stats;
-  if (root?.total_stat?.stats) return root.total_stat.stats;
-  if (root?.lifetime_stat?.stats) return root.lifetime_stat.stats;
-  if (root?.stats) return root.stats;
-
-  return root || {};
-}
-
-function normalizeStats(stats) {
-  const spend = moneyFromMicros(stats.spend);
-  const revenue = moneyFromMicros(stats.conversion_purchases_value);
-
-  const impressions = safeNumber(stats.impressions);
-  const swipes = safeNumber(stats.swipes);
-  const purchases = safeNumber(stats.conversion_purchases);
-  const videoViews = safeNumber(stats.video_views);
-
-  return {
-    currency: "USD",
-    spend,
-    revenue,
-    purchase_value: revenue,
-    impressions,
-    swipes,
-    clicks: swipes,
-    purchases,
-    video_views: videoViews,
-    ctr: safeDivide(swipes, impressions) * 100,
-    cpc: safeDivide(spend, swipes),
-    cpm: safeDivide(spend, impressions) * 1000,
-    roas: safeDivide(revenue, spend),
-    cpa: safeDivide(spend, purchases),
-    video_view_rate: safeDivide(videoViews, impressions) * 100
-  };
-}
-
-function buildSummary(rows) {
-  const spend = rows.reduce((sum, row) => sum + safeNumber(row.spend), 0);
-  const revenue = rows.reduce((sum, row) => sum + safeNumber(row.revenue), 0);
-  const impressions = rows.reduce((sum, row) => sum + safeNumber(row.impressions), 0);
-  const swipes = rows.reduce((sum, row) => sum + safeNumber(row.swipes), 0);
-  const purchases = rows.reduce((sum, row) => sum + safeNumber(row.purchases), 0);
-  const videoViews = rows.reduce((sum, row) => sum + safeNumber(row.video_views), 0);
-
-  return {
-    currency: "USD",
-    spend,
-    revenue,
-    purchase_value: revenue,
-    impressions,
-    swipes,
-    clicks: swipes,
-    purchases,
-    video_views: videoViews,
-    ctr: safeDivide(swipes, impressions) * 100,
-    cpc: safeDivide(spend, swipes),
-    cpm: safeDivide(spend, impressions) * 1000,
-    roas: safeDivide(revenue, spend),
-    cpa: safeDivide(spend, purchases),
-    video_view_rate: safeDivide(videoViews, impressions) * 100
-  };
-}
-
-function sortRowsByPerformance(a, b) {
-  const aScore =
-    safeNumber(a.spend) * 1000000 +
-    safeNumber(a.revenue) * 1000 +
-    safeNumber(a.purchases) * 100 +
-    safeNumber(a.impressions);
-
-  const bScore =
-    safeNumber(b.spend) * 1000000 +
-    safeNumber(b.revenue) * 1000 +
-    safeNumber(b.purchases) * 100 +
-    safeNumber(b.impressions);
-
-  return bScore - aScore;
-}
-
-async function runWithConcurrency(items, concurrency, handler) {
-  const results = new Array(items.length);
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < items.length) {
-      const currentIndex = cursor;
-      cursor += 1;
-      results[currentIndex] = await handler(items[currentIndex], currentIndex);
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, () => worker())
-  );
-
-  return results;
-}
-
-async function getAccountLevelStats({ accountId, token, startTime, endTime }) {
-  const params = new URLSearchParams();
-  params.set("granularity", "TOTAL");
-  params.set("fields", SAFE_FIELDS);
-  params.set("start_time", startTime);
-  params.set("end_time", endTime);
-
-  const result = await snapFetch(
-    `/adaccounts/${encodeURIComponent(accountId)}/stats?${params.toString()}`,
-    token
-  );
-
-  if (!result.ok) return null;
-
-  const stats = extractStats(result.data);
-  return normalizeStats(stats);
 }
 
 export async function GET(request) {
-  const { searchParams } = new URL(request.url);
+  const {searchParams}=new URL(request.url);
+  const accountId  = searchParams.get("account_id");
+  const level      = searchParams.get("level")       ||"campaign";
+  const datePreset = searchParams.get("date_preset") ||"last_30d";
+  const force      = searchParams.get("force")       ==="1";
+  const snapToken  = searchParams.get("snap_token")  ||null;
 
-  const accountId = searchParams.get("account_id") || "";
-  const levelParam = searchParams.get("level") || "overview";
-  const datePreset = searchParams.get("date_preset") || "maximum";
-  const limit = clamp(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT);
-  const candidateLimit = clamp(
-    searchParams.get("candidate_limit"),
-    Math.max(DEFAULT_CANDIDATE_LIMIT, limit),
-    MAX_CANDIDATE_LIMIT
-  );
+  if (!accountId) return NextResponse.json({success:false,error:"account_id is required"});
 
-  if (!accountId) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Missing account_id"
-      },
-      { status: 400 }
-    );
-  }
+  const cacheKey=`${accountId}:${level}:${datePreset}`;
+  if (!force) { const cached=cacheGet(cacheKey); if (cached) return NextResponse.json({...cached,cached:true}); }
 
-  const config = normalizeLevel(levelParam);
+  const token=snapToken||await getSnapchatToken();
+  if (!token) return NextResponse.json({success:false,error:"Not connected to Snapchat"});
 
-  if (!config) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Invalid level. Use overview, campaign, ad_squad, or ad."
-      },
-      { status: 400 }
-    );
-  }
+  const {startTime,endTime}=getDateRange(datePreset);
+  const entityType={campaign:"campaigns",adsquad:"adsquads",ad:"ads"}[level]||"campaigns";
 
-  try {
-    const token = await getSnapchatToken();
+  const [accountSummary,entitiesResult]=await Promise.all([
+    fetchAccountSummary({accountId,token,startTime,endTime}),
+    fetchEntities({accountId,level,token}),
+  ]);
 
-    if (!token) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Missing Snapchat access token. Please reconnect Snapchat."
-        },
-        { status: 401 }
-      );
-    }
+  if (!entitiesResult.ok) return NextResponse.json({success:false,error:entitiesResult.error});
 
-    const { start_time, end_time } = getDateRange(datePreset);
+  const allEntities=entitiesResult.entities;
+  const shortRange=["today","yesterday","last_7d"].includes(datePreset);
+  const skipStatus=["DELETED","ARCHIVED"];
+  const toLoad=shortRange
+    ? allEntities.filter(e=>e.status==="ACTIVE")
+    : allEntities.filter(e=>!skipStatus.includes(e.status));
 
-    const accountSummary = await getAccountLevelStats({
-      accountId,
-      token,
-      startTime: start_time,
-      endTime: end_time
-    });
+  const {statsMap,rateLimited}=await fetchStatsParallel({entities:toLoad,entityType,token,startTime,endTime});
 
-    if (config.summaryOnly) {
-      return NextResponse.json({
-        success: true,
-        version: "snapchat-insights-v10-overview-summary-fast",
-        account_id: accountId,
-        level: "overview",
-        date_preset: datePreset,
-        timezone: "Asia/Riyadh",
-        start_time,
-        end_time,
-        currency: "USD",
-        fields: SAFE_FIELDS.split(","),
-        total_entities_available: 0,
-        scanned_entities: 0,
-        loaded_limit: 0,
-        loaded_rows: 0,
-        partial_data: false,
-        summary_source: accountSummary ? "account_stats" : "none",
-        rate_limited: false,
-        sorted_by: "account_summary",
-        summary: accountSummary || buildSummary([]),
-        rows: [],
-        data: [],
-        errors: []
-      });
-    }
+  const allRows=toLoad.map(e=>({...e,...buildMetrics(statsMap[e.id]||{})}));
+  const rows=allRows.filter(r=>safeNum(r.spend)>0.001).sort((a,b)=>safeNum(b.spend)-safeNum(a.spend));
+  const summary=accountSummary||buildSummaryFromRows(rows);
 
-    const listResult = await snapFetch(
-      `/adaccounts/${encodeURIComponent(accountId)}/${config.listPath}`,
-      token
-    );
-
-    if (!listResult.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: listResult.error,
-          status: listResult.status,
-          raw: listResult.data
-        },
-        { status: listResult.status || 500 }
-      );
-    }
-
-    const allEntities = extractList(listResult.data, [
-      config.listPath,
-      ...config.responseKeys,
-      "data"
-    ])
-      .map((item) => unwrapEntity(item, config))
-      .filter((entity) => getEntityId(entity, config.level))
-      .sort(sortEntitiesForCandidateScan);
-
-    const selectedCandidates = allEntities.slice(0, candidateLimit);
-
-    let rateLimited = false;
-
-    const statResults = await runWithConcurrency(
-      selectedCandidates,
-      CONCURRENCY,
-      async (entity) => {
-        const entityId = getEntityId(entity, config.level);
-
-        const params = new URLSearchParams();
-        params.set("granularity", "TOTAL");
-        params.set("fields", SAFE_FIELDS);
-        params.set("start_time", start_time);
-        params.set("end_time", end_time);
-
-        const statsResult = await snapFetch(
-          `/${config.statsPath}/${encodeURIComponent(entityId)}/stats?${params.toString()}`,
-          token
-        );
-
-        if (!statsResult.ok) {
-          if (statsResult.status === 429) rateLimited = true;
-
-          return {
-            row: null,
-            error: {
-              id: entityId,
-              name: getEntityName(entity, config.level),
-              status: statsResult.status,
-              error: statsResult.error
-            }
-          };
-        }
-
-        const stats = extractStats(statsResult.data);
-
-        return {
-          row: {
-            id: entityId,
-            name: getEntityName(entity, config.level),
-            status: getEntityStatus(entity),
-            raw_status: getRawStatus(entity),
-            level: config.level,
-            updated_at: getUpdatedAt(entity),
-            ...normalizeStats(stats)
-          },
-          error: null
-        };
-      }
-    );
-
-    const rowsWithStats = statResults
-      .map((item) => item?.row)
-      .filter(Boolean)
-      .sort(sortRowsByPerformance);
-
-    const rows = rowsWithStats.slice(0, limit);
-    const errors = statResults.map((item) => item?.error).filter(Boolean);
-
-    return NextResponse.json({
-      success: true,
-      version: "snapchat-insights-v10-overview-summary-fast",
-      account_id: accountId,
-      level: config.level,
-      date_preset: datePreset,
-      timezone: "Asia/Riyadh",
-      start_time,
-      end_time,
-      currency: "USD",
-      fields: SAFE_FIELDS.split(","),
-      total_entities_available: allEntities.length,
-      scanned_entities: selectedCandidates.length,
-      loaded_limit: limit,
-      loaded_rows: rows.length,
-      partial_data: rows.length < allEntities.length,
-      summary_source: "scanned_entities",
-      account_summary: accountSummary,
-      rate_limited: rateLimited,
-      sorted_by: "spend_revenue_purchases",
-      summary: buildSummary(rowsWithStats),
-      rows,
-      data: rows,
-      errors
-    });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Snapchat insights failed"
-      },
-      { status: 500 }
-    );
-  }
+  const payload={
+    success:true,provider:"Snapchat Ads",account_id:accountId,level,date_preset:datePreset,
+    start_time:startTime,end_time:endTime,
+    total_entities:allEntities.length,active_entities:allEntities.filter(e=>e.status==="ACTIVE").length,
+    loaded_count:rows.length,pages_fetched:entitiesResult.pages_fetched,rate_limited:rateLimited,
+    summary,data:rows,
+  };
+  cacheSet(cacheKey,payload);
+  return NextResponse.json(payload);
 }
