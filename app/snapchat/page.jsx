@@ -18,6 +18,14 @@ const DATE_OPTIONS = [
   { value:"maximum",    label:"Maximum"      },
 ];
 
+// Snapchat's own Ads Manager default is 28-day swipe / 1-day view.
+// Selecting a tighter window will show LOWER numbers than the Ads Manager UI — that's expected, not a bug.
+const ATTRIBUTION_OPTIONS = [
+  { value:"28_DAY|1_DAY", label:"28d Click / 1d View (Ads Manager default)" },
+  { value:"7_DAY|1_DAY",  label:"7d Click / 1d View" },
+  { value:"1_DAY|1_DAY",  label:"1d Click / 1d View" },
+];
+
 const TABS = [
   { key:"overview",  label:"Overview",  icon:"⬡" },
   { key:"campaigns", label:"Campaigns", icon:"◈" },
@@ -317,6 +325,7 @@ export default function SnapchatPage() {
   const [accountId,  setAccountId]  = useState("");
   const [activeTab,  setActiveTab]  = useState("overview");
   const [datePreset, setDatePreset] = useState("last_30d");
+  const [attribution, setAttribution] = useState("28_DAY|1_DAY");
   const [connected,  setConnected]  = useState(true);
   const [error,      setError]      = useState("");
   const [campRows,   setCampRows]   = useState([]);
@@ -332,7 +341,7 @@ export default function SnapchatPage() {
   const loading=campLoad||squadLoad||adLoad;
 
   useEffect(()=>{loadAccounts();},[]);
-  useEffect(()=>{if(!accountId)return;resetData();loadCamp(accountId);},[accountId,datePreset]);
+  useEffect(()=>{if(!accountId)return;resetData();loadCamp(accountId);},[accountId,datePreset,attribution]);
   useEffect(()=>{
     if (!accountId) return;
     if (activeTab==="adsquads"&&!squadLoaded&&!squadLoad) loadSquad(accountId);
@@ -352,32 +361,37 @@ export default function SnapchatPage() {
     }catch(e){setConnected(false);setError(e.message);}
   }
 
+  function attrParams() {
+    const [swipe, view] = attribution.split("|");
+    return `&swipe_window=${swipe}&view_window=${view}`;
+  }
+
   async function loadCamp(acId=accountId){
     if(!acId||campLoad)return;
-    const key=`${acId}|camp|${datePreset}`;
+    const key=`${acId}|camp|${datePreset}|${attribution}`;
     if(campRef.current===key)return;
     campRef.current=key;setCampLoad(true);setError("");
-    try{const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=campaign&date_preset=${datePreset}`);setCampRows(d.data||[]);setCampSum(d.summary||null);}
+    try{const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=campaign&date_preset=${datePreset}${attrParams()}`);setCampRows(d.data||[]);setCampSum(d.summary||null);}
     catch(e){setCampRows([]);setCampSum(null);setError(e.message);campRef.current="";}
     finally{setCampLoad(false);}
   }
 
   async function loadSquad(acId=accountId){
     if(!acId||squadLoad)return;
-    const key=`${acId}|squad|${datePreset}`;
+    const key=`${acId}|squad|${datePreset}|${attribution}`;
     if(squadRef.current===key)return;
     squadRef.current=key;setSquadLoad(true);setError("");
-    try{const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=adsquad&date_preset=${datePreset}`);setSquadRows(d.data||[]);setSquadLoaded(true);}
+    try{const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=adsquad&date_preset=${datePreset}${attrParams()}`);setSquadRows(d.data||[]);setSquadLoaded(true);}
     catch(e){setSquadRows([]);setSquadLoaded(false);setError(e.message);squadRef.current="";}
     finally{setSquadLoad(false);}
   }
 
   async function loadAds(acId=accountId){
     if(!acId||adLoad)return;
-    const key=`${acId}|ad|${datePreset}`;
+    const key=`${acId}|ad|${datePreset}|${attribution}`;
     if(adRef.current===key)return;
     adRef.current=key;setAdLoad(true);setError("");
-    try{const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=ad&date_preset=${datePreset}`);setAdRows(d.data||[]);setAdLoaded(true);}
+    try{const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=ad&date_preset=${datePreset}${attrParams()}`);setAdRows(d.data||[]);setAdLoaded(true);}
     catch(e){setAdRows([]);setAdLoaded(false);setError(e.message);adRef.current="";}
     finally{setAdLoad(false);}
   }
@@ -411,7 +425,7 @@ export default function SnapchatPage() {
           <div>
             <h1 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:20,fontWeight:700,color:"var(--text)"}}>Snapchat Ads</h1>
             <p style={{fontSize:12,color:"var(--muted)"}}>{accounts.find(a=>a.id===accountId)?.name||"No account"}</p>
-            <p style={{fontSize:10,color:"#06d6a0",fontWeight:700}}>Display: SAR (USD × 3.75) • Attribution: 7d click / 1d view</p>
+            <p style={{fontSize:10,color:"#06d6a0",fontWeight:700}}>Display: SAR (USD × 3.75) • Attribution: {ATTRIBUTION_OPTIONS.find(a=>a.value===attribution)?.label}</p>
           </div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}} className="snap-controls">
@@ -422,6 +436,9 @@ export default function SnapchatPage() {
           )}
           <select value={datePreset} onChange={e=>setDatePreset(e.target.value)} disabled={loading}>
             {DATE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <select value={attribution} onChange={e=>setAttribution(e.target.value)} disabled={loading} title="Attribution window — matches Snapchat Ads Manager by default">
+            {ATTRIBUTION_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <button className="dash-refresh" onClick={refresh} disabled={loading}>{loading?"⏳":"↺"} Refresh</button>
         </div>
