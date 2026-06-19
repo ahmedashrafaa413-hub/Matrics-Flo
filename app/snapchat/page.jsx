@@ -42,6 +42,9 @@ const ctrColor  = v => n(v)>=1?"#06d6a0":n(v)>=0.5?"#f59e0b":"#f43f5e";
 const hookColor = v => n(v)>=25?"#06d6a0":n(v)>=15?"#f59e0b":"#f43f5e";
 const holdColor = v => n(v)>=40?"#06d6a0":n(v)>=25?"#f59e0b":"#f43f5e";
 
+// NOTE: hook_rate = quartile_1/impressions, hold_rate = quartile_3/quartile_1, completion_rate = view_completion/impressions
+// These are real Snapchat API fields (video_views / video_views_15s do NOT exist in the API)
+
 function diagnoseSnap(row) {
   const spend=n(row.spend),roas=n(row.roas),pur=n(row.purchases);
   const hook=n(row.hook_rate),hold=n(row.hold_rate),ctr=n(row.ctr);
@@ -129,7 +132,6 @@ function SnapTable({title,loading,rows,showHook=false}) {
               <Th k="cpa">CPA (SAR)</Th><Th k="impressions">Impressions</Th><Th k="swipes">Swipes</Th>
               <Th k="ctr">CTR</Th><Th k="cpm">CPM</Th>
               {showHook&&<><Th k="hook_rate">Hook%</Th><Th k="hold_rate">Hold%</Th><Th k="completion_rate">Comp%</Th></>}
-              <Th k="video_views">Video Views</Th>
             </tr></thead>
             <tbody>
               {filtered.map((row,i)=>(
@@ -147,7 +149,6 @@ function SnapTable({title,loading,rows,showHook=false}) {
                   <td style={{color:ctrColor(row.ctr),fontWeight:700}}>{fmt.pct(row.ctr)}</td>
                   <td>{fmt.sar(row.cpm)}</td>
                   {showHook&&<><td style={{color:hookColor(row.hook_rate),fontWeight:700}}>{row.hook_rate>0?fmt.pct(row.hook_rate):"—"}</td><td style={{color:holdColor(row.hold_rate),fontWeight:700}}>{row.hold_rate>0?fmt.pct(row.hold_rate):"—"}</td><td>{row.completion_rate>0?fmt.pct(row.completion_rate):"—"}</td></>}
-                  <td>{fmt.compact(row.video_views)}</td>
                 </tr>
               ))}
             </tbody>
@@ -333,7 +334,7 @@ export default function SnapchatPage() {
           <div>
             <h1 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:20,fontWeight:700,color:"var(--text)"}}>Snapchat Ads</h1>
             <p style={{fontSize:12,color:"var(--muted)"}}>{accounts.find(a=>a.id===accountId)?.name||"No account"}</p>
-            <p style={{fontSize:10,color:"#06d6a0",fontWeight:700}}>Display: SAR (USD × 3.75)</p>
+            <p style={{fontSize:10,color:"#06d6a0",fontWeight:700}}>Display: SAR (USD × 3.75) • Attribution: 28d swipe / 1d view</p>
           </div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}} className="snap-controls">
@@ -372,15 +373,22 @@ export default function SnapchatPage() {
             <KPICard label="Swipes"      value={campLoad?"—":fmt.compact(totals.swipes||totals.clicks)} color="#8b5cf6"            icon="👆"/>
             <KPICard label="CTR"         value={campLoad?"—":fmt.pct(totals.ctr)}              color={ctrColor(totals.ctr)}        icon="📊"/>
             <KPICard label="CPM (SAR)"   value={campLoad?"—":fmt.sar(totals.cpm)}              color="#22c55e"                     icon="📡"/>
-            <KPICard label="Hook Rate"   value={campLoad?"—":(totals.hook_rate>0?fmt.pct(totals.hook_rate):"—")} color={hookColor(totals.hook_rate)} icon="🎬"/>
-            <KPICard label="Hold Rate"   value={campLoad?"—":(totals.hold_rate>0?fmt.pct(totals.hold_rate):"—")} color={holdColor(totals.hold_rate)} icon="⏱"/>
+            <KPICard label="Hook Rate"   value={campLoad?"—":(totals.hook_rate>0?fmt.pct(totals.hook_rate):"—")} sub="25% video plays" color={hookColor(totals.hook_rate)} icon="🎬"/>
+            <KPICard label="Completion"  value={campLoad?"—":(totals.completion_rate>0?fmt.pct(totals.completion_rate):"—")} sub="97% completion" color={holdColor(totals.completion_rate)} icon="⏱"/>
           </div>
 
-          {n(totals.video_views)>0&&(
+          {n(totals.impressions)>0&&(
             <div className="dash-chart-card">
-              <div className="dash-chart-head"><div><h2>Video Funnel</h2><p>Hook → Hold → Completion</p></div></div>
+              <div className="dash-chart-head"><div><h2>Video Funnel</h2><p>Impressions → 25% → 75% → Completion → Swipe → Purchase</p></div></div>
               <div style={{display:"flex",alignItems:"flex-end",gap:8,height:90,padding:"0 8px"}}>
-                {[{l:"Impressions",v:n(totals.impressions),pct:100,c:"#6366f1"},{l:"Video Views",v:n(totals.video_views),pct:n(totals.hook_rate),c:hookColor(totals.hook_rate)},{l:"15s Views",v:n(totals.video_views_15s||0),pct:n(totals.hold_rate),c:holdColor(totals.hold_rate)},{l:"Completions",v:n(totals.view_completion||0),pct:n(totals.completion_rate||0),c:"#8b5cf6"},{l:"Swipes",v:n(totals.swipes),pct:n(totals.ctr),c:"#f59e0b"},{l:"Purchases",v:n(totals.purchases),pct:n(totals.purchases)/Math.max(n(totals.impressions),1)*100,c:"#06d6a0"}].map((step,i)=>(
+                {[
+                  {l:"Impressions",v:n(totals.impressions),pct:100,c:"#6366f1"},
+                  {l:"25% Played",v:n(totals.quartile_1||0),pct:n(totals.hook_rate),c:hookColor(totals.hook_rate)},
+                  {l:"75% Played",v:n(totals.quartile_3||0),pct:divide_safe(totals.quartile_3,totals.impressions)*100,c:"#8b5cf6"},
+                  {l:"Completed",v:n(totals.view_completion||0),pct:n(totals.completion_rate||0),c:holdColor(totals.completion_rate)},
+                  {l:"Swipes",v:n(totals.swipes),pct:n(totals.ctr),c:"#f59e0b"},
+                  {l:"Purchases",v:n(totals.purchases),pct:n(totals.purchases)/Math.max(n(totals.impressions),1)*100,c:"#06d6a0"},
+                ].map((step,i)=>(
                   <div key={i} style={{flex:1,display:"flex",flexDirection:"column",gap:4,alignItems:"center"}}>
                     <div style={{fontSize:10,fontWeight:700,color:"var(--text)",fontFamily:"'Space Grotesk',sans-serif"}}>{fmt.compact(step.v)}</div>
                     <div style={{width:"100%",height:Math.max(step.pct||0,2),background:step.c,borderRadius:"4px 4px 0 0",minHeight:4}}/>
@@ -419,3 +427,5 @@ export default function SnapchatPage() {
     </main>
   );
 }
+
+function divide_safe(a,b) { const x=n(a),y=n(b); return y?x/y:0; }
