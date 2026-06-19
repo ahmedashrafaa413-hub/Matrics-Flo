@@ -5,13 +5,23 @@ export const dynamic = "force-dynamic";
 
 const BASE = "https://adsapi.snapchat.com/v1";
 
-// Verified Snapchat field names
+// ── VERIFIED Snapchat API fields (confirmed against official docs) ───────────
+// NOTE: "video_views" and "video_views_15s" are NOT real API fields.
+// Real video metrics are: quartile_1/2/3, view_completion, screen_time_millis
 const FIELDS = [
-  "impressions","spend","swipes","swipe_up_percent",
-  "conversion_purchases","conversion_purchases_value",
-  "conversion_add_billing",
-  "video_views","video_views_15s","view_completion",
-  "quartile_1","quartile_3",
+  "impressions",
+  "swipes",
+  "spend",
+  "conversion_purchases",
+  "conversion_purchases_value",
+  "conversion_add_cart",
+  "conversion_add_billing",      // checkout-initiated equivalent on Snapchat
+  "conversion_view_content",
+  "quartile_1",                  // Video Plays at 25%
+  "quartile_2",                  // Video Plays at 50%
+  "quartile_3",                  // Video Plays at 75%
+  "view_completion",             // Video Completions (97%)
+  "screen_time_millis",          // Total screen time
 ].join(",");
 
 const memoryCache = new Map();
@@ -34,6 +44,7 @@ function cacheGet(key) {
 }
 function cacheSet(key,data) { memoryCache.set(key,{ts:Date.now(),data}); }
 
+// ── Date — Riyadh UTC+3 ───────────────────────────────────────────────────────
 function getDateRange(preset) {
   const utcNow = new Date();
   const rNow   = new Date(utcNow.getTime()+3*3600_000);
@@ -58,6 +69,7 @@ function getDateRange(preset) {
   return { startTime:stamp(p.s,0), endTime:stamp(today,p.eH) };
 }
 
+// ── HTTP with retry ────────────────────────────────────────────────────────────
 async function snapFetch(url,token,retries=2) {
   for (let i=0;i<=retries;i++) {
     const res  = await fetch(url,{headers:{Authorization:`Bearer ${token}`},cache:"no-store"});
@@ -69,158 +81,241 @@ async function snapFetch(url,token,retries=2) {
   return {ok:false,status:429,data:null};
 }
 
+// ── Stats extraction — matches by id, falls back to first result ────────────
 function extractStats(payload,id) {
   const arr   = payload?.total_stats||[];
-  const match = arr.find(i=>{const s=i.total_stat||i; return s.id===id||s.campaign_id===id||s.ad_squad_id===id||s.ad_id===id;})||arr[0]||null;
+  const match = arr.find(i=>{
+    const s = i.total_stat||i;
+    return s.id===id || s.campaign_id===id || s.ad_squad_id===id || s.ad_id===id;
+  })||arr[0]||null;
   return match?.total_stat?.stats||match?.stats||{};
 }
 
+// ── Build metrics from raw API stats ──────────────────────────────────────────
 function buildMetrics(s) {
-  const spend=micros(s.spend),rev=micros(s.conversion_purchases_value);
-  const pur=safeNum(s.conversion_purchases),atc=safeNum(s.conversion_add_billing||s.conversion_add_cart||0);
-  const imp=safeNum(s.impressions),sw=safeNum(s.swipes);
-  const vv=safeNum(s.video_views),vv15=safeNum(s.video_views_15s),vc=safeNum(s.view_completion);
+  const spend = micros(s.spend);
+  const rev   = micros(s.conversion_purchases_value);
+  const pur   = safeNum(s.conversion_purchases);
+  // Use conversion_add_cart as primary ATC signal (conversion_add_billing is checkout-stage)
+  const atc   = safeNum(s.conversion_add_cart);
+  const ic    = safeNum(s.conversion_add_billing); // "initiate checkout" equivalent
+  const vc_content = safeNum(s.conversion_view_content);
+  const imp   = safeNum(s.impressions);
+  const sw    = safeNum(s.swipes);
+
+  // Real video metrics
+  const q1    = safeNum(s.quartile_1);   // 25% plays
+  const q2    = safeNum(s.quartile_2);   // 50% plays
+  const q3    = safeNum(s.quartile_3);   // 75% plays
+  const vc    = safeNum(s.view_completion); // 97% completion
+  const screenTimeMs = safeNum(s.screen_time_millis);
+
   return {
-    spend:fix2(spend),revenue:fix2(rev),purchase_value:fix2(rev),
-    purchases:pur,add_to_cart:atc,
-    impressions:imp,swipes:sw,clicks:sw,
-    video_views:vv,video_views_15s:vv15,view_completion:vc,
-    roas:fix2(divide(rev,spend)),cpa:fix2(divide(spend,pur)),cost_per_atc:fix2(divide(spend,atc)),
-    ctr:fix2(divide(sw,imp)*100),cpc:fix2(divide(spend,sw)),cpm:fix2(divide(spend,imp)*1000),
-    hook_rate:fix2(divide(vv,imp)*100),
-    hold_rate:fix2(divide(vv15,vv)*100),
-    completion_rate:fix2(divide(vc,vv)*100),
-    video_view_rate:fix2(divide(vv,imp)*100),
+    spend:            fix2(spend),
+    revenue:          fix2(rev),
+    purchase_value:   fix2(rev),
+    purchases:        pur,
+    add_to_cart:      atc,
+    initiate_checkout:ic,
+    view_content:     vc_content,
+    impressions:      imp,
+    swipes:           sw,
+    clicks:           sw,
+    // Video funnel — using REAL fields (quartile_1 ≈ "hook", view_completion ≈ "hold/finish")
+    quartile_1:       q1,
+    quartile_2:       q2,
+    quartile_3:       q3,
+    view_completion:  vc,
+    screen_time_sec:  fix2(screenTimeMs/1000),
+    roas:             fix2(divide(rev, spend)),
+    cpa:              fix2(divide(spend, pur)),
+    cost_per_atc:     fix2(divide(spend, atc)),
+    ctr:              fix2(divide(sw, imp) * 100),
+    cpc:              fix2(divide(spend, sw)),
+    cpm:              fix2(divide(spend, imp) * 1000),
+    // hook_rate = % of impressions that played to 25% (best available proxy for "stopped scroll")
+    hook_rate:        fix2(divide(q1, imp) * 100),
+    // hold_rate = % of 25%-viewers who made it to 75%
+    hold_rate:        fix2(divide(q3, q1) * 100),
+    // completion_rate = % of impressions that finished (97%)
+    completion_rate:  fix2(divide(vc, imp) * 100),
   };
 }
 
-async function fetchAccountSummary({accountId,token,startTime,endTime}) {
-  const url=`${BASE}/adaccounts/${accountId}/stats?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
-  const r=await snapFetch(url,token);
+// ── Account-level summary ─────────────────────────────────────────────────────
+async function fetchAccountSummary({ accountId, token, startTime, endTime }) {
+  const url =
+    `${BASE}/adaccounts/${accountId}/stats` +
+    `?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}` +
+    `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}` +
+    `&swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY`;
+  const r = await snapFetch(url, token);
   if (!r.ok) return null;
-  return buildMetrics(extractStats(r.data,accountId));
+  return buildMetrics(extractStats(r.data, accountId));
 }
 
-async function fetchOneStats({entityType,entityId,token,startTime,endTime}) {
-  const url=`${BASE}/${entityType}/${entityId}/stats?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}`;
-  const r=await snapFetch(url,token);
-  if (!r.ok) return {status:r.status,stats:{}};
-  return {status:r.status,stats:extractStats(r.data,entityId)};
+// ── Single entity stats ───────────────────────────────────────────────────────
+async function fetchOneStats({ entityType, entityId, token, startTime, endTime }) {
+  const url =
+    `${BASE}/${entityType}/${entityId}/stats` +
+    `?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}` +
+    `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}` +
+    `&swipe_up_attribution_window=28_DAY&view_attribution_window=1_DAY`;
+  const r = await snapFetch(url, token);
+  if (!r.ok) return { status: r.status, stats: {} };
+  return { status: r.status, stats: extractStats(r.data, entityId) };
 }
 
-async function fetchStatsParallel({entities,entityType,token,startTime,endTime}) {
-  const statsMap={};let rateLimited=false;
-  for (let i=0;i<entities.length;i+=BATCH_SIZE) {
+// ── Parallel batch stats ──────────────────────────────────────────────────────
+async function fetchStatsParallel({ entities, entityType, token, startTime, endTime }) {
+  const statsMap  = {};
+  let rateLimited = false;
+  for (let i = 0; i < entities.length; i += BATCH_SIZE) {
     if (rateLimited) break;
-    const batch=entities.slice(i,i+BATCH_SIZE);
-    await Promise.all(batch.map(async e=>{
+    const batch = entities.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async e => {
       try {
-        const r=await fetchOneStats({entityType,entityId:e.id,token,startTime,endTime});
-        statsMap[e.id]=r.stats||{};
-        if (r.status===429) rateLimited=true;
-      } catch { statsMap[e.id]={}; }
+        const r = await fetchOneStats({ entityType, entityId: e.id, token, startTime, endTime });
+        statsMap[e.id] = r.stats || {};
+        if (r.status === 429) rateLimited = true;
+      } catch { statsMap[e.id] = {}; }
     }));
-    if (i+BATCH_SIZE<entities.length && !rateLimited) await sleep(BATCH_DELAY);
+    if (i + BATCH_SIZE < entities.length && !rateLimited) await sleep(BATCH_DELAY);
   }
-  return {statsMap,rateLimited};
+  return { statsMap, rateLimited };
 }
 
+// ── Status normalizer ─────────────────────────────────────────────────────────
 function normStatus(raw) {
-  const s=String(raw?.status||raw?.effective_status||raw?.delivery_status||"").toUpperCase();
+  const s = String(raw?.status || raw?.effective_status || raw?.delivery_status || "").toUpperCase();
   if (["ACTIVE","RUNNING","DELIVERING","LIVE"].includes(s)) return "ACTIVE";
   if (["PAUSED","INACTIVE","AD_PAUSED","CAMPAIGN_PAUSED","ADSQUAD_PAUSED"].includes(s)) return "PAUSED";
   if (["PENDING","UNDER_REVIEW","IN_REVIEW","REVIEW"].includes(s)) return "PENDING";
   if (["DELETED","ARCHIVED"].includes(s)) return s;
-  return s||"ACTIVE";
+  return s || "ACTIVE";
 }
 
-async function fetchEntities({accountId,level,token}) {
-  const pathMap={campaign:"campaigns",adsquad:"adsquads",ad:"ads"};
-  const path=pathMap[level]||"campaigns";
-  let allRaw=[],nextUrl=`${BASE}/adaccounts/${accountId}/${path}?limit=200`,pages=0;
-  while (nextUrl && pages<15) {
-    const r=await snapFetch(nextUrl,token);
-    if (!r.ok) { if (pages===0) return {ok:false,status:r.status,error:r.data||r.raw,entities:[]}; break; }
-    allRaw=allRaw.concat(r.data?.[path]||[]);
-    nextUrl=r.data?.paging?.next_link||null;
+// ── Entity list WITH PAGINATION ───────────────────────────────────────────────
+async function fetchEntities({ accountId, level, token }) {
+  const pathMap = { campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
+  const path    = pathMap[level] || "campaigns";
+
+  let allRaw  = [];
+  let nextUrl = `${BASE}/adaccounts/${accountId}/${path}?limit=200`;
+  let pages   = 0;
+
+  while (nextUrl && pages < 15) {
+    const r = await snapFetch(nextUrl, token);
+    if (!r.ok) {
+      if (pages === 0) return { ok: false, status: r.status, error: r.data || r.raw, entities: [] };
+      break;
+    }
+    allRaw  = allRaw.concat(r.data?.[path] || []);
+    nextUrl = r.data?.paging?.next_link || null;
     pages++;
   }
-  let entities=[];
-  if (level==="campaign") {
-    entities=allRaw.map(i=>{const c=i.campaign||i;return {id:c.id,name:c.name||"Unnamed",campaign_name:c.name||"Unnamed",status:normStatus(c)};});
-  } else if (level==="adsquad") {
-    entities=allRaw.map(i=>{const a=i.adsquad||i;return {id:a.id,name:a.name||"Unnamed",adsquad_name:a.name||"Unnamed",campaign_id:a.campaign_id||"",status:normStatus(a)};});
-  } else if (level==="ad") {
-    entities=allRaw.map(i=>{const a=i.ad||i;return {id:a.id,name:a.name||"Unnamed",ad_name:a.name||"Unnamed",adsquad_id:a.ad_squad_id||a.adsquad_id||"",status:normStatus({status:a.status||a.effective_status||"ACTIVE"})};});
+
+  let entities = [];
+  if (level === "campaign") {
+    entities = allRaw.map(i => { const c=i.campaign||i; return { id:c.id, name:c.name||"Unnamed", campaign_name:c.name||"Unnamed", status:normStatus(c) }; });
+  } else if (level === "adsquad") {
+    entities = allRaw.map(i => { const a=i.adsquad||i; return { id:a.id, name:a.name||"Unnamed", adsquad_name:a.name||"Unnamed", campaign_id:a.campaign_id||"", status:normStatus(a) }; });
+  } else if (level === "ad") {
+    entities = allRaw.map(i => { const a=i.ad||i; return { id:a.id, name:a.name||"Unnamed", ad_name:a.name||"Unnamed", adsquad_id:a.ad_squad_id||a.adsquad_id||"", status:normStatus({status:a.status||a.effective_status||"ACTIVE"}) }; });
   }
-  return {ok:true,entities,pages_fetched:pages};
+
+  return { ok: true, entities, pages_fetched: pages };
 }
 
+// ── Summary from rows ─────────────────────────────────────────────────────────
 function buildSummaryFromRows(rows) {
-  const t=rows.reduce((a,r)=>({
-    spend:a.spend+safeNum(r.spend),revenue:a.revenue+safeNum(r.revenue),
-    purchases:a.purchases+safeNum(r.purchases),atc:a.atc+safeNum(r.add_to_cart),
-    imp:a.imp+safeNum(r.impressions),sw:a.sw+safeNum(r.swipes),
-    vv:a.vv+safeNum(r.video_views),vv15:a.vv15+safeNum(r.video_views_15s),vc:a.vc+safeNum(r.view_completion),
-  }),{spend:0,revenue:0,purchases:0,atc:0,imp:0,sw:0,vv:0,vv15:0,vc:0});
+  const t = rows.reduce((a,r) => ({
+    spend:a.spend+safeNum(r.spend), revenue:a.revenue+safeNum(r.revenue),
+    purchases:a.purchases+safeNum(r.purchases), atc:a.atc+safeNum(r.add_to_cart),
+    ic:a.ic+safeNum(r.initiate_checkout),
+    imp:a.imp+safeNum(r.impressions), sw:a.sw+safeNum(r.swipes),
+    q1:a.q1+safeNum(r.quartile_1), q3:a.q3+safeNum(r.quartile_3), vc:a.vc+safeNum(r.view_completion),
+  }), { spend:0,revenue:0,purchases:0,atc:0,ic:0,imp:0,sw:0,q1:0,q3:0,vc:0 });
+
   return {
-    spend:fix2(t.spend),revenue:fix2(t.revenue),purchase_value:fix2(t.revenue),
-    purchases:t.purchases,add_to_cart:t.atc,impressions:t.imp,swipes:t.sw,clicks:t.sw,
-    video_views:t.vv,video_views_15s:t.vv15,
-    roas:fix2(divide(t.revenue,t.spend)),cpa:fix2(divide(t.spend,t.purchases)),
+    spend:fix2(t.spend), revenue:fix2(t.revenue), purchase_value:fix2(t.revenue),
+    purchases:t.purchases, add_to_cart:t.atc, initiate_checkout:t.ic,
+    impressions:t.imp, swipes:t.sw, clicks:t.sw,
+    quartile_1:t.q1, quartile_3:t.q3, view_completion:t.vc,
+    roas:fix2(divide(t.revenue,t.spend)), cpa:fix2(divide(t.spend,t.purchases)),
     cost_per_atc:fix2(divide(t.spend,t.atc)),
-    ctr:fix2(divide(t.sw,t.imp)*100),cpc:fix2(divide(t.spend,t.sw)),cpm:fix2(divide(t.spend,t.imp)*1000),
-    hook_rate:fix2(divide(t.vv,t.imp)*100),hold_rate:fix2(divide(t.vv15,t.vv)*100),
-    completion_rate:fix2(divide(t.vc,t.vv)*100),video_view_rate:fix2(divide(t.vv,t.imp)*100),
+    ctr:fix2(divide(t.sw,t.imp)*100), cpc:fix2(divide(t.spend,t.sw)), cpm:fix2(divide(t.spend,t.imp)*1000),
+    hook_rate:fix2(divide(t.q1,t.imp)*100),
+    hold_rate:fix2(divide(t.q3,t.q1)*100),
+    completion_rate:fix2(divide(t.vc,t.imp)*100),
   };
 }
 
+// ── Main handler ──────────────────────────────────────────────────────────────
 export async function GET(request) {
-  const {searchParams}=new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const accountId  = searchParams.get("account_id");
-  const level      = searchParams.get("level")       ||"campaign";
-  const datePreset = searchParams.get("date_preset") ||"last_30d";
-  const force      = searchParams.get("force")       ==="1";
-  const snapToken  = searchParams.get("snap_token")  ||null;
+  const level      = searchParams.get("level")       || "campaign";
+  const datePreset = searchParams.get("date_preset") || "last_30d";
+  const force      = searchParams.get("force")       === "1";
+  const snapToken  = searchParams.get("snap_token")  || null;
 
-  if (!accountId) return NextResponse.json({success:false,error:"account_id is required"});
+  if (!accountId) return NextResponse.json({ success: false, error: "account_id is required" });
 
-  const cacheKey=`${accountId}:${level}:${datePreset}`;
-  if (!force) { const cached=cacheGet(cacheKey); if (cached) return NextResponse.json({...cached,cached:true}); }
+  const cacheKey = `${accountId}:${level}:${datePreset}`;
+  if (!force) {
+    const cached = cacheGet(cacheKey);
+    if (cached) return NextResponse.json({ ...cached, cached: true });
+  }
 
-  const token=snapToken||await getSnapchatToken();
-  if (!token) return NextResponse.json({success:false,error:"Not connected to Snapchat"});
+  const token = snapToken || await getSnapchatToken();
+  if (!token) return NextResponse.json({ success: false, error: "Not connected to Snapchat" });
 
-  const {startTime,endTime}=getDateRange(datePreset);
-  const entityType={campaign:"campaigns",adsquad:"adsquads",ad:"ads"}[level]||"campaigns";
+  const { startTime, endTime } = getDateRange(datePreset);
+  const entityType = { campaign:"campaigns", adsquad:"adsquads", ad:"ads" }[level] || "campaigns";
 
-  const [accountSummary,entitiesResult]=await Promise.all([
-    fetchAccountSummary({accountId,token,startTime,endTime}),
-    fetchEntities({accountId,level,token}),
+  const [accountSummary, entitiesResult] = await Promise.all([
+    fetchAccountSummary({ accountId, token, startTime, endTime }),
+    fetchEntities({ accountId, level, token }),
   ]);
 
-  if (!entitiesResult.ok) return NextResponse.json({success:false,error:entitiesResult.error});
+  if (!entitiesResult.ok) {
+    return NextResponse.json({ success: false, error: entitiesResult.error });
+  }
 
-  const allEntities=entitiesResult.entities;
-  const shortRange=["today","yesterday","last_7d"].includes(datePreset);
-  const skipStatus=["DELETED","ARCHIVED"];
-  const toLoad=shortRange
-    ? allEntities.filter(e=>e.status==="ACTIVE")
-    : allEntities.filter(e=>!skipStatus.includes(e.status));
+  const allEntities = entitiesResult.entities;
+  const shortRange   = ["today","yesterday","last_7d"].includes(datePreset);
+  const skipStatus   = ["DELETED","ARCHIVED"];
+  const toLoad = shortRange
+    ? allEntities.filter(e => e.status === "ACTIVE")
+    : allEntities.filter(e => !skipStatus.includes(e.status));
 
-  const {statsMap,rateLimited}=await fetchStatsParallel({entities:toLoad,entityType,token,startTime,endTime});
+  const { statsMap, rateLimited } = await fetchStatsParallel({
+    entities: toLoad, entityType, token, startTime, endTime,
+  });
 
-  const allRows=toLoad.map(e=>({...e,...buildMetrics(statsMap[e.id]||{})}));
-  const rows=allRows.filter(r=>safeNum(r.spend)>0.001).sort((a,b)=>safeNum(b.spend)-safeNum(a.spend));
-  const summary=accountSummary||buildSummaryFromRows(rows);
+  const allRows = toLoad.map(e => ({ ...e, ...buildMetrics(statsMap[e.id] || {}) }));
+  const rows = allRows.filter(r => safeNum(r.spend) > 0.001).sort((a,b) => safeNum(b.spend) - safeNum(a.spend));
+  const summary = accountSummary || buildSummaryFromRows(rows);
 
-  const payload={
-    success:true,provider:"Snapchat Ads",account_id:accountId,level,date_preset:datePreset,
-    start_time:startTime,end_time:endTime,
-    total_entities:allEntities.length,active_entities:allEntities.filter(e=>e.status==="ACTIVE").length,
-    loaded_count:rows.length,pages_fetched:entitiesResult.pages_fetched,rate_limited:rateLimited,
-    summary,data:rows,
+  const payload = {
+    success:        true,
+    provider:       "Snapchat Ads",
+    account_id:     accountId,
+    level,
+    date_preset:    datePreset,
+    start_time:     startTime,
+    end_time:       endTime,
+    attribution:    "28_DAY swipe, 1_DAY view",
+    total_entities: allEntities.length,
+    active_entities:allEntities.filter(e => e.status === "ACTIVE").length,
+    loaded_count:   rows.length,
+    pages_fetched:  entitiesResult.pages_fetched,
+    rate_limited:   rateLimited,
+    summary,
+    data: rows,
   };
-  cacheSet(cacheKey,payload);
+
+  cacheSet(cacheKey, payload);
   return NextResponse.json(payload);
 }
