@@ -159,12 +159,82 @@ function SnapTable({title,loading,rows,showHook=false}) {
   );
 }
 
+// ── Merge ads that share the same name into one combined card ───────────────
+// This handles the same creative being duplicated across multiple ad squads/campaigns.
+function mergeByName(rows) {
+  const groups = new Map();
+
+  for (const row of rows) {
+    const key = (row.ad_name || row.name || "Unnamed").trim().toLowerCase();
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ad_name: row.ad_name || row.name || "Unnamed",
+        status: row.status,
+        spend: 0, revenue: 0, purchase_value: 0, purchases: 0, add_to_cart: 0,
+        initiate_checkout: 0, impressions: 0, swipes: 0,
+        quartile_1: 0, quartile_3: 0, view_completion: 0,
+        _ids: [], _count: 0,
+      });
+    }
+    const g = groups.get(key);
+    g.spend             += n(row.spend);
+    g.revenue            += n(row.revenue);
+    g.purchase_value      += n(row.purchase_value || row.revenue);
+    g.purchases          += n(row.purchases);
+    g.add_to_cart        += n(row.add_to_cart);
+    g.initiate_checkout  += n(row.initiate_checkout);
+    g.impressions        += n(row.impressions);
+    g.swipes             += n(row.swipes || row.clicks);
+    g.quartile_1         += n(row.quartile_1);
+    g.quartile_3         += n(row.quartile_3);
+    g.view_completion    += n(row.view_completion);
+    g._ids.push(row.id);
+    g._count += 1;
+    // Prefer ACTIVE status if any duplicate is active
+    if (String(row.status).toUpperCase() === "ACTIVE") g.status = "ACTIVE";
+  }
+
+  return Array.from(groups.values()).map(g => {
+    const roas = g.spend > 0 ? g.revenue / g.spend : 0;
+    const cpa  = g.purchases > 0 ? g.spend / g.purchases : 0;
+    const ctr  = g.impressions > 0 ? (g.swipes / g.impressions) * 100 : 0;
+    const cpm  = g.impressions > 0 ? (g.spend / g.impressions) * 1000 : 0;
+    const hook = g.impressions > 0 ? (g.quartile_1 / g.impressions) * 100 : 0;
+    const hold = g.quartile_1 > 0 ? (g.quartile_3 / g.quartile_1) * 100 : 0;
+    const completion = g.impressions > 0 ? (g.view_completion / g.impressions) * 100 : 0;
+    return {
+      id: g._ids[0],
+      ad_name: g.ad_name,
+      name: g.ad_name,
+      status: g.status,
+      spend: Number(g.spend.toFixed(2)),
+      revenue: Number(g.revenue.toFixed(2)),
+      purchase_value: Number(g.purchase_value.toFixed(2)),
+      purchases: g.purchases,
+      add_to_cart: g.add_to_cart,
+      initiate_checkout: g.initiate_checkout,
+      impressions: g.impressions,
+      swipes: g.swipes,
+      clicks: g.swipes,
+      roas: Number(roas.toFixed(2)),
+      cpa: Number(cpa.toFixed(2)),
+      ctr: Number(ctr.toFixed(2)),
+      cpm: Number(cpm.toFixed(2)),
+      hook_rate: Number(hook.toFixed(2)),
+      hold_rate: Number(hold.toFixed(2)),
+      completion_rate: Number(completion.toFixed(2)),
+      _merged_count: g._count,
+    };
+  });
+}
+
 function CreativeGallery({rows}) {
   const [filter,setFilter]=useState("all");
-  const diagnosed=useMemo(()=>rows.map(r=>({...r,_diag:diagnoseSnap(r)})).sort((a,b)=>{
+  const merged = useMemo(() => mergeByName(rows), [rows]);
+  const diagnosed=useMemo(()=>merged.map(r=>({...r,_diag:diagnoseSnap(r)})).sort((a,b)=>{
     const ord={"Winner":0,"Losing":1,"Hook Issue":2,"Hold Issue":3,"Swipe Issue":3,"Checkout Drop":3,"Monitor":4};
     return (ord[a._diag.badge]??5)-(ord[b._diag.badge]??5)||(n(b.roas)-n(a.roas));
-  }),[rows]);
+  }),[merged]);
   const filtered=useMemo(()=>{
     if (filter==="all")     return diagnosed;
     if (filter==="winners") return diagnosed.filter(r=>r._diag.badge==="Winner");
@@ -203,7 +273,14 @@ function CreativeGallery({rows}) {
                 <div style={{position:"absolute",top:8,right:8,padding:"3px 9px",borderRadius:999,fontSize:10,fontWeight:700,color:d.color,background:d.bg,border:`1px solid ${d.color}30`}}>{d.badge==="Winner"?"🏆 Winner":d.badge==="Losing"?"🔴 Losing":d.badge==="Hook Issue"?"🎬 Hook Issue":d.badge==="Hold Issue"?"⏱ Hold Issue":d.badge==="Swipe Issue"?"👆 Swipe Issue":d.badge==="Checkout Drop"?"🛒 Checkout Drop":"⚪ Monitor"}</div>
               </div>
               <div style={{padding:14,display:"flex",flexDirection:"column",gap:10,flex:1}}>
-                <div style={{fontSize:12,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.ad_name||row.name||"Unnamed"}</div>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+                  {row.ad_name||row.name||"Unnamed"}
+                  {row._merged_count>1&&(
+                    <span style={{fontSize:9,fontWeight:700,color:"#6366f1",background:"rgba(99,102,241,0.12)",border:"1px solid rgba(99,102,241,0.25)",padding:"1px 6px",borderRadius:999,flexShrink:0}}>
+                      ×{row._merged_count}
+                    </span>
+                  )}
+                </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
                   {[{l:"Spend",v:fmt.sar(row.spend)},{l:"Revenue",v:fmt.sar(row.revenue),c:n(row.roas)>=2?"#06d6a0":undefined},{l:"ROAS",v:fmt.x(row.roas),c:roasColor(row.roas)},{l:"Purchases",v:fmt.num(row.purchases)},{l:"ATC",v:fmt.num(row.add_to_cart||0)},{l:"CTR",v:fmt.pct(row.ctr),c:ctrColor(row.ctr)}].map(m=>(
                     <div key={m.l} style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"6px 8px"}}>
@@ -334,7 +411,7 @@ export default function SnapchatPage() {
           <div>
             <h1 style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:20,fontWeight:700,color:"var(--text)"}}>Snapchat Ads</h1>
             <p style={{fontSize:12,color:"var(--muted)"}}>{accounts.find(a=>a.id===accountId)?.name||"No account"}</p>
-            <p style={{fontSize:10,color:"#06d6a0",fontWeight:700}}>Display: SAR (USD × 3.75) • Attribution: 28d swipe / 1d view</p>
+            <p style={{fontSize:10,color:"#06d6a0",fontWeight:700}}>Display: SAR (USD × 3.75) • Attribution: 7d click / 1d view</p>
           </div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}} className="snap-controls">
