@@ -45,24 +45,49 @@ function getDateRange(preset) {
   const utcNow = new Date();
   const rNow   = new Date(utcNow.getTime()+3*3600_000);
   const today  = { y:rNow.getUTCFullYear(), m:rNow.getUTCMonth()+1, d:rNow.getUTCDate(), h:rNow.getUTCHours() };
-  function shift(n) {
-    const dt = new Date(Date.UTC(today.y,today.m-1,today.d));
+
+  function shiftDay(p, n) {
+    const dt = new Date(Date.UTC(p.y,p.m-1,p.d));
     dt.setUTCDate(dt.getUTCDate()+n);
     return { y:dt.getUTCFullYear(), m:dt.getUTCMonth()+1, d:dt.getUTCDate() };
   }
-  function stamp(p,h=0) { return `${p.y}-${pad(p.m)}-${pad(p.d)}T${pad(h)}:00:00.000+03:00`; }
-  const curH = Math.min(today.h+1,23);
-  const map  = {
-    today:     { s:today,       eH:curH },
-    yesterday: { s:shift(-1),   eH:0    },
-    last_7d:   { s:shift(-6),   eH:curH },
-    last_30d:  { s:shift(-29),  eH:curH },
-    this_month:{ s:{...today,d:1}, eH:curH },
-    last_90d:  { s:shift(-89),  eH:curH },
-    maximum:   { s:shift(-1095),eH:curH },
-  };
-  const p = map[preset]||map.last_30d;
-  return { startTime:stamp(p.s,0), endTime:stamp(today,p.eH) };
+  function stamp(p,h) { return `${p.y}-${pad(p.m)}-${pad(p.d)}T${pad(h)}:00:00.000+03:00`; }
+
+  // IMPORTANT: end_time must never be in the future. Using `today.h` (the
+  // CURRENT hour, not h+1) means we only request hours that have actually
+  // started — never a future hour Snapchat hasn't recorded data for yet.
+  // The previous version used today.h+1 which pushed end_time one hour into
+  // the future and caused "today" numbers to look wrong/incomplete.
+  const nowHour = today.h;
+
+  let startDay, endDay, endHour;
+
+  if (preset === "today") {
+    startDay = today;       endDay = today;            endHour = nowHour;
+  } else if (preset === "yesterday") {
+    const yest = shiftDay(today, -1);
+    startDay = yest;        endDay = today;             endHour = 0; // up to midnight = all of yesterday
+  } else if (preset === "last_7d") {
+    startDay = shiftDay(today, -6);  endDay = today;     endHour = nowHour;
+  } else if (preset === "last_30d") {
+    startDay = shiftDay(today, -29); endDay = today;     endHour = nowHour;
+  } else if (preset === "this_month") {
+    startDay = { ...today, d: 1 };   endDay = today;     endHour = nowHour;
+  } else if (preset === "last_90d") {
+    startDay = shiftDay(today, -89); endDay = today;     endHour = nowHour;
+  } else if (preset === "maximum") {
+    startDay = shiftDay(today, -1095); endDay = today;   endHour = nowHour;
+  } else {
+    // default: last_30d
+    startDay = shiftDay(today, -29); endDay = today;     endHour = nowHour;
+  }
+  // Guard: at exactly midnight (hour 0), today's start/end would be identical
+  // (00:00 to 00:00 = zero range). Ensure at least 1 hour of data is requested.
+  if (preset === "today" && endHour === 0 && startDay.y===endDay.y && startDay.m===endDay.m && startDay.d===endDay.d) {
+    endHour = 1;
+  }
+
+  return { startTime:stamp(startDay,0), endTime:stamp(endDay,endHour) };
 }
 
 // ── HTTP with retry ────────────────────────────────────────────────────────────
