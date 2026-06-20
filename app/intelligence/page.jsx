@@ -336,7 +336,13 @@ export default function IntelligencePage() {
                   <div style={{ fontSize:12, color:"var(--muted)" }}>توليد Claude AI • Senior Performance Marketer</div>
                 </div>
               </div>
-              <AnalysisRenderer text={result.analysis} />
+              {result.ai_error ? (
+                <div style={{ background:"rgba(244,63,94,0.08)", border:"1px solid rgba(244,63,94,0.25)", borderRadius:14, padding:"16px 18px", color:"#f43f5e", fontSize:13, lineHeight:1.7 }}>
+                  ⚠ تعذّر توليد التحليل: {result.ai_error}
+                </div>
+              ) : (
+                <AnalysisRenderer text={result.analysis} />
+              )}
             </div>
           )}
 
