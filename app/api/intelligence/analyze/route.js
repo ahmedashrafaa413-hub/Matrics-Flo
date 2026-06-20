@@ -171,18 +171,45 @@ export async function POST(request) {
     const signals = generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency, datePreset });
     const prompt  = buildPrompt({ signals, metaSummary, snapSummary, sallaSummary, metaCurrency, datePreset });
 
-    const aiRes  = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1500, messages:[{ role:"user", content:prompt }] }),
-    });
-    const aiData = await aiRes.json();
-    const aiText = aiData?.content?.[0]?.text || "تعذّر توليد التحليل.";
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    let aiText = "تعذّر توليد التحليل.";
+    let aiError = null;
+
+    if (!apiKey) {
+      aiError = "ANTHROPIC_API_KEY غير موجود في إعدادات Vercel (Environment Variables).";
+    } else {
+      try {
+        const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 1500,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+
+        const aiData = await aiRes.json();
+
+        if (!aiRes.ok) {
+          aiError = aiData?.error?.message || `Claude API error: ${aiRes.status}`;
+        } else {
+          aiText = aiData?.content?.[0]?.text || "تعذّر توليد التحليل.";
+        }
+      } catch (err) {
+        aiError = err.message || "فشل الاتصال بـ Claude API";
+      }
+    }
 
     return NextResponse.json({
       success: true,
       signals,
       analysis: aiText,
+      ai_error: aiError,
       meta:  { spend_sar: toSAR(metaSummary.spend||0,metaCurrency),  roas: metaSummary.roas,  purchases: metaSummary.purchases },
       snap:  { spend_sar: toSAR(snapSummary.spend||0,"USD"),          roas: snapSummary.roas,  purchases: snapSummary.purchases },
       salla: { revenue: sallaSummary.total_revenue||sallaSummary.total_sales||0, orders: sallaSummary.total_orders||0 },
