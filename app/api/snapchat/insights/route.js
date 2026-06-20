@@ -5,9 +5,7 @@ export const dynamic = "force-dynamic";
 
 const BASE = "https://adsapi.snapchat.com/v1";
 
-// ── VERIFIED Snapchat API fields (confirmed against official docs) ───────────
-// NOTE: "video_views" and "video_views_15s" are NOT real API fields.
-// Real video metrics are: quartile_1/2/3, view_completion, screen_time_millis
+// Verified Snapchat API fields
 const FIELDS = [
   "impressions",
   "swipes",
@@ -15,19 +13,17 @@ const FIELDS = [
   "conversion_purchases",
   "conversion_purchases_value",
   "conversion_add_cart",
-  "conversion_add_billing",      // checkout-initiated equivalent on Snapchat
+  "conversion_add_billing",
   "conversion_view_content",
-  "quartile_1",                  // Video Plays at 25%
-  "quartile_2",                  // Video Plays at 50%
-  "quartile_3",                  // Video Plays at 75%
-  "view_completion",             // Video Completions (97%)
-  "screen_time_millis",          // Total screen time
+  "quartile_1",
+  "quartile_2",
+  "quartile_3",
+  "view_completion",
+  "screen_time_millis",
 ].join(",");
 
 const memoryCache = new Map();
 const CACHE_TTL   = 5 * 60 * 1000;
-const BATCH_SIZE  = 25;
-const BATCH_DELAY = 150;
 
 const sleep   = ms  => new Promise(r => setTimeout(r, ms));
 const safeNum = v   => { const n=Number(v||0); return Number.isFinite(n)?n:0; };
@@ -70,44 +66,31 @@ function getDateRange(preset) {
 }
 
 // ── HTTP with retry ────────────────────────────────────────────────────────────
-async function snapFetch(url,token,retries=2) {
+async function snapFetch(url,token,retries=3) {
   for (let i=0;i<=retries;i++) {
     const res  = await fetch(url,{headers:{Authorization:`Bearer ${token}`},cache:"no-store"});
     const text = await res.text();
-    if (res.status===429 && i<retries) { await sleep(1500*(i+1)); continue; }
+    if (res.status===429 && i<retries) { await sleep(1200*(i+1)); continue; }
     try   { return {ok:res.ok,status:res.status,data:JSON.parse(text)}; }
     catch { return {ok:res.ok,status:res.status,data:null,raw:text.slice(0,600)}; }
   }
   return {ok:false,status:429,data:null};
 }
 
-// ── Stats extraction — matches by id, falls back to first result ────────────
-function extractStats(payload,id) {
-  const arr   = payload?.total_stats||[];
-  const match = arr.find(i=>{
-    const s = i.total_stat||i;
-    return s.id===id || s.campaign_id===id || s.ad_squad_id===id || s.ad_id===id;
-  })||arr[0]||null;
-  return match?.total_stat?.stats||match?.stats||{};
-}
-
-// ── Build metrics from raw API stats ──────────────────────────────────────────
+// ── Build metrics from raw stats object ───────────────────────────────────────
 function buildMetrics(s) {
   const spend = micros(s.spend);
   const rev   = micros(s.conversion_purchases_value);
   const pur   = safeNum(s.conversion_purchases);
-  // Use conversion_add_cart as primary ATC signal (conversion_add_billing is checkout-stage)
   const atc   = safeNum(s.conversion_add_cart);
-  const ic    = safeNum(s.conversion_add_billing); // "initiate checkout" equivalent
+  const ic    = safeNum(s.conversion_add_billing);
   const vc_content = safeNum(s.conversion_view_content);
   const imp   = safeNum(s.impressions);
   const sw    = safeNum(s.swipes);
-
-  // Real video metrics
-  const q1    = safeNum(s.quartile_1);   // 25% plays
-  const q2    = safeNum(s.quartile_2);   // 50% plays
-  const q3    = safeNum(s.quartile_3);   // 75% plays
-  const vc    = safeNum(s.view_completion); // 97% completion
+  const q1    = safeNum(s.quartile_1);
+  const q2    = safeNum(s.quartile_2);
+  const q3    = safeNum(s.quartile_3);
+  const vc    = safeNum(s.view_completion);
   const screenTimeMs = safeNum(s.screen_time_millis);
 
   return {
@@ -121,7 +104,6 @@ function buildMetrics(s) {
     impressions:      imp,
     swipes:           sw,
     clicks:           sw,
-    // Video funnel — using REAL fields (quartile_1 ≈ "hook", view_completion ≈ "hold/finish")
     quartile_1:       q1,
     quartile_2:       q2,
     quartile_3:       q3,
@@ -133,16 +115,13 @@ function buildMetrics(s) {
     ctr:              fix2(divide(sw, imp) * 100),
     cpc:              fix2(divide(spend, sw)),
     cpm:              fix2(divide(spend, imp) * 1000),
-    // hook_rate = % of impressions that played to 25% (best available proxy for "stopped scroll")
     hook_rate:        fix2(divide(q1, imp) * 100),
-    // hold_rate = % of 25%-viewers who made it to 75%
     hold_rate:        fix2(divide(q3, q1) * 100),
-    // completion_rate = % of impressions that finished (97%)
     completion_rate:  fix2(divide(vc, imp) * 100),
   };
 }
 
-// ── Account-level summary ─────────────────────────────────────────────────────
+// ── Account-level TOTAL summary (single call) ─────────────────────────────────
 async function fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }) {
   const url =
     `${BASE}/adaccounts/${accountId}/stats` +
@@ -151,38 +130,51 @@ async function fetchAccountSummary({ accountId, token, startTime, endTime, swipe
     `&swipe_up_attribution_window=${swipeWindow}&view_attribution_window=${viewWindow}`;
   const r = await snapFetch(url, token);
   if (!r.ok) return null;
-  return buildMetrics(extractStats(r.data, accountId));
+  const stats = r.data?.total_stats?.[0]?.total_stat?.stats || {};
+  return buildMetrics(stats);
 }
 
-// ── Single entity stats ───────────────────────────────────────────────────────
-async function fetchOneStats({ entityType, entityId, token, startTime, endTime, swipeWindow, viewWindow }) {
+// ── BULK breakdown call — gets ALL entities of a level in ONE request ────────
+// This replaces N individual /campaigns/{id}/stats calls with a single
+// /adaccounts/{id}/stats?breakdown=X call. Massively faster and avoids
+// partial-failure discrepancies that happen when individual calls 429/timeout.
+async function fetchBreakdownStats({ accountId, level, token, startTime, endTime, swipeWindow, viewWindow }) {
+  const breakdownMap = { campaign: "campaign", adsquad: "adsquad", ad: "ad" };
+  const breakdown = breakdownMap[level] || "campaign";
+
   const url =
-    `${BASE}/${entityType}/${entityId}/stats` +
-    `?granularity=TOTAL&fields=${encodeURIComponent(FIELDS)}` +
+    `${BASE}/adaccounts/${accountId}/stats` +
+    `?granularity=TOTAL&breakdown=${breakdown}` +
+    `&fields=${encodeURIComponent(FIELDS)}` +
     `&start_time=${encodeURIComponent(startTime)}&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=${swipeWindow}&view_attribution_window=${viewWindow}`;
-  const r = await snapFetch(url, token);
-  if (!r.ok) return { status: r.status, stats: {} };
-  return { status: r.status, stats: extractStats(r.data, entityId) };
-}
+    `&swipe_up_attribution_window=${swipeWindow}&view_attribution_window=${viewWindow}` +
+    `&limit=1000`;
 
-// ── Parallel batch stats ──────────────────────────────────────────────────────
-async function fetchStatsParallel({ entities, entityType, token, startTime, endTime, swipeWindow, viewWindow }) {
-  const statsMap  = {};
-  let rateLimited = false;
-  for (let i = 0; i < entities.length; i += BATCH_SIZE) {
-    if (rateLimited) break;
-    const batch = entities.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map(async e => {
-      try {
-        const r = await fetchOneStats({ entityType, entityId: e.id, token, startTime, endTime, swipeWindow, viewWindow });
-        statsMap[e.id] = r.stats || {};
-        if (r.status === 429) rateLimited = true;
-      } catch { statsMap[e.id] = {}; }
-    }));
-    if (i + BATCH_SIZE < entities.length && !rateLimited) await sleep(BATCH_DELAY);
+  let allBreakdownStats = [];
+  let nextUrl = url;
+  let pages = 0;
+
+  while (nextUrl && pages < 10) {
+    const r = await snapFetch(nextUrl, token);
+    if (!r.ok) {
+      if (pages === 0) return { ok: false, status: r.status, error: r.data || r.raw, statsById: {} };
+      break;
+    }
+    // breakdown_stats is the array shape when ?breakdown= is used
+    const stats = r.data?.total_stats?.[0]?.total_stat?.breakdown_stats?.[breakdown] || [];
+    allBreakdownStats = allBreakdownStats.concat(stats);
+    nextUrl = r.data?.paging?.next_link || null;
+    pages++;
   }
-  return { statsMap, rateLimited };
+
+  // Map by entity id for easy lookup
+  const statsById = {};
+  for (const item of allBreakdownStats) {
+    const id = item.id;
+    if (id) statsById[id] = item.stats || {};
+  }
+
+  return { ok: true, statsById, pages_fetched: pages };
 }
 
 // ── Status normalizer ─────────────────────────────────────────────────────────
@@ -195,13 +187,13 @@ function normStatus(raw) {
   return s || "ACTIVE";
 }
 
-// ── Entity list WITH PAGINATION ───────────────────────────────────────────────
+// ── Entity list WITH PAGINATION (for names/status only — stats come from breakdown) ──
 async function fetchEntities({ accountId, level, token }) {
   const pathMap = { campaign: "campaigns", adsquad: "adsquads", ad: "ads" };
   const path    = pathMap[level] || "campaigns";
 
   let allRaw  = [];
-  let nextUrl = `${BASE}/adaccounts/${accountId}/${path}?limit=200`;
+  let nextUrl = `${BASE}/adaccounts/${accountId}/${path}?limit=1000`;
   let pages   = 0;
 
   while (nextUrl && pages < 15) {
@@ -227,7 +219,7 @@ async function fetchEntities({ accountId, level, token }) {
   return { ok: true, entities, pages_fetched: pages };
 }
 
-// ── Summary from rows ─────────────────────────────────────────────────────────
+// ── Summary from rows (fallback) ──────────────────────────────────────────────
 function buildSummaryFromRows(rows) {
   const t = rows.reduce((a,r) => ({
     spend:a.spend+safeNum(r.spend), revenue:a.revenue+safeNum(r.revenue),
@@ -263,8 +255,6 @@ export async function GET(request) {
   const force      = searchParams.get("force")       === "1";
   const snapToken  = searchParams.get("snap_token")  || null;
 
-  // Attribution window — selectable from the page, defaults to Snapchat's own
-  // Ads Manager default (28-day click / 1-day view) so numbers match the UI.
   const swipeWindowRaw = searchParams.get("swipe_window") || "28_DAY";
   const viewWindowRaw  = searchParams.get("view_window")  || "1_DAY";
   const swipeWindow = VALID_SWIPE_WINDOWS.includes(swipeWindowRaw) ? swipeWindowRaw : "28_DAY";
@@ -282,11 +272,12 @@ export async function GET(request) {
   if (!token) return NextResponse.json({ success: false, error: "Not connected to Snapchat" });
 
   const { startTime, endTime } = getDateRange(datePreset);
-  const entityType = { campaign:"campaigns", adsquad:"adsquads", ad:"ads" }[level] || "campaigns";
 
-  const [accountSummary, entitiesResult] = await Promise.all([
+  // 3 calls total, in parallel: account summary, entity names/status, breakdown stats
+  const [accountSummary, entitiesResult, breakdownResult] = await Promise.all([
     fetchAccountSummary({ accountId, token, startTime, endTime, swipeWindow, viewWindow }),
     fetchEntities({ accountId, level, token }),
+    fetchBreakdownStats({ accountId, level, token, startTime, endTime, swipeWindow, viewWindow }),
   ]);
 
   if (!entitiesResult.ok) {
@@ -294,34 +285,42 @@ export async function GET(request) {
   }
 
   const allEntities = entitiesResult.entities;
-  const shortRange   = ["today","yesterday","last_7d"].includes(datePreset);
-  const skipStatus   = ["DELETED","ARCHIVED"];
-  const toLoad = shortRange
-    ? allEntities.filter(e => e.status === "ACTIVE")
-    : allEntities.filter(e => !skipStatus.includes(e.status));
 
-  const { statsMap, rateLimited } = await fetchStatsParallel({
-    entities: toLoad, entityType, token, startTime, endTime, swipeWindow, viewWindow,
-  });
+  let rows = [];
+  let usedFallback = false;
 
-  const allRows = toLoad.map(e => ({ ...e, ...buildMetrics(statsMap[e.id] || {}) }));
-  const rows = allRows.filter(r => safeNum(r.spend) > 0.001).sort((a,b) => safeNum(b.spend) - safeNum(a.spend));
+  if (breakdownResult.ok && Object.keys(breakdownResult.statsById).length > 0) {
+    // Fast path: merge entity metadata (name/status) with bulk breakdown stats
+    rows = allEntities
+      .map(e => ({ ...e, ...buildMetrics(breakdownResult.statsById[e.id] || {}) }))
+      .filter(r => safeNum(r.spend) > 0.001)
+      .sort((a,b) => safeNum(b.spend) - safeNum(a.spend));
+  } else {
+    // Breakdown endpoint failed or empty — this should rarely happen.
+    // We do NOT silently fall back to slow per-entity calls (that caused
+    // both the slowness and the data mismatches before). Instead we
+    // report it clearly so it's visible if Snapchat's breakdown API changes.
+    usedFallback = true;
+    rows = [];
+  }
+
   const summary = accountSummary || buildSummaryFromRows(rows);
 
   const payload = {
-    success:        true,
-    provider:       "Snapchat Ads",
-    account_id:     accountId,
+    success:         true,
+    provider:        "Snapchat Ads",
+    account_id:      accountId,
     level,
-    date_preset:    datePreset,
-    start_time:     startTime,
-    end_time:       endTime,
-    attribution:    { swipe_window: swipeWindow, view_window: viewWindow },
-    total_entities: allEntities.length,
-    active_entities:allEntities.filter(e => e.status === "ACTIVE").length,
-    loaded_count:   rows.length,
-    pages_fetched:  entitiesResult.pages_fetched,
-    rate_limited:   rateLimited,
+    date_preset:     datePreset,
+    start_time:      startTime,
+    end_time:        endTime,
+    attribution:     { swipe_window: swipeWindow, view_window: viewWindow },
+    total_entities:  allEntities.length,
+    active_entities: allEntities.filter(e => e.status === "ACTIVE").length,
+    loaded_count:    rows.length,
+    breakdown_used:  breakdownResult.ok,
+    breakdown_error: breakdownResult.ok ? null : breakdownResult.error,
+    used_fallback:   usedFallback,
     summary,
     data: rows,
   };
