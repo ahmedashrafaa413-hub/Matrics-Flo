@@ -5,6 +5,12 @@ import { usePathname } from "next/navigation";
 
 const channels = [
   {
+    label: "Intelligence Engine",
+    href: "/intelligence",
+    icon: "🧠",
+    badge: "AI"
+  },
+  {
     label: "Performance Overview",
     href: "/performance-overview",
     icon: "📊",
