@@ -256,8 +256,14 @@ function CreativeGallery({rows}) {
   const totalPur=rows.reduce((s,r)=>s+n(r.purchases),0);
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {merged.length<rows.length && (
+        <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:12,padding:"10px 14px",fontSize:12,color:"var(--text-2)"}}>
+          <span style={{fontSize:14}}>🔗</span>
+          <span><strong style={{color:"var(--text)"}}>{rows.length} ads</strong> merged into <strong style={{color:"var(--primary)"}}>{merged.length} unique creatives</strong> by matching ad name — metrics below are combined per content.</span>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
-        {[{label:"Total Spend",val:fmt.sar(totalSpend),color:"#f59e0b"},{label:"Total Revenue",val:fmt.sar(totalRev),color:"#06d6a0"},{label:"Purchases",val:fmt.num(totalPur),color:"#6366f1"},{label:"Winners",val:diagnosed.filter(r=>r._diag.badge==="Winner").length,color:"#f59e0b"},{label:"Losing",val:diagnosed.filter(r=>r._diag.badge==="Losing").length,color:"#f43f5e"}].map(k=>(
+        {[{label:"Total Spend",val:fmt.sar(totalSpend),color:"#f59e0b"},{label:"Total Revenue",val:fmt.sar(totalRev),color:"#06d6a0"},{label:"Purchases",val:fmt.num(totalPur),color:"#6366f1"},{label:"Unique Creatives",val:merged.length,color:"#8b5cf6"},{label:"Winners",val:diagnosed.filter(r=>r._diag.badge==="Winner").length,color:"#f59e0b"},{label:"Losing",val:diagnosed.filter(r=>r._diag.badge==="Losing").length,color:"#f43f5e"}].map(k=>(
           <div key={k.label} className="dash-kpi-card" style={{padding:"12px 14px",position:"relative"}}>
             <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:k.color,borderRadius:"14px 14px 0 0"}}/>
             <div style={{fontSize:9,fontWeight:700,color:"var(--muted)",textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:6}}>{k.label}</div>
