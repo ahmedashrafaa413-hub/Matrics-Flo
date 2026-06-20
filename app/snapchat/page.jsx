@@ -212,6 +212,7 @@ function mergeByName(rows) {
     const completion = g.impressions > 0 ? (g.view_completion / g.impressions) * 100 : 0;
     return {
       id: g._ids[0],
+      _all_ids: g._ids,
       ad_name: g.ad_name,
       name: g.ad_name,
       status: g.status,
@@ -236,7 +237,7 @@ function mergeByName(rows) {
   });
 }
 
-function CreativeGallery({rows}) {
+function CreativeGallery({rows, creativeMap={}}) {
   const [filter,setFilter]=useState("all");
   const merged = useMemo(() => mergeByName(rows), [rows]);
   const diagnosed=useMemo(()=>merged.map(r=>({...r,_diag:diagnoseSnap(r)})).sort((a,b)=>{
@@ -279,12 +280,26 @@ function CreativeGallery({rows}) {
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14}} className="snap-creative-grid">
         {filtered.map((row,i)=>{
           const d=row._diag;
+          // Look up a thumbnail from any of the merged ad ids — first one found wins
+          const idsToCheck = row._all_ids?.length ? row._all_ids : [row.id];
+          let thumb = null, mediaType = null;
+          for (const checkId of idsToCheck) {
+            const entry = creativeMap[checkId];
+            if (entry?.thumbnail_url) { thumb = entry.thumbnail_url; mediaType = entry.creative_type; break; }
+          }
           return (
             <div key={row.id||i} style={{background:"var(--card)",border:`1px solid ${d.badge==="Winner"?"rgba(245,158,11,0.3)":d.badge==="Losing"?"rgba(244,63,94,0.2)":"var(--border)"}`,borderRadius:18,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-              <div style={{height:110,background:"rgba(255,255,255,0.03)",display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
-                <span style={{fontSize:28,opacity:0.2}}>👻</span>
+              <div style={{height:140,background:"rgba(255,255,255,0.03)",display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
+                {thumb
+                  ? <img src={thumb} alt={row.ad_name} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
+                  : null
+                }
+                <div style={{display:thumb?"none":"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,width:"100%",height:"100%",position:thumb?"absolute":"static",top:0,left:0}}>
+                  <span style={{fontSize:28,opacity:0.2}}>👻</span>
+                  <span style={{fontSize:10,color:"var(--muted-2)"}}>No Preview</span>
+                </div>
                 <div style={{position:"absolute",top:8,left:8}}><StatusDot status={row.status}/></div>
-                <div style={{position:"absolute",top:8,right:8,padding:"3px 9px",borderRadius:999,fontSize:10,fontWeight:700,color:d.color,background:d.bg,border:`1px solid ${d.color}30`}}>{d.badge==="Winner"?"🏆 Winner":d.badge==="Losing"?"🔴 Losing":d.badge==="Hook Issue"?"🎬 Hook Issue":d.badge==="Hold Issue"?"⏱ Hold Issue":d.badge==="Swipe Issue"?"👆 Swipe Issue":d.badge==="Checkout Drop"?"🛒 Checkout Drop":"⚪ Monitor"}</div>
+                <div style={{position:"absolute",top:8,right:8,padding:"3px 9px",borderRadius:999,fontSize:10,fontWeight:700,color:d.color,background:d.bg,border:`1px solid ${d.color}30`,backdropFilter:"blur(4px)"}}>{d.badge==="Winner"?"🏆 Winner":d.badge==="Losing"?"🔴 Losing":d.badge==="Hook Issue"?"🎬 Hook Issue":d.badge==="Hold Issue"?"⏱ Hold Issue":d.badge==="Swipe Issue"?"👆 Swipe Issue":d.badge==="Checkout Drop"?"🛒 Checkout Drop":"⚪ Monitor"}</div>
               </div>
               <div style={{padding:14,display:"flex",flexDirection:"column",gap:10,flex:1}}>
                 <div style={{fontSize:12,fontWeight:700,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
@@ -341,6 +356,7 @@ export default function SnapchatPage() {
   const [squadLoaded,setSquadLoaded]= useState(false);
   const [squadLoad,  setSquadLoad]  = useState(false);
   const [adRows,     setAdRows]     = useState([]);
+  const [creativeMap,setCreativeMap]= useState({});
   const [adLoaded,   setAdLoaded]   = useState(false);
   const [adLoad,     setAdLoad]     = useState(false);
   const campRef=useRef(""),squadRef=useRef(""),adRef=useRef(""),lastRef=useRef(0);
@@ -354,7 +370,7 @@ export default function SnapchatPage() {
     if ((activeTab==="ads"||activeTab==="creative")&&!adLoaded&&!adLoad) loadAds(accountId);
   },[activeTab,accountId]);
 
-  function resetData(){setCampRows([]);setCampSum(null);setSquadRows([]);setSquadLoaded(false);setAdRows([]);setAdLoaded(false);setError("");campRef.current="";squadRef.current="";adRef.current="";}
+  function resetData(){setCampRows([]);setCampSum(null);setSquadRows([]);setSquadLoaded(false);setAdRows([]);setAdLoaded(false);setCreativeMap({});setError("");campRef.current="";squadRef.current="";adRef.current="";}
 
   async function loadAccounts(){
     try{
@@ -397,7 +413,19 @@ export default function SnapchatPage() {
     const key=`${acId}|ad|${datePreset}|${attribution}`;
     if(adRef.current===key)return;
     adRef.current=key;setAdLoad(true);setError("");
-    try{const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=ad&date_preset=${datePreset}${attrParams()}`);setAdRows(d.data||[]);setAdLoaded(true);}
+    try{
+      const d=await apiGet(`/api/snapchat/insights?account_id=${acId}&level=ad&date_preset=${datePreset}${attrParams()}`);
+      const ads = d.data||[];
+      setAdRows(ads);
+      setAdLoaded(true);
+      // Fetch creative thumbnails in background — don't block the table from showing
+      const adIds = ads.map(r=>r.id).filter(Boolean);
+      if (adIds.length) {
+        apiGet(`/api/snapchat/creatives?ad_ids=${adIds.join(",")}`)
+          .then(r => setCreativeMap(r.map || {}))
+          .catch(() => {});
+      }
+    }
     catch(e){setAdRows([]);setAdLoaded(false);setError(e.message);adRef.current="";}
     finally{setAdLoad(false);}
   }
@@ -406,7 +434,7 @@ export default function SnapchatPage() {
     if(loading)return;
     const now=Date.now();if(now-lastRef.current<30000){setError("Wait 30s before refreshing.");return;}
     lastRef.current=now;campRef.current="";squadRef.current="";adRef.current="";
-    setCampRows([]);setCampSum(null);setSquadRows([]);setSquadLoaded(false);setAdRows([]);setAdLoaded(false);setError("");
+    setCampRows([]);setCampSum(null);setSquadRows([]);setSquadLoaded(false);setAdRows([]);setAdLoaded(false);setCreativeMap({});setError("");
     await loadCamp(accountId);
     if(activeTab==="adsquads") await loadSquad(accountId);
     if(activeTab==="ads"||activeTab==="creative") await loadAds(accountId);
@@ -523,7 +551,7 @@ export default function SnapchatPage() {
       {activeTab==="campaigns"&&<SnapTable title="Campaigns" loading={campLoad}  rows={campRows}  showHook/>}
       {activeTab==="adsquads" &&<SnapTable title="Ad Squads" loading={squadLoad} rows={squadRows} showHook/>}
       {activeTab==="ads"      &&<SnapTable title="Ads"       loading={adLoad}    rows={adRows}    showHook/>}
-      {activeTab==="creative" &&(adLoaded?<CreativeGallery rows={adRows}/>:<div className="dash-empty"><h3>{adLoad?"⏳ Loading ads...":"Switch to Ads tab first to load data."}</h3></div>)}
+      {activeTab==="creative" &&(adLoaded?<CreativeGallery rows={adRows} creativeMap={creativeMap}/>:<div className="dash-empty"><h3>{adLoad?"⏳ Loading ads...":"Switch to Ads tab first to load data."}</h3></div>)}
     </main>
   );
 }
