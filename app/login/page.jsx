@@ -16,6 +16,36 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
+  async function completeServerLogin(session) {
+    const sessionResponse = await fetch("/api/auth/session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        access_token: session?.access_token,
+        refresh_token: session?.refresh_token,
+        expires_in: session?.expires_in
+      })
+    });
+
+    const sessionResult = await sessionResponse.json().catch(() => ({}));
+
+    if (!sessionResponse.ok || !sessionResult.success) {
+      throw new Error(sessionResult.error || "Failed to save server session.");
+    }
+
+    const workspaceResponse = await fetch("/api/workspace/ensure", {
+      method: "POST"
+    });
+
+    const workspaceResult = await workspaceResponse.json().catch(() => ({}));
+
+    if (!workspaceResponse.ok || !workspaceResult.success) {
+      throw new Error(workspaceResult.error || "Failed to prepare workspace.");
+    }
+  }
+
   async function handleLogin(event) {
     event.preventDefault();
 
@@ -48,43 +78,38 @@ export default function LoginPage() {
         return;
       }
 
-      const sessionResponse = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-          expires_in: data.session.expires_in
-        })
-      });
-
-      const sessionResult = await sessionResponse.json().catch(() => ({}));
-
-      if (!sessionResponse.ok || !sessionResult.success) {
-        setError(sessionResult.error || "Failed to save server session.");
-        setLoading(false);
-        return;
-      }
-
-      const workspaceResponse = await fetch("/api/workspace/ensure", {
-        method: "POST"
-      });
-
-      const workspaceResult = await workspaceResponse.json().catch(() => ({}));
-
-      if (!workspaceResponse.ok || !workspaceResult.success) {
-        setError(workspaceResult.error || "Failed to create workspace.");
-        setLoading(false);
-        return;
-      }
+      await completeServerLogin(data.session);
 
       setSuccess(true);
-
       window.location.href = "/dashboard";
     } catch (err) {
       setError(err.message || "Unexpected login error.");
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleLogin() {
+    setLoading(true);
+    setError("");
+    setSuccess(false);
+
+    try {
+      const siteUrl =
+        process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+
+      const { error: googleError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${siteUrl}/auth/callback?next=/dashboard`
+        }
+      });
+
+      if (googleError) {
+        setError(googleError.message);
+        setLoading(false);
+      }
+    } catch (err) {
+      setError(err.message || "Failed to start Google login.");
       setLoading(false);
     }
   }
@@ -134,6 +159,42 @@ export default function LoginPage() {
           >
             Login to your marketing intelligence workspace
           </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleGoogleLogin}
+          disabled={loading}
+          style={{
+            width: "100%",
+            border: "1px solid rgba(255,255,255,0.14)",
+            borderRadius: 16,
+            background: "rgba(255,255,255,0.06)",
+            color: "#ffffff",
+            padding: "14px 18px",
+            fontSize: 15,
+            fontWeight: 900,
+            cursor: loading ? "not-allowed" : "pointer",
+            marginBottom: 18
+          }}
+        >
+          Continue with Google
+        </button>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 18,
+            color: "#6b7280",
+            fontSize: 12,
+            fontWeight: 800
+          }}
+        >
+          <span style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.1)" }} />
+          OR
+          <span style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.1)" }} />
         </div>
 
         <form onSubmit={handleLogin} style={{ display: "grid", gap: 16 }}>
