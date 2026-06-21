@@ -1,80 +1,100 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import {
+  getSnapchatAuthHeader,
+  saveSnapchatConnectionFromOAuth
+} from "../../../../lib/snapchatToken";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const code  = searchParams.get("code");
-  const error = searchParams.get("error");
+function getAppUrl(request) {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.APP_URL ||
+    new URL(request.url).origin
+  );
+}
 
-  if (error || !code) {
+export async function GET(request) {
+  const url = new URL(request.url);
+
+  const code = url.searchParams.get("code") || "";
+  const error = url.searchParams.get("error") || "";
+
+  const appUrl = getAppUrl(request);
+
+  if (error) {
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}/connections?error=snapchat_denied`
+      `${appUrl}/connections?snapchat_error=${encodeURIComponent(error)}`
     );
   }
 
-  const clientId     = process.env.SNAPCHAT_CLIENT_ID;
-  const clientSecret = process.env.SNAPCHAT_CLIENT_SECRET;
-  const redirectUri  = `${process.env.NEXT_PUBLIC_APP_URL}/api/snapchat/callback`;
+  if (!code) {
+    return NextResponse.redirect(
+      `${appUrl}/connections?snapchat_error=${encodeURIComponent(
+        "Missing code"
+      )}`
+    );
+  }
 
   try {
-    const tokenRes = await fetch("https://accounts.snapchat.com/accounts/oauth2/token", {
-      method: "POST",
-      headers: {
-        "Content-Type":  "application/x-www-form-urlencoded",
-        "Authorization": `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-      },
-      body: new URLSearchParams({
-        grant_type:   "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-      }),
-    });
+    const redirectUri = `${appUrl}/api/snapchat/callback`;
 
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) {
-      return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_APP_URL}/connections?error=snapchat_token_failed`
+    const response = await fetch(
+      "https://accounts.snapchat.com/accounts/oauth2/token",
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: getSnapchatAuthHeader()
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: redirectUri
+        })
+      }
+    );
+
+    const text = await response.text();
+
+    let data = null;
+
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(
+        `Snapchat token response was not JSON: ${text.slice(0, 120)}`
       );
     }
 
-    const cookieStore = cookies();
-    const expiresIn   = tokenData.expires_in || 3600;
-    const expiryTime  = Date.now() + expiresIn * 1000;
-
-    const cookieOpts = {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === "production",
-      path:     "/",
-    };
-
-    // Access token
-    cookieStore.set("snapchat_token", tokenData.access_token, {
-      ...cookieOpts,
-      maxAge: expiresIn,
-    });
-
-    // Expiry timestamp
-    cookieStore.set("snapchat_token_expiry", String(expiryTime), {
-      ...cookieOpts,
-      maxAge: expiresIn + 60,
-    });
-
-    // Refresh token — 6 months
-    if (tokenData.refresh_token) {
-      cookieStore.set("snapchat_refresh_token", tokenData.refresh_token, {
-        ...cookieOpts,
-        maxAge: 60 * 60 * 24 * 180,
-      });
+    if (!response.ok || !data.access_token) {
+      throw new Error(
+        data?.error_description ||
+          data?.error ||
+          "Snapchat OAuth token exchange failed"
+      );
     }
 
-    return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}/connections?success=snapchat`
-    );
+    await saveSnapchatConnectionFromOAuth({
+      request,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresIn: data.expires_in,
+      tokenType: data.token_type || "Bearer",
+      scopes: data.scope ? String(data.scope).split(" ") : [],
+      metadata: {
+        source: "snapchat_oauth_callback",
+        redirect_uri: redirectUri
+      }
+    });
+
+    return NextResponse.redirect(`${appUrl}/connections?snapchat=connected`);
   } catch (err) {
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL}/connections?error=snapchat_error`
+      `${appUrl}/connections?snapchat_error=${encodeURIComponent(
+        err.message || "Snapchat connection failed"
+      )}`
     );
   }
 }
