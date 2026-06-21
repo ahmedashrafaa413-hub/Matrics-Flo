@@ -3,9 +3,9 @@ import { getActiveWorkspace } from "../../../../lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request) {
   try {
-    const { user, workspace } = await getActiveWorkspace();
+    const { user, workspace } = await getActiveWorkspace(request);
 
     return NextResponse.json({
       success: true,
