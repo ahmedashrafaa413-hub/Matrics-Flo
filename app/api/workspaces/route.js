@@ -1,119 +1,145 @@
-import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { createSupabaseAdminClient } from "../../../lib/supabaseServer";
+import { requireUser } from "../../../lib/serverAuth";
+import {
+  getActiveWorkspace,
+  getUserWorkspaces,
+  setActiveWorkspaceCookie
+} from "../../../lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-function getSupabase() {
-  const cookieStore = cookies();
-  const token = cookieStore.get("sb-access-token")?.value;
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: `Bearer ${token}` } } }
-  );
-  return supabase;
+function slugify(value) {
+  return String(value || "workspace")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
 }
 
-// GET /api/workspaces — list all workspaces for current user
-export async function GET() {
-  const supabase = getSupabase();
+export async function GET(request) {
+  try {
+    const { user, workspace } = await getActiveWorkspace(request);
+    const workspaces = await getUserWorkspaces(user.id);
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({
+      success: true,
+      active_workspace_id: workspace.id,
+      workspaces
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to load workspaces"
+      },
+      {
+        status: error.status || 500
+      }
+    );
   }
-
-  // Get workspaces where user is a member
-  const { data: memberships, error } = await supabase
-    .from("workspace_members")
-    .select(`
-      role,
-      workspace:workspaces (
-        id, name, client_name, created_at,
-        org:organizations ( id, name, plan )
-      )
-    `)
-    .eq("user_id", user.id);
-
-  if (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
-
-  // Get active workspace from session
-  const { data: session } = await supabase
-    .from("user_sessions")
-    .select("active_workspace_id")
-    .eq("user_id", user.id)
-    .single();
-
-  const workspaces = (memberships || []).map(m => ({
-    ...m.workspace,
-    role: m.role,
-    is_active: m.workspace?.id === session?.active_workspace_id
-  }));
-
-  return NextResponse.json({
-    success: true,
-    workspaces,
-    active_workspace_id: session?.active_workspace_id || workspaces[0]?.id || null
-  });
 }
 
-// POST /api/workspaces — create new workspace
 export async function POST(request) {
-  const supabase = getSupabase();
+  try {
+    const user = await requireUser(request);
+    const admin = createSupabaseAdminClient();
+    const body = await request.json().catch(() => ({}));
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-  }
+    const name = String(body.name || "").trim();
+    const defaultCurrency = String(body.default_currency || "SAR").toUpperCase();
+    const timezone = String(body.timezone || "Asia/Riyadh");
 
-  const { name, client_name, org_id } = await request.json();
-  if (!name) {
-    return NextResponse.json({ success: false, error: "name is required" }, { status: 400 });
-  }
+    if (!name) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Workspace name is required"
+        },
+        {
+          status: 400
+        }
+      );
+    }
 
-  let organizationId = org_id;
+    let organizationId = body.organization_id || "";
 
-  // If no org_id, create a new organization
-  if (!organizationId) {
-    const { data: org, error: orgError } = await supabase
-      .from("organizations")
-      .insert({ name: name + " Org", owner_id: user.id })
-      .select()
+    if (!organizationId) {
+      const workspaces = await getUserWorkspaces(user.id);
+      organizationId = workspaces?.[0]?.organization_id || "";
+    }
+
+    if (!organizationId) {
+      const { data: organization, error: organizationError } = await admin
+        .from("organizations")
+        .insert({
+          name: user.user_metadata?.company_name || "My Organization",
+          owner_user_id: user.id
+        })
+        .select("*")
+        .single();
+
+      if (organizationError) {
+        throw new Error(organizationError.message);
+      }
+
+      organizationId = organization.id;
+    }
+
+    const { data: workspace, error: workspaceError } = await admin
+      .from("workspaces")
+      .insert({
+        organization_id: organizationId,
+        name,
+        slug: slugify(name),
+        default_currency: defaultCurrency,
+        timezone,
+        created_by: user.id
+      })
+      .select("*")
       .single();
 
-    if (orgError) {
-      return NextResponse.json({ success: false, error: orgError.message }, { status: 500 });
+    if (workspaceError) {
+      throw new Error(workspaceError.message);
     }
-    organizationId = org.id;
+
+    const { error: memberError } = await admin.from("workspace_members").insert({
+      workspace_id: workspace.id,
+      user_id: user.id,
+      role: "owner"
+    });
+
+    if (memberError) {
+      throw new Error(memberError.message);
+    }
+
+    await admin.from("user_preferences").upsert(
+      {
+        user_id: user.id,
+        active_workspace_id: workspace.id
+      },
+      { onConflict: "user_id" }
+    );
+
+    setActiveWorkspaceCookie(workspace.id);
+
+    return NextResponse.json({
+      success: true,
+      workspace: {
+        ...workspace,
+        role: "owner"
+      }
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to create workspace"
+      },
+      {
+        status: error.status || 500
+      }
+    );
   }
-
-  // Create workspace
-  const { data: workspace, error: wsError } = await supabase
-    .from("workspaces")
-    .insert({ name, client_name, org_id: organizationId })
-    .select()
-    .single();
-
-  if (wsError) {
-    return NextResponse.json({ success: false, error: wsError.message }, { status: 500 });
-  }
-
-  // Add creator as admin
-  await supabase.from("workspace_members").insert({
-    workspace_id: workspace.id,
-    user_id: user.id,
-    role: "admin"
-  });
-
-  // Set as active workspace
-  await supabase.from("user_sessions").upsert({
-    user_id: user.id,
-    active_workspace_id: workspace.id,
-    updated_at: new Date().toISOString()
-  }, { onConflict: "user_id" });
-
-  return NextResponse.json({ success: true, workspace });
 }
