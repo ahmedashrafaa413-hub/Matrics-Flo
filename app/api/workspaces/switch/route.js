@@ -1,57 +1,71 @@
-import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { createSupabaseAdminClient } from "../../../../lib/supabaseServer";
+import { requireUser } from "../../../../lib/serverAuth";
+import {
+  setActiveWorkspaceCookie,
+  userHasWorkspaceAccess
+} from "../../../../lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
-  const cookieStore = cookies();
-  const token = cookieStore.get("sb-access-token")?.value;
+  try {
+    const user = await requireUser(request);
+    const body = await request.json().catch(() => ({}));
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { global: { headers: { Authorization: `Bearer ${token}` } } }
-  );
+    const workspaceId = body.workspace_id || body.workspaceId || "";
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    if (!workspaceId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "workspace_id is required"
+        },
+        {
+          status: 400
+        }
+      );
+    }
+
+    const hasAccess = await userHasWorkspaceAccess(user.id, workspaceId);
+
+    if (!hasAccess) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "You do not have access to this workspace"
+        },
+        {
+          status: 403
+        }
+      );
+    }
+
+    const admin = createSupabaseAdminClient();
+
+    await admin.from("user_preferences").upsert(
+      {
+        user_id: user.id,
+        active_workspace_id: workspaceId
+      },
+      { onConflict: "user_id" }
+    );
+
+    setActiveWorkspaceCookie(workspaceId);
+
+    return NextResponse.json({
+      success: true,
+      active_workspace_id: workspaceId
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to switch workspace"
+      },
+      {
+        status: error.status || 500
+      }
+    );
   }
-
-  const { workspace_id } = await request.json();
-  if (!workspace_id) {
-    return NextResponse.json({ success: false, error: "workspace_id is required" }, { status: 400 });
-  }
-
-  // Verify user is a member of this workspace
-  const { data: member } = await supabase
-    .from("workspace_members")
-    .select("role")
-    .eq("workspace_id", workspace_id)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!member) {
-    return NextResponse.json({ success: false, error: "Access denied" }, { status: 403 });
-  }
-
-  // Update active workspace
-  const { error } = await supabase
-    .from("user_sessions")
-    .upsert({
-      user_id: user.id,
-      active_workspace_id: workspace_id,
-      updated_at: new Date().toISOString()
-    }, { onConflict: "user_id" });
-
-  if (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
-
-  // Clear Meta token cookie so new workspace starts fresh
-  const response = NextResponse.json({ success: true, workspace_id, role: member.role });
-  response.cookies.delete("primary_meta_account");
-
-  return response;
 }
