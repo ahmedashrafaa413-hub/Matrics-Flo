@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSnapchatToken } from "../../../../lib/snapchatToken";
+import {
+  getPlatformConnection,
+  upsertPlatformConnection
+} from "../../../../lib/platformConnections";
 
 export const dynamic = "force-dynamic";
 
@@ -92,9 +96,67 @@ function normalizeAccount(account, organizationId = "") {
   };
 }
 
-export async function GET() {
+async function saveAccountsToWorkspace(request, accounts) {
+  const { connection: defaultConnection } = await getPlatformConnection({
+    request,
+    provider: "snapchat",
+    accountId: "snapchat_default",
+    requireConnected: false
+  });
+
+  if (!defaultConnection?.access_token && !defaultConnection?.refresh_token) {
+    return {
+      saved: 0,
+      skipped: accounts.length,
+      reason: "No default Snapchat workspace connection found"
+    };
+  }
+
+  let saved = 0;
+  const errors = [];
+
+  for (const account of accounts) {
+    try {
+      await upsertPlatformConnection({
+        request,
+        provider: "snapchat",
+        accountId: account.id,
+        accountName: account.name,
+        accountCurrency: account.currency || "USD",
+        accessToken: defaultConnection.access_token,
+        refreshToken: defaultConnection.refresh_token,
+        tokenType: defaultConnection.token_type || "Bearer",
+        expiresAt: defaultConnection.expires_at,
+        scopes: defaultConnection.scopes || [],
+        metadata: {
+          organization_id: account.org_id,
+          status: account.status,
+          timezone: account.timezone,
+          parent_connection_id: defaultConnection.id,
+          connection_type: "snapchat_ad_account"
+        }
+      });
+
+      saved += 1;
+    } catch (error) {
+      errors.push({
+        account_id: account.id,
+        account_name: account.name,
+        error: error.message
+      });
+    }
+  }
+
+  return {
+    saved,
+    skipped: accounts.length - saved,
+    errors
+  };
+}
+
+export async function GET(request) {
   try {
-    const token = await getSnapchatToken();
+    const token = await getSnapchatToken(request);
 
     if (!token) {
       return jsonResponse(
@@ -164,14 +226,19 @@ export async function GET() {
       new Map(allAccounts.map((account) => [account.id, account])).values()
     );
 
+    const saveResult = await saveAccountsToWorkspace(request, uniqueAccounts);
+
     return jsonResponse({
       success: true,
       provider: "Snapchat Ads",
+      version: "snapchat-accounts-workspace-v1",
       organizations: organizations.map((org) => ({
         id: org.id,
         name: org.name || org.organization_name || "Organization"
       })),
       count: uniqueAccounts.length,
+      saved_to_platform_connections: saveResult.saved,
+      save_errors: saveResult.errors || [],
       data: uniqueAccounts,
       accounts: uniqueAccounts,
       errors
@@ -184,7 +251,7 @@ export async function GET() {
         data: [],
         accounts: []
       },
-      500
+      error.status || 500
     );
   }
 }
