@@ -185,13 +185,10 @@ async function fetchBreakdownStats({ accountId, level, token, startTime, endTime
       if (pages === 0) return { ok: false, status: r.status, error: r.data || r.raw, statsById: {} };
       break;
     }
-    // Actual Snapchat API response shape (confirmed from raw response):
-    // {
-    //   "total_stats": [{ "total_stat": { "id":"ACCOUNT_ID", "type":"AD_ACCOUNT", ... } }],
-    //   "breakdown_stats": { "campaign": [{ "id":"camp-id", "type":"CAMPAIGN", "stats":{...} }] }
-    // }
-    // breakdown_stats is at the ROOT level, NOT inside total_stats[0]
-    const rawItems = r.data?.breakdown_stats?.[breakdown] || [];
+    // Confirmed correct path from actual API response:
+    // breakdown_stats is inside total_stats[0], NOT at root level
+    // Structure: { total_stats: [{ total_stat:{...}, breakdown_stats:{ campaign:[...] } }] }
+    const rawItems = r.data?.total_stats?.[0]?.breakdown_stats?.[breakdown] || [];
     const stats = rawItems.map(item => ({ id: item.id, stats: item.stats || {} }));
     allBreakdownStats = allBreakdownStats.concat(stats);
     nextUrl = r.data?.paging?.next_link || null;
