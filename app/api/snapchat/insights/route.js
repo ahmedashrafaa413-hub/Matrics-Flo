@@ -185,8 +185,14 @@ async function fetchBreakdownStats({ accountId, level, token, startTime, endTime
       if (pages === 0) return { ok: false, status: r.status, error: r.data || r.raw, statsById: {} };
       break;
     }
-    // breakdown_stats is the array shape when ?breakdown= is used
-    const stats = r.data?.total_stats?.[0]?.total_stat?.breakdown_stats?.[breakdown] || [];
+    // Snapchat breakdown response shape (verified from actual API):
+    // total_stats is an array where each item = one entity:
+    // [{ "id":"campaign-id", "type":"CAMPAIGN", "granularity":"TOTAL", "stats":{...} }, ...]
+    // NOT nested under breakdown_stats[X] as originally assumed.
+    const rawItems = r.data?.total_stats || [];
+    const stats = rawItems
+      .filter(item => item?.type === breakdown.toUpperCase() || item?.stats)
+      .map(item => ({ id: item.id, stats: item.stats || {} }));
     allBreakdownStats = allBreakdownStats.concat(stats);
     nextUrl = r.data?.paging?.next_link || null;
     pages++;
