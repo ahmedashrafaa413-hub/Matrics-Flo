@@ -12,6 +12,13 @@ function getCookieOptions(maxAge) {
   };
 }
 
+function clearAuthCookies(response) {
+  response.cookies.delete("sb-access-token");
+  response.cookies.delete("supabase-access-token");
+  response.cookies.delete("sb-refresh-token");
+  response.cookies.delete("metricsflo_active_workspace");
+}
+
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -77,10 +84,7 @@ export async function DELETE() {
     message: "Session cleared successfully"
   });
 
-  response.cookies.delete("sb-access-token");
-  response.cookies.delete("supabase-access-token");
-  response.cookies.delete("sb-refresh-token");
-  response.cookies.delete("metricsflo_active_workspace");
+  clearAuthCookies(response);
 
   return response;
 }
