@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 const PUBLIC_PATHS = [
   "/login",
   "/signup",
+  "/auth/callback",
   "/api/auth",
   "/api/health",
   "/_next",
@@ -10,13 +11,16 @@ const PUBLIC_PATHS = [
 ];
 
 function isPublicPath(pathname) {
-  return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(path));
+  return PUBLIC_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(path)
+  );
 }
 
 function hasAuthCookie(request) {
   return Boolean(
     request.cookies.get("sb-access-token")?.value ||
       request.cookies.get("supabase-access-token")?.value ||
+      request.cookies.get("sb-refresh-token")?.value ||
       request.cookies.get("access_token")?.value
   );
 }
