@@ -110,9 +110,27 @@ export default function AuthCallbackPage() {
           textAlign: "center"
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900 }}>
-          Metrics<span style={{ color: "#22d3ee" }}>Flo</span>
-        </h1>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 947.19 307.88" style={{ width: 180, height: 58, margin: "0 auto 4px" }}>
+          <defs>
+            <style>{`
+              .cb-c1{opacity:.1;fill:#6366f1;isolation:isolate}
+              .cb-c2{opacity:.82;fill:#6366f1;isolation:isolate}
+              .cb-c3{opacity:.55;fill:#6366f1;isolation:isolate}
+              .cb-c4{opacity:.25;fill:#6366f1;isolation:isolate}
+              .cb-c5{fill:#06d6a0}
+              .cb-c6{fill:none;opacity:.3;stroke:#6366f1}
+            `}</style>
+          </defs>
+          <rect className="cb-c1" x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22"/>
+          <rect className="cb-c6" x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22"/>
+          <rect className="cb-c4" x="47.71" y="212.96" width="41.31" height="59.02" rx="5" ry="5"/>
+          <rect className="cb-c3" x="100.83" y="168.7" width="41.31" height="103.28" rx="5" ry="5"/>
+          <rect className="cb-c2" x="153.94" y="118.53" width="41.31" height="153.44" rx="5" ry="5"/>
+          <rect className="cb-c5" x="218.86" y="53.61" width="41.31" height="218.36" rx="5" ry="5"/>
+          <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="123.93" fontWeight="500" fill="#f0f3ff" transform="translate(348.82 148.04)"><tspan x="0" y="0">Metrics</tspan></text>
+          <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="123.93" fontWeight="500" fill="#06d6a0" transform="translate(775.02 148.04)"><tspan x="0" y="0">Flo</tspan></text>
+          <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="35.41" fill="#4a5278" letterSpacing=".42em" transform="translate(384.73 220.34)"><tspan x="0" y="0">AD INTELLIGENCE</tspan></text>
+        </svg>
 
         {message && (
           <p style={{ marginTop: 16, color: "#c7d2fe", fontWeight: 700 }}>
