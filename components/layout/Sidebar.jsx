@@ -222,50 +222,28 @@ export default function Sidebar() {
           borderBottom: "1px solid var(--border)"
         }}
       >
-        <div
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: 14,
-            background: "linear-gradient(135deg,#6557ff,#00d5b2)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#fff",
-            fontWeight: 900,
-            fontSize: 18,
-            boxShadow: "0 12px 30px rgba(101,87,255,0.28)"
-          }}
-        >
-          M
-        </div>
-
-        <div>
-          <h2
-            style={{
-              color: "var(--text)",
-              fontSize: 20,
-              fontWeight: 900,
-              margin: 0,
-              lineHeight: 1
-            }}
-          >
-            Metrics<span style={{ color: "#00d5b2" }}>Flo</span>
-          </h2>
-
-          <p
-            style={{
-              color: "var(--muted)",
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              marginTop: 6
-            }}
-          >
-            Ad Intelligence
-          </p>
-        </div>
+        {/* Real MetricsFlo logo */}
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 947.19 307.88" style={{ width: 160, height: 52, flexShrink: 0 }}>
+          <defs>
+            <style>{`
+              .sb-c1{opacity:.1;fill:#6366f1;isolation:isolate}
+              .sb-c2{opacity:.82;fill:#6366f1;isolation:isolate}
+              .sb-c3{opacity:.55;fill:#6366f1;isolation:isolate}
+              .sb-c4{opacity:.25;fill:#6366f1;isolation:isolate}
+              .sb-c5{fill:#06d6a0}
+              .sb-c6{fill:none;opacity:.3;stroke:#6366f1}
+            `}</style>
+          </defs>
+          <rect className="sb-c1" x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22"/>
+          <rect className="sb-c6" x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22"/>
+          <rect className="sb-c4" x="47.71" y="212.96" width="41.31" height="59.02" rx="5" ry="5"/>
+          <rect className="sb-c3" x="100.83" y="168.7" width="41.31" height="103.28" rx="5" ry="5"/>
+          <rect className="sb-c2" x="153.94" y="118.53" width="41.31" height="153.44" rx="5" ry="5"/>
+          <rect className="sb-c5" x="218.86" y="53.61" width="41.31" height="218.36" rx="5" ry="5"/>
+          <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="123.93" fontWeight="500" fill="#f0f3ff" transform="translate(348.82 148.04)"><tspan x="0" y="0">Metrics</tspan></text>
+          <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="123.93" fontWeight="500" fill="#06d6a0" transform="translate(775.02 148.04)"><tspan x="0" y="0">Flo</tspan></text>
+          <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="35.41" fill="#4a5278" letterSpacing=".42em" transform="translate(384.73 220.34)"><tspan x="0" y="0">AD INTELLIGENCE</tspan></text>
+        </svg>
       </Link>
 
       <div
