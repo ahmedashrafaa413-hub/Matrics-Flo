@@ -139,28 +139,22 @@ export default function LoginPage() {
         }}
       >
         <div style={{ marginBottom: 28, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
-          {/* Real MetricsFlo SVG logo */}
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 947.19 307.88" style={{ width: 220, height: 72, marginBottom: 8 }}>
-            <defs>
-              <style>{`
-                .lg-c1{opacity:.1;fill:#6366f1;isolation:isolate}
-                .lg-c2{opacity:.82;fill:#6366f1;isolation:isolate}
-                .lg-c3{opacity:.55;fill:#6366f1;isolation:isolate}
-                .lg-c4{opacity:.25;fill:#6366f1;isolation:isolate}
-                .lg-c5{fill:#06d6a0}
-                .lg-c6{fill:none;opacity:.3;stroke:#6366f1}
-              `}</style>
-            </defs>
-            <rect className="lg-c1" x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22"/>
-            <rect className="lg-c6" x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22"/>
-            <rect className="lg-c4" x="47.71" y="212.96" width="41.31" height="59.02" rx="5" ry="5"/>
-            <rect className="lg-c3" x="100.83" y="168.7" width="41.31" height="103.28" rx="5" ry="5"/>
-            <rect className="lg-c2" x="153.94" y="118.53" width="41.31" height="153.44" rx="5" ry="5"/>
-            <rect className="lg-c5" x="218.86" y="53.61" width="41.31" height="218.36" rx="5" ry="5"/>
-            <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="123.93" fontWeight="500" fill="#f0f3ff" transform="translate(348.82 148.04)"><tspan x="0" y="0">Metrics</tspan></text>
-            <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="123.93" fontWeight="500" fill="#06d6a0" transform="translate(775.02 148.04)"><tspan x="0" y="0">Flo</tspan></text>
-            <text fontFamily="'Space Grotesk',Arial,sans-serif" fontSize="35.41" fill="#4a5278" letterSpacing=".42em" transform="translate(384.73 220.34)"><tspan x="0" y="0">AD INTELLIGENCE</tspan></text>
+          {/* Icon mark */}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 307.88 307.88" style={{ width: 52, height: 52, marginBottom: 10 }}>
+            <rect x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22" fill="#6366f1" opacity="0.1"/>
+            <rect x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22" fill="none" stroke="#6366f1" strokeWidth="1.5" opacity="0.35"/>
+            <rect x="47.71" y="212.96" width="41.31" height="59.02" rx="5" ry="5" fill="#6366f1" opacity="0.25"/>
+            <rect x="100.83" y="168.7" width="41.31" height="103.28" rx="5" ry="5" fill="#6366f1" opacity="0.55"/>
+            <rect x="153.94" y="118.53" width="41.31" height="153.44" rx="5" ry="5" fill="#6366f1" opacity="0.82"/>
+            <rect x="218.86" y="53.61" width="41.31" height="218.36" rx="5" ry="5" fill="#06d6a0"/>
           </svg>
+          {/* Wordmark */}
+          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize: 28, fontWeight: 700, color: "#f0f3ff", letterSpacing: "-0.5px", lineHeight: 1 }}>
+            Metrics<span style={{ color: "#06d6a0" }}>Flo</span>
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#4a5278", letterSpacing: "0.22em", textTransform: "uppercase", marginTop: 6 }}>
+            Ad Intelligence
+          </div>
 
           <p
             style={{
