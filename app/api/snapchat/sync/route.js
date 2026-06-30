@@ -625,6 +625,7 @@ async function insertMetrics({ admin, rows }) {
 }
 
 const VALID_SWIPE_WINDOWS = ["1_DAY", "7_DAY", "28_DAY"];
+
 const VALID_VIEW_WINDOWS = [
   "1_HOUR",
   "3_HOUR",
@@ -658,19 +659,19 @@ async function syncSnapchat(request) {
       .filter(Boolean);
 
     const limit = Math.min(
-      Math.max(Number(searchParams.get("limit") || 20), 1),
-      100
+      Math.max(Number(searchParams.get("limit") || 100), 1),
+      300
     );
 
     const requestedCandidateLimit = Number(
       searchParams.get("candidate_limit") ||
         searchParams.get("scan_limit") ||
-        160
+        500
     );
 
     const candidateLimit = Math.min(
       Math.max(requestedCandidateLimit, limit),
-      300
+      500
     );
 
     const swRaw = searchParams.get("swipe_window") || "28_DAY";
@@ -697,7 +698,7 @@ async function syncSnapchat(request) {
         {
           success: false,
           provider: "Snapchat Ads",
-          version: "snapchat-sync-direct-to-supabase-v2",
+          version: "snapchat-sync-direct-to-supabase-v3-expanded-cache",
           error:
             "Snapchat token not found in platform_connections for this workspace/account. Please reconnect Snapchat and open /api/snapchat/accounts once."
         },
@@ -755,7 +756,7 @@ async function syncSnapchat(request) {
       const summary = buildSummaryFromRows(rowsWithStats);
 
       const sourceMeta = {
-        version: "snapchat-sync-direct-to-supabase-v2",
+        version: "snapchat-sync-direct-to-supabase-v3-expanded-cache",
         start_time: startTime,
         end_time: endTime,
         attribution: {
@@ -768,7 +769,11 @@ async function syncSnapchat(request) {
           candidateLimit
         ),
         total_entities_available: entitiesResult.entities.length,
-        partial_data: entitiesResult.entities.length > candidateLimit
+        rows_with_metrics: rowsWithStats.length,
+        saved_limit: limit,
+        partial_data:
+          entitiesResult.entities.length > candidateLimit ||
+          rowsWithStats.length > limit
       };
 
       if (level === "overview") {
@@ -815,6 +820,10 @@ async function syncSnapchat(request) {
           candidateLimit
         ),
         rows_with_metrics: rowsWithStats.length,
+        saved_rows: level === "overview" ? 1 : Math.min(rowsWithStats.length, limit),
+        partial_data:
+          entitiesResult.entities.length > candidateLimit ||
+          rowsWithStats.length > limit,
         summary
       });
     }
@@ -829,13 +838,15 @@ async function syncSnapchat(request) {
     return NextResponse.json({
       success: true,
       provider: "Snapchat Ads",
-      version: "snapchat-sync-direct-to-supabase-v2",
+      version: "snapchat-sync-direct-to-supabase-v3-expanded-cache",
       workspace_id: workspaceId,
       user_id: user.id,
       account_id: accountId,
       date_preset: datePreset,
       metric_date: metricDate,
       levels,
+      limit,
+      candidate_limit: candidateLimit,
       inserted_rows: insertResult.inserted,
       started_at: startedAt,
       finished_at: finishedAt,
@@ -846,7 +857,7 @@ async function syncSnapchat(request) {
       {
         success: false,
         provider: "Snapchat Ads",
-        version: "snapchat-sync-direct-to-supabase-v2",
+        version: "snapchat-sync-direct-to-supabase-v3-expanded-cache",
         error: error.message || "Snapchat sync failed"
       },
       { status: error.status || 500 }
