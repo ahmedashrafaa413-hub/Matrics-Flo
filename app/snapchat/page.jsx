@@ -1320,27 +1320,7 @@ export default function SnapchatPage() {
             loading={syncing}
           />
         </section>
-      ) : activeTab === "overview" ? (
-        <section className="snap-panel">
-          <div className="snap-panel-head">
-            <div>
-              <h2>Account Overview</h2>
-              <p>Cached summary from Supabase. No live Snapchat calls on page load.</p>
-            </div>
-          </div>
-
-          <div className="snap-overview-grid">
-            <MiniMetric label="Spend" value={moneySAR(summary.spend)} />
-            <MiniMetric label="Revenue" value={moneySAR(summary.revenue)} />
-            <MiniMetric label="ROAS" value={roas(summary.roas)} />
-            <MiniMetric label="Purchases" value={number(summary.purchases)} />
-            <MiniMetric label="Impressions" value={number(summary.impressions)} />
-            <MiniMetric label="Swipes" value={number(summary.swipes)} />
-            <MiniMetric label="CTR" value={percent(summary.ctr)} />
-            <MiniMetric label="Video Views" value={number(summary.video_views)} />
-          </div>
-        </section>
-      ) : activeTab === "creative" ? (
+      ) : activeTab === "overview" ? null : activeTab === "creative" ? (
         <CreativeView rows={rows} loading={loadingData || syncing} />
       ) : (
         <DataTable
