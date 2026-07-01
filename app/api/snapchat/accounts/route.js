@@ -156,7 +156,7 @@ async function saveAccountsToWorkspace(request, accounts) {
 
 export async function GET(request) {
   try {
-    const token = await getSnapchatToken(request);
+    const token = await getSnapchatToken();
 
     if (!token) {
       return jsonResponse(
