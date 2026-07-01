@@ -481,7 +481,7 @@ async function buildRowsWithStats({
 }) {
   const candidates = entities.slice(0, candidateLimit);
 
-  const rows = await mapWithConcurrency(candidates, 6, async (entity) => {
+  const rows = await mapWithConcurrency(candidates, 10, async (entity) => {
     const statsResult = await fetchEntityStats({
       entityId: entity.id,
       level,
@@ -723,8 +723,17 @@ async function syncSnapchat(request) {
     const insertedRows = [];
     const syncResults = [];
 
-    for (const level of levels) {
-      const actualLevelForData = level === "overview" ? "campaign" : level;
+    // Cache fetched entities+stats per actual API level so that when the
+    // requested levels list contains both "overview" and "campaign" (the
+    // default for the Overview tab), we fetch the campaign entities and
+    // their stats from Snapchat only ONCE instead of twice. This alone
+    // roughly halves sync time for the most common case.
+    const levelDataCache = new Map();
+
+    async function getOrFetchLevelData(actualLevelForData) {
+      if (levelDataCache.has(actualLevelForData)) {
+        return levelDataCache.get(actualLevelForData);
+      }
 
       const entitiesResult = await fetchEntities({
         accountId,
@@ -733,13 +742,9 @@ async function syncSnapchat(request) {
       });
 
       if (!entitiesResult.ok) {
-        syncResults.push({
-          level,
-          success: false,
-          error: entitiesResult.error,
-          status: entitiesResult.status
-        });
-        continue;
+        const failed = { entitiesResult, rowsWithStats: null };
+        levelDataCache.set(actualLevelForData, failed);
+        return failed;
       }
 
       const rowsWithStats = await buildRowsWithStats({
@@ -752,6 +757,28 @@ async function syncSnapchat(request) {
         viewWindow,
         candidateLimit
       });
+
+      const fetched = { entitiesResult, rowsWithStats };
+      levelDataCache.set(actualLevelForData, fetched);
+      return fetched;
+    }
+
+    for (const level of levels) {
+      const actualLevelForData = level === "overview" ? "campaign" : level;
+
+      const { entitiesResult, rowsWithStats } = await getOrFetchLevelData(
+        actualLevelForData
+      );
+
+      if (!entitiesResult.ok) {
+        syncResults.push({
+          level,
+          success: false,
+          error: entitiesResult.error,
+          status: entitiesResult.status
+        });
+        continue;
+      }
 
       const summary = buildSummaryFromRows(rowsWithStats);
 
