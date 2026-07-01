@@ -654,20 +654,12 @@ export default function SnapchatPage() {
         .snap-hero {
           position: relative;
           overflow: hidden;
-          border-radius: 28px;
+          border-radius: 22px;
           border: 1px solid rgba(255,255,255,0.08);
           background:
-            radial-gradient(circle at 15% 20%, rgba(255,252,0,0.14), transparent 28%),
-            radial-gradient(circle at 80% 5%, rgba(34,211,238,0.18), transparent 26%),
+            radial-gradient(circle at 85% 0%, rgba(34,211,238,0.10), transparent 32%),
             linear-gradient(135deg, rgba(16,20,38,0.96), rgba(9,12,24,0.92));
-          padding: 26px;
-        }
-
-        .snap-hero-inner {
-          display: grid;
-          grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
-          gap: 22px;
-          align-items: end;
+          padding: 22px 26px;
         }
 
         .snap-platform {
@@ -685,8 +677,8 @@ export default function SnapchatPage() {
         .snap-hero h1 {
           margin: 0;
           color: #fff;
-          font-size: clamp(32px, 4vw, 54px);
-          line-height: 1;
+          font-size: clamp(24px, 2.6vw, 34px);
+          line-height: 1.15;
           font-family: 'Space Grotesk', sans-serif;
         }
 
@@ -699,16 +691,16 @@ export default function SnapchatPage() {
 
         .snap-control-card {
           border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.045);
-          border-radius: 22px;
+          background: rgba(255,255,255,0.035);
+          border-radius: 18px;
           padding: 14px;
-          backdrop-filter: blur(12px);
         }
 
         .snap-control-grid {
           display: grid;
-          grid-template-columns: 1fr;
+          grid-template-columns: minmax(220px, 1.4fr) minmax(180px, 1fr) auto;
           gap: 10px;
+          align-items: center;
         }
 
         .snap-select {
@@ -729,19 +721,19 @@ export default function SnapchatPage() {
         }
 
         .snap-control-actions {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
+          display: flex;
           gap: 10px;
-          margin-top: 10px;
         }
 
         .snap-primary,
         .snap-secondary {
-          height: 44px;
+          height: 46px;
+          padding: 0 20px;
           border-radius: 14px;
           font-weight: 900;
           cursor: pointer;
           font-family: inherit;
+          white-space: nowrap;
         }
 
         .snap-primary {
@@ -789,20 +781,24 @@ export default function SnapchatPage() {
         }
 
         .snap-tabs {
-          display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: 10px;
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding-bottom: 2px;
         }
 
         .snap-tab {
-          min-height: 50px;
-          border-radius: 16px;
+          flex: 0 0 auto;
+          min-height: 44px;
+          padding: 0 18px;
+          border-radius: 14px;
           border: 1px solid rgba(255,255,255,0.08);
           background: rgba(255,255,255,0.035);
           color: var(--muted);
           font-weight: 900;
           cursor: pointer;
           font-family: inherit;
+          white-space: nowrap;
         }
 
         .snap-tab.active {
@@ -834,7 +830,7 @@ export default function SnapchatPage() {
 
         .snap-grid {
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
           gap: 14px;
         }
 
@@ -1142,108 +1138,95 @@ export default function SnapchatPage() {
         }
 
         @media (max-width: 1150px) {
-          .snap-hero-inner {
-            grid-template-columns: 1fr;
-          }
-
-          .snap-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .snap-tabs {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
           .snap-overview-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
         }
 
-        @media (max-width: 640px) {
-          .snap-grid,
-          .snap-overview-grid {
+        @media (max-width: 720px) {
+          .snap-control-grid {
             grid-template-columns: 1fr;
           }
 
           .snap-control-actions {
+            flex-direction: column;
+          }
+
+          .snap-overview-grid {
             grid-template-columns: 1fr;
           }
         }
       `}</style>
 
       <section className="snap-hero">
-        <div className="snap-hero-inner">
-          <div>
-            <div className="snap-platform">Snapchat Ads • Cached Performance</div>
-            <h1>Snapchat Ads 👻</h1>
-            <p>
-              Fast workspace-based Snapchat reporting powered by Supabase Cache.
-              Live Snapchat API is used only when you run Sync.
-            </p>
+        <div className="snap-platform">Snapchat Ads • Cached Performance</div>
+        <h1>Snapchat Ads 👻</h1>
+        <p>
+          Fast workspace-based Snapchat reporting powered by Supabase Cache.
+          Live Snapchat API is used only when you run Sync.
+        </p>
 
-            <div className="snap-meta-line">
-              <span className="snap-pill success">● Connected</span>
-              <span className="snap-pill">Base currency: SAR</span>
-              <span className="snap-pill">
-                Account currency: {selectedAccount?.currency || "USD"}
-              </span>
-              <span className="snap-pill">{lastSyncText}</span>
-            </div>
-          </div>
-
-          <div className="snap-control-card">
-            <div className="snap-control-grid">
-              <select
-                value={accountId}
-                onChange={(event) => handleAccountChange(event.target.value)}
-                disabled={loadingAccounts || syncing}
-                className="snap-select"
-              >
-                {accounts.length === 0 ? (
-                  <option value="">No Snapchat accounts</option>
-                ) : (
-                  accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name || account.id} — {account.currency || "USD"}
-                    </option>
-                  ))
-                )}
-              </select>
-
-              <select
-                value={datePreset}
-                onChange={(event) => setDatePreset(event.target.value)}
-                disabled={syncing}
-                className="snap-select"
-              >
-                {DATE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="snap-control-actions">
-              <button
-                onClick={() => runSync()}
-                disabled={!accountId || syncing}
-                className="snap-primary"
-              >
-                {syncing ? "Syncing..." : "Sync Now"}
-              </button>
-
-              <button
-                onClick={() => loadCachedData()}
-                disabled={!accountId || loadingData || syncing}
-                className="snap-secondary"
-              >
-                Refresh
-              </button>
-            </div>
-          </div>
+        <div className="snap-meta-line">
+          <span className="snap-pill success">● Connected</span>
+          <span className="snap-pill">Base currency: SAR</span>
+          <span className="snap-pill">
+            Account currency: {selectedAccount?.currency || "USD"}
+          </span>
+          <span className="snap-pill">{lastSyncText}</span>
         </div>
       </section>
+
+      <div className="snap-control-card">
+        <div className="snap-control-grid">
+          <select
+            value={accountId}
+            onChange={(event) => handleAccountChange(event.target.value)}
+            disabled={loadingAccounts || syncing}
+            className="snap-select"
+          >
+            {accounts.length === 0 ? (
+              <option value="">No Snapchat accounts</option>
+            ) : (
+              accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name || account.id} — {account.currency || "USD"}
+                </option>
+              ))
+            )}
+          </select>
+
+          <select
+            value={datePreset}
+            onChange={(event) => setDatePreset(event.target.value)}
+            disabled={syncing}
+            className="snap-select"
+          >
+            {DATE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <div className="snap-control-actions">
+            <button
+              onClick={() => runSync()}
+              disabled={!accountId || syncing}
+              className="snap-primary"
+            >
+              {syncing ? "Syncing..." : "Sync Now"}
+            </button>
+
+            <button
+              onClick={() => loadCachedData()}
+              disabled={!accountId || loadingData || syncing}
+              className="snap-secondary"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="snap-tabs">
         {TABS.map((tab) => (
