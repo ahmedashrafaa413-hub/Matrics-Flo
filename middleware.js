@@ -19,22 +19,21 @@ function isPublicPath(pathname) {
 function hasAuthCookie(request) {
   return Boolean(
     request.cookies.get("sb-access-token")?.value ||
-      request.cookies.get("supabase-access-token")?.value ||
-      request.cookies.get("sb-refresh-token")?.value ||
-      request.cookies.get("access_token")?.value
+    request.cookies.get("supabase-access-token")?.value ||
+    request.cookies.get("sb-refresh-token")?.value ||
+    request.cookies.get("access_token")?.value
   );
 }
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
 
-  if (isPublicPath(pathname)) {
-    return NextResponse.next();
-  }
+  if (isPublicPath(pathname)) return NextResponse.next();
 
   const isProtectedPage =
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/performance-overview") ||
+    pathname.startsWith("/intelligence") ||
     pathname.startsWith("/meta") ||
     pathname.startsWith("/snapchat") ||
     pathname.startsWith("/salla") ||
@@ -43,9 +42,7 @@ export function middleware(request) {
     pathname.startsWith("/settings") ||
     pathname.startsWith("/agency");
 
-  if (!isProtectedPage) {
-    return NextResponse.next();
-  }
+  if (!isProtectedPage) return NextResponse.next();
 
   if (!hasAuthCookie(request)) {
     const loginUrl = new URL("/login", request.url);
@@ -60,6 +57,7 @@ export const config = {
   matcher: [
     "/dashboard/:path*",
     "/performance-overview/:path*",
+    "/intelligence/:path*",
     "/meta/:path*",
     "/snapchat/:path*",
     "/salla/:path*",
