@@ -157,9 +157,52 @@ export async function GET(request) {
     const dbRows = data || [];
     const rows = dbRows.map(normalizeRow);
 
+    // The top-line summary cards must always reflect the TRUE account
+    // totals — never a sum over a truncated top-N subset (e.g. only the
+    // top 20 campaigns by spend that got saved to the DB). Otherwise the
+    // summary undercounts whenever an account has more entities than the
+    // saved limit, and different tabs (Campaigns/AdSquads/Ads) end up
+    // showing different, inconsistent totals since each only sums its own
+    // truncated list. The accurate total always lives in the single
+    // entity_level="account" row written during sync.
+    const { data: accountRow, error: accountError } = await admin
+      .from("platform_daily_metrics")
+      .select("*")
+      .eq("workspace_id", workspace.id)
+      .eq("provider", "snapchat")
+      .eq("account_id", accountId)
+      .eq("metric_date", metricDate)
+      .eq("entity_level", "account")
+      .filter("raw->>date_preset", "eq", datePreset)
+      .maybeSingle();
+
+    if (accountError) {
+      throw new Error(accountError.message);
+    }
+
     let summary = null;
 
-    if (entityLevel === "account" && rows[0]) {
+    if (accountRow) {
+      const normalizedAccountRow = normalizeRow(accountRow);
+      summary = {
+        currency: normalizedAccountRow.currency,
+        spend: normalizedAccountRow.spend,
+        revenue: normalizedAccountRow.revenue,
+        purchase_value: normalizedAccountRow.purchase_value,
+        purchases: normalizedAccountRow.purchases,
+        impressions: normalizedAccountRow.impressions,
+        swipes: normalizedAccountRow.swipes,
+        clicks: normalizedAccountRow.clicks,
+        video_views: normalizedAccountRow.video_views,
+        roas: normalizedAccountRow.roas,
+        cpa: normalizedAccountRow.cpa,
+        ctr: normalizedAccountRow.ctr,
+        cpc: normalizedAccountRow.cpc,
+        cpm: normalizedAccountRow.cpm
+      };
+    } else if (entityLevel === "account" && rows[0]) {
+      // Fallback: requested level IS account but somehow the dedicated
+      // query above missed it (shouldn't normally happen).
       summary = {
         currency: rows[0].currency,
         spend: rows[0].spend,
@@ -177,6 +220,10 @@ export async function GET(request) {
         cpm: rows[0].cpm
       };
     } else {
+      // No account-level row cached yet (e.g. this workspace never synced
+      // "overview") — fall back to summing whatever entity rows are
+      // present for this level, clearly better than showing nothing, but
+      // note this can still under-count if not all entities were saved.
       const { data: allSummaryRows, error: summaryError } = await admin
         .from("platform_daily_metrics")
         .select("spend,revenue,purchases,impressions,clicks,video_views,currency")
