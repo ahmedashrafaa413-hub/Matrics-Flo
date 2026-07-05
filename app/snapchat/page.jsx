@@ -593,12 +593,15 @@ export default function SnapchatPage() {
     setNotice("Sync started. This may take a little time for large accounts.");
 
     try {
+      // "overview" is always included: it's the single source of truth for
+      // the top-line summary cards on every tab, so it must be kept fresh
+      // no matter which tab the user syncs from — not just the Overview tab.
       const levels =
         currentLevel === "overview"
           ? "overview,campaign"
           : currentLevel === "ad"
-            ? "ad"
-            : currentLevel;
+            ? "overview,ad"
+            : `overview,${currentLevel}`;
 
       const query = buildQuery({
         account_id: accountId,
