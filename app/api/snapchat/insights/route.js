@@ -213,7 +213,7 @@ export async function GET(request) {
     }
 
     // Use cookie-based token (no parameters) — this is what actually works
-    const token = snapToken || await getSnapchatToken();
+    const token = snapToken || await getSnapchatToken(request);
     if (!token) return NextResponse.json({success:false,error:"Not connected to Snapchat"},{status:401});
 
     const {startTime,endTime}=getDateRange(datePreset);
