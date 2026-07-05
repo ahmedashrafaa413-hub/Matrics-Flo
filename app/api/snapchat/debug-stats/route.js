@@ -37,7 +37,7 @@ export async function GET(request) {
   const accountId = searchParams.get("account_id");
   const campaignId = searchParams.get("campaign_id");
 
-  const token = await getSnapchatToken();
+  const token = await getSnapchatToken(request);
 
   if (!token) {
     return NextResponse.json({
