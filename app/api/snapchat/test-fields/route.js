@@ -40,7 +40,7 @@ export async function GET(request) {
   const fields =
     searchParams.get("fields") || "impressions,spend,swipes";
 
-  const token = await getSnapchatToken();
+  const token = await getSnapchatToken(request);
 
   if (!token) {
     return NextResponse.json({
