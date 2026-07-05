@@ -110,7 +110,7 @@ export async function GET(request) {
     return NextResponse.json({ success: false, error: "ad_ids is required" }, { status: 400 });
   }
 
-  const token = await getSnapchatToken();
+  const token = await getSnapchatToken(request);
   if (!token) {
     return NextResponse.json({ success: false, error: "Not connected to Snapchat" }, { status: 401 });
   }
