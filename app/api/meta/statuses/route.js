@@ -1,12 +1,12 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { getMetaToken } from "../../../../lib/metaToken";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
 
-  const token     = searchParams.get("token") || cookies().get("meta_token")?.value;
+  const token     = searchParams.get("token") || (await getMetaToken(request));
   const accountId = searchParams.get("account_id");
   const level     = searchParams.get("level") || "campaign";
 
