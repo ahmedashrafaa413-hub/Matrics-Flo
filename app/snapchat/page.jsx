@@ -5,7 +5,6 @@ import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 
 const SAR_RATE = 3.75;
-const ACCOUNTS_CACHE_KEY = "metricsflo_snapchat_accounts_cache_v1";
 
 const DATE_OPTIONS = [
   { value: "today", label: "Today" },
@@ -15,6 +14,24 @@ const DATE_OPTIONS = [
   { value: "this_month", label: "This Month" },
   { value: "last_90d", label: "Last 90 Days" },
   { value: "maximum", label: "Maximum" }
+];
+
+// Matches Snapchat Ads Manager's attribution settings. Defaulting to
+// 28-day swipe / 1-day view mirrors Ads Manager's own default, but these
+// are user-adjustable since real accounts often use different windows.
+const SWIPE_WINDOW_OPTIONS = [
+  { value: "1_DAY", label: "1 Day Swipe" },
+  { value: "7_DAY", label: "7 Day Swipe" },
+  { value: "28_DAY", label: "28 Day Swipe" }
+];
+
+const VIEW_WINDOW_OPTIONS = [
+  { value: "1_HOUR", label: "1 Hour View" },
+  { value: "3_HOUR", label: "3 Hour View" },
+  { value: "6_HOUR", label: "6 Hour View" },
+  { value: "1_DAY", label: "1 Day View" },
+  { value: "7_DAY", label: "7 Day View" },
+  { value: "28_DAY", label: "28 Day View" }
 ];
 
 const TABS = [
@@ -465,6 +482,12 @@ export default function SnapchatPage() {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
   const [datePreset, setDatePreset] = useState("maximum");
+  const [swipeWindow, setSwipeWindow] = useState(() =>
+    getSetting("snapchat_swipe_window", "28_DAY")
+  );
+  const [viewWindow, setViewWindow] = useState(() =>
+    getSetting("snapchat_view_window", "1_DAY")
+  );
   const [activeTab, setActiveTab] = useState("overview");
 
   const [summary, setSummary] = useState(normalizeSummary({}));
@@ -494,32 +517,11 @@ export default function SnapchatPage() {
     loadCachedData();
   }, [accountId, datePreset, activeTab]);
 
-  async function loadAccounts({ force = false } = {}) {
+  async function loadAccounts() {
     setError("");
     setLoadingAccounts(true);
 
     try {
-      if (!force && typeof window !== "undefined") {
-        const cached = sessionStorage.getItem(ACCOUNTS_CACHE_KEY);
-
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          const saved = getSetting("primary_snapchat_account", "");
-          const selected =
-            parsed.find((account) => account.id === saved)?.id ||
-            parsed[0]?.id ||
-            "";
-
-          setAccounts(parsed);
-          setAccountId(selected);
-
-          if (selected) saveSetting("primary_snapchat_account", selected);
-
-          setLoadingAccounts(false);
-          return;
-        }
-      }
-
       const data = await apiGet("/api/snapchat/accounts");
       const list = Array.isArray(data?.data)
         ? data.data
@@ -532,10 +534,6 @@ export default function SnapchatPage() {
       );
 
       setAccounts(uniqueAccounts);
-
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem(ACCOUNTS_CACHE_KEY, JSON.stringify(uniqueAccounts));
-      }
 
       const saved = getSetting("primary_snapchat_account", "");
       const selected =
@@ -607,7 +605,9 @@ export default function SnapchatPage() {
         date_preset: datePreset,
         levels,
         limit: currentLevel === "ad" ? 50 : 20,
-        candidate_limit: currentLevel === "campaign" ? 300 : 160
+        candidate_limit: 1000,
+        swipe_window: swipeWindow,
+        view_window: viewWindow
       });
 
       const result = await apiGet(`/api/snapchat/sync?${query}`);
@@ -718,6 +718,38 @@ export default function SnapchatPage() {
         .snap-select option {
           background: #0b1020;
           color: #fff;
+        }
+
+        .snap-attribution-row {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 10px;
+          padding-top: 10px;
+          border-top: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .snap-attribution-label {
+          font-size: 12px;
+          font-weight: 800;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+
+        .snap-select-sm {
+          width: auto;
+          height: 36px;
+          padding: 0 10px;
+          font-size: 13px;
+          font-weight: 700;
+        }
+
+        .snap-attribution-hint {
+          font-size: 12px;
+          color: var(--muted);
+          opacity: 0.75;
         }
 
         .snap-control-actions {
@@ -1172,6 +1204,10 @@ export default function SnapchatPage() {
           <span className="snap-pill">
             Account currency: {selectedAccount?.currency || "USD"}
           </span>
+          <span className="snap-pill">
+            Attribution: {swipeWindow.replace("_", " ")} swipe /{" "}
+            {viewWindow.replace("_", " ")} view
+          </span>
           <span className="snap-pill">{lastSyncText}</span>
         </div>
       </section>
@@ -1225,6 +1261,47 @@ export default function SnapchatPage() {
               Refresh
             </button>
           </div>
+        </div>
+
+        <div className="snap-attribution-row">
+          <span className="snap-attribution-label">Attribution:</span>
+
+          <select
+            value={swipeWindow}
+            onChange={(event) => {
+              setSwipeWindow(event.target.value);
+              saveSetting("snapchat_swipe_window", event.target.value);
+            }}
+            disabled={syncing}
+            className="snap-select snap-select-sm"
+          >
+            {SWIPE_WINDOW_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={viewWindow}
+            onChange={(event) => {
+              setViewWindow(event.target.value);
+              saveSetting("snapchat_view_window", event.target.value);
+            }}
+            disabled={syncing}
+            className="snap-select snap-select-sm"
+          >
+            {VIEW_WINDOW_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <span className="snap-attribution-hint">
+            Changes apply on next Sync Now — match this to your Snapchat Ads
+            Manager attribution settings to avoid number mismatches.
+          </span>
         </div>
       </div>
 
