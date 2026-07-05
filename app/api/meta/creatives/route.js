@@ -1,11 +1,11 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { getMetaToken } from "../../../../lib/metaToken";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const token    = searchParams.get("token") || cookies().get("meta_token")?.value;
+  const token    = searchParams.get("token") || (await getMetaToken(request));
   const adIdsRaw = searchParams.get("ad_ids") || "";
 
   if (!token) return NextResponse.json({ success: false, error: "Not connected to Meta" }, { status: 401 });
