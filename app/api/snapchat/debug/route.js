@@ -16,7 +16,7 @@ export async function GET(request) {
 
   if (!accountId) return NextResponse.json({ error: "account_id required" });
 
-  const token = await getSnapchatToken();
+  const token = await getSnapchatToken(request);
   if (!token) return NextResponse.json({ error: "Not connected" });
 
   // Riyadh date range (same logic as main route)
