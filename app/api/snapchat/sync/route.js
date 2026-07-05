@@ -339,46 +339,6 @@ async function fetchEntityStats({
   };
 }
 
-// Fetches TRUE account-wide totals directly from Snapchat's ad account
-// stats endpoint in a single call. This is both more accurate (not limited
-// to a scanned subset of campaigns) and much faster than summing per-entity
-// stats, and should be used for the account-level "Overview" summary.
-async function fetchAccountStats({
-  accountId,
-  token,
-  startTime,
-  endTime,
-  swipeWindow,
-  viewWindow
-}) {
-  const url =
-    `${BASE}/adaccounts/${encodeURIComponent(accountId)}/stats` +
-    `?granularity=TOTAL` +
-    `&fields=${encodeURIComponent(SAFE_FIELDS)}` +
-    `&start_time=${encodeURIComponent(startTime)}` +
-    `&end_time=${encodeURIComponent(endTime)}` +
-    `&swipe_up_attribution_window=${encodeURIComponent(swipeWindow)}` +
-    `&view_attribution_window=${encodeURIComponent(viewWindow)}`;
-
-  const result = await snapFetch(url, token);
-
-  if (!result.ok) {
-    return {
-      ok: false,
-      stats: {},
-      error: result.error,
-      status: result.status
-    };
-  }
-
-  return {
-    ok: true,
-    stats: extractTotalStats(result.data),
-    error: null,
-    status: result.status
-  };
-}
-
 async function fetchEntities({ accountId, level, token }) {
   const pathMap = {
     campaign: "campaigns",
@@ -706,12 +666,12 @@ async function syncSnapchat(request) {
     const requestedCandidateLimit = Number(
       searchParams.get("candidate_limit") ||
         searchParams.get("scan_limit") ||
-        500
+        1000
     );
 
     const candidateLimit = Math.min(
       Math.max(requestedCandidateLimit, limit),
-      500
+      1000
     );
 
     const swRaw = searchParams.get("swipe_window") || "28_DAY";
@@ -804,74 +764,7 @@ async function syncSnapchat(request) {
     }
 
     for (const level of levels) {
-      if (level === "overview") {
-        const accountStatsResult = await fetchAccountStats({
-          accountId,
-          token,
-          startTime,
-          endTime,
-          swipeWindow,
-          viewWindow
-        });
-
-        if (!accountStatsResult.ok) {
-          syncResults.push({
-            level,
-            success: false,
-            error: accountStatsResult.error,
-            status: accountStatsResult.status
-          });
-          continue;
-        }
-
-        const summary = buildMetrics(accountStatsResult.stats || {});
-
-        const sourceMeta = {
-          version: "snapchat-sync-direct-to-supabase-v4-account-stats",
-          start_time: startTime,
-          end_time: endTime,
-          attribution: {
-            swipe_window: swipeWindow,
-            view_window: viewWindow
-          },
-          // Account totals now come straight from Snapchat's account-level
-          // stats endpoint (one call), not a sum over a scanned subset of
-          // campaigns. This is always complete/accurate, unlike the old
-          // approach which under-counted large accounts (e.g. an account
-          // with 436 campaigns but only 160 scanned).
-          summary_source: "account_stats_endpoint",
-          partial_data: false
-        };
-
-        insertedRows.push(
-          normalizeMetricRow({
-            workspaceId,
-            accountId,
-            metricDate,
-            level: "account",
-            row: {
-              id: accountId,
-              name: "Snapchat Account Overview",
-              ...summary
-            },
-            datePreset,
-            sourceMeta
-          })
-        );
-
-        syncResults.push({
-          level,
-          success: true,
-          summary_source: "account_stats_endpoint",
-          saved_rows: 1,
-          partial_data: false,
-          summary
-        });
-
-        continue;
-      }
-
-      const actualLevelForData = level;
+      const actualLevelForData = level === "overview" ? "campaign" : level;
 
       const { entitiesResult, rowsWithStats } = await getOrFetchLevelData(
         actualLevelForData
@@ -890,7 +783,7 @@ async function syncSnapchat(request) {
       const summary = buildSummaryFromRows(rowsWithStats);
 
       const sourceMeta = {
-        version: "snapchat-sync-direct-to-supabase-v3-expanded-cache",
+        version: "snapchat-sync-direct-to-supabase-v5-full-scan",
         start_time: startTime,
         end_time: endTime,
         attribution: {
@@ -910,20 +803,38 @@ async function syncSnapchat(request) {
           rowsWithStats.length > limit
       };
 
-      const limitedRows = rowsWithStats.slice(0, limit);
-
-      for (const row of limitedRows) {
+      if (level === "overview") {
         insertedRows.push(
           normalizeMetricRow({
             workspaceId,
             accountId,
             metricDate,
-            level,
-            row,
+            level: "account",
+            row: {
+              id: accountId,
+              name: "Snapchat Account Overview",
+              ...summary
+            },
             datePreset,
             sourceMeta
           })
         );
+      } else {
+        const limitedRows = rowsWithStats.slice(0, limit);
+
+        for (const row of limitedRows) {
+          insertedRows.push(
+            normalizeMetricRow({
+              workspaceId,
+              accountId,
+              metricDate,
+              level,
+              row,
+              datePreset,
+              sourceMeta
+            })
+          );
+        }
       }
 
       syncResults.push({
@@ -936,7 +847,7 @@ async function syncSnapchat(request) {
           candidateLimit
         ),
         rows_with_metrics: rowsWithStats.length,
-        saved_rows: Math.min(rowsWithStats.length, limit),
+        saved_rows: level === "overview" ? 1 : Math.min(rowsWithStats.length, limit),
         partial_data:
           entitiesResult.entities.length > candidateLimit ||
           rowsWithStats.length > limit,
