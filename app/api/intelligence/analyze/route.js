@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { getSnapchatToken } from "../../../../lib/snapchatToken";
+import { getMetaToken } from "../../../../lib/metaToken";
 
 export const dynamic = "force-dynamic";
 
@@ -151,8 +151,8 @@ export async function POST(request) {
     const { metaAccountId, snapAccountId, datePreset = "last_7d", metaCurrency = "USD" } = body;
     const baseUrl     = `${new URL(request.url).protocol}//${new URL(request.url).host}`;
     const cookieHeader = request.headers.get("cookie") || "";
-    const metaToken   = cookies().get("meta_token")?.value || "";
-    const snapToken   = await getSnapchatToken().catch(() => null);
+    const metaToken   = await getMetaToken(request).catch(() => null) || "";
+    const snapToken   = await getSnapchatToken(request).catch(() => null);
 
     const [metaRes, snapRes, sallaRes] = await Promise.all([
       metaAccountId && metaToken
@@ -217,4 +217,4 @@ export async function POST(request) {
   } catch (err) {
     return NextResponse.json({ success:false, error:err.message }, { status:500 });
   }
-}
+}/
