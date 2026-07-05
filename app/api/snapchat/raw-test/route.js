@@ -9,7 +9,7 @@ export async function GET(request) {
   const accountId = searchParams.get("account_id");
   const preset    = searchParams.get("preset") || "last_7d";
 
-  const token = await getSnapchatToken();
+  const token = await getSnapchatToken(request);
   if (!token) return NextResponse.json({ error: "Not connected" });
 
   const now = new Date();
