@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
+import { requireUser } from "../../../../lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request) {
+  try {
+    await requireUser(request);
+  } catch (authError) {
+    return NextResponse.json(
+      { success: false, error: authError.message || "Unauthorized" },
+      { status: authError.status || 401 }
+    );
+  }
+
   const clientId = process.env.SALLA_CLIENT_ID;
   const redirectUri = process.env.SALLA_REDIRECT_URI;
 
