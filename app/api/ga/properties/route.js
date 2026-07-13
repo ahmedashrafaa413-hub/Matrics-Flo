@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireUser } from "../../../../lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,16 @@ async function refreshGoogleToken(refreshToken) {
   return res.json();
 }
 
-export async function GET() {
+export async function GET(request) {
+  try {
+    await requireUser(request);
+  } catch (authError) {
+    return NextResponse.json(
+      { success: false, error: authError.message || "Unauthorized" },
+      { status: authError.status || 401 }
+    );
+  }
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
