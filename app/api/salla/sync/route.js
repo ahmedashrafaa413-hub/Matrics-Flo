@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireUser } from "../../../../lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,16 @@ function normalizeOrder(order, connection) {
   };
 }
 
-export async function GET() {
+export async function GET(request) {
+  try {
+    await requireUser(request);
+  } catch (authError) {
+    return NextResponse.json(
+      { success: false, error: authError.message || "Unauthorized" },
+      { status: authError.status || 401 }
+    );
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
