@@ -45,7 +45,7 @@ async function buildRowsForLevel({
   limit
 }) {
   if (level === "account") {
-    const summary = await fetchAccountSummary({
+    const result = await fetchAccountSummary({
       accountId,
       token,
       startTime,
@@ -54,9 +54,9 @@ async function buildRowsForLevel({
       viewWindow
     });
 
-    if (!summary) {
+    if (!result.ok) {
       throw new Error(
-        "Snapchat account stats request failed (see Snapchat Ads Manager permissions/date range)"
+        `Snapchat account stats request failed (status ${result.status}): ${JSON.stringify(result.error)}`
       );
     }
 
@@ -64,7 +64,7 @@ async function buildRowsForLevel({
       {
         entity_id: accountId,
         entity_name: "Account Total",
-        ...summary
+        ...result.metrics
       }
     ];
   }
