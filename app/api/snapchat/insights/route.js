@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSnapchatToken } from "../../../../lib/snapchatToken";
 import {
   getDateRange,
-  fetchAccountSummary,
+  fetchAccountSummaryMetrics,
   fetchEntities,
   fetchBreakdown,
   buildMetrics,
@@ -79,7 +79,7 @@ export async function GET(request) {
 
     // 3 parallel calls
     const [accountSummary, entitiesResult, breakdownResult] = await Promise.all([
-      fetchAccountSummary({accountId,token,startTime,endTime,swipeWindow,viewWindow}),
+      fetchAccountSummaryMetrics({accountId,token,startTime,endTime,swipeWindow,viewWindow}),
       fetchEntities({accountId,level,token}),
       fetchBreakdown({accountId,level,token,startTime,endTime,swipeWindow,viewWindow}),
     ]);
