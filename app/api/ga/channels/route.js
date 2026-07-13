@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireUser } from "../../../../lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,8 @@ async function refreshGoogleToken(refreshToken) {
 
 export async function GET(request) {
   try {
+    await requireUser(request);
+
     const { searchParams } = new URL(request.url);
 
     const range =
@@ -137,7 +140,7 @@ export async function GET(request) {
         success: false,
         error: error.message
       },
-      { status: 500 }
+      { status: error.status || 500 }
     );
   }
 }
