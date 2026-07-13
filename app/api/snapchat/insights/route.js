@@ -4,13 +4,17 @@ import {
   getDateRange,
   fetchAccountSummaryMetrics,
   fetchEntities,
-  fetchBreakdown,
+  fetchEntityStats,
+  mapWithConcurrency,
   buildMetrics,
   VALID_SWIPE,
   VALID_VIEW
 } from "../../../../lib/snapchatApi";
 
 export const dynamic = "force-dynamic";
+
+const CONCURRENCY = 6;
+const CANDIDATE_LIMIT = 300;
 
 const memoryCache = new Map();
 const CACHE_TTL   = 5 * 60 * 1000;
@@ -77,11 +81,9 @@ export async function GET(request) {
 
     const {startTime,endTime}=getDateRange(datePreset);
 
-    // 3 parallel calls
-    const [accountSummary, entitiesResult, breakdownResult] = await Promise.all([
+    const [accountSummary, entitiesResult] = await Promise.all([
       fetchAccountSummaryMetrics({accountId,token,startTime,endTime,swipeWindow,viewWindow}),
       fetchEntities({accountId,level,token}),
-      fetchBreakdown({accountId,level,token,startTime,endTime,swipeWindow,viewWindow}),
     ]);
 
     if (!entitiesResult.ok) {
@@ -89,17 +91,29 @@ export async function GET(request) {
     }
 
     const allEntities=entitiesResult.entities;
-    let rows=[];
+    const scanned = allEntities.slice(0, CANDIDATE_LIMIT);
 
-    if (breakdownResult.ok && breakdownResult.count>0) {
-      // Fast path: breakdown worked
-      rows=allEntities
-        .map(e=>({...e,...buildMetrics(breakdownResult.statsById[e.id]||{})}))
-        .filter(r=>safeNum(r.spend)>0.001)
-        .sort((a,b)=>safeNum(b.spend)-safeNum(a.spend));
-    }
-    // If breakdown returned 0 items but entities exist, rows stays empty
-    // and summary comes from accountSummary (which always works)
+    // One Snapchat request per entity — the bulk "?breakdown=" endpoint
+    // silently returns empty/zero stats for accounts with a large number
+    // of campaigns, so per-entity is the only reliable source of numbers.
+    const statsResults = await mapWithConcurrency(
+      scanned,
+      CONCURRENCY,
+      async (entity) => {
+        const result = await fetchEntityStats({
+          level, entityId: entity.id, token, startTime, endTime, swipeWindow, viewWindow
+        });
+
+        return {
+          ...entity,
+          ...(result.ok ? result.metrics : buildMetrics({}))
+        };
+      }
+    );
+
+    const rows = statsResults
+      .filter(r=>safeNum(r.spend)>0.001)
+      .sort((a,b)=>safeNum(b.spend)-safeNum(a.spend));
 
     const summary=accountSummary||buildSummaryFromRows(rows);
 
@@ -110,8 +124,8 @@ export async function GET(request) {
       attribution:{swipe_window:swipeWindow,view_window:viewWindow},
       total_entities:allEntities.length,
       active_entities:allEntities.filter(e=>e.status==="ACTIVE").length,
+      scanned_entities:scanned.length,
       loaded_count:rows.length,
-      breakdown_count:breakdownResult.count||0,
       summary, data:rows,
     };
 
