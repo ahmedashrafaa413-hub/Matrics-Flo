@@ -54,7 +54,11 @@ async function buildRowsForLevel({
       viewWindow
     });
 
-    if (!summary) return [];
+    if (!summary) {
+      throw new Error(
+        "Snapchat account stats request failed (see Snapchat Ads Manager permissions/date range)"
+      );
+    }
 
     return [
       {
@@ -70,8 +74,16 @@ async function buildRowsForLevel({
     fetchBreakdown({ accountId, level, token, startTime, endTime, swipeWindow, viewWindow })
   ]);
 
-  if (!entitiesResult.ok || !breakdownResult.ok) {
-    return [];
+  if (!entitiesResult.ok) {
+    throw new Error(
+      `Failed to list Snapchat ${level} entities: ${JSON.stringify(entitiesResult.error)}`
+    );
+  }
+
+  if (!breakdownResult.ok) {
+    throw new Error(
+      `Failed to fetch Snapchat ${level} stats breakdown: ${JSON.stringify(breakdownResult.error)}`
+    );
   }
 
   const rows = entitiesResult.entities
