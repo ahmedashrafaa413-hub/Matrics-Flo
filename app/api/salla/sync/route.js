@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseAdminClient } from "../../../../lib/supabaseServer";
 import { requireUser } from "../../../../lib/serverAuth";
+import { getSallaConnection } from "../../../../lib/sallaToken";
 
 export const dynamic = "force-dynamic";
 
-function normalizeOrder(order, connection) {
+const PER_PAGE = 100;
+// Safety cap so one sync request can't run forever on a huge store — at
+// 100 orders/page that's up to 10,000 orders per call. Re-running sync
+// picks up any remainder since every order is upserted by its own id.
+const MAX_PAGES = 100;
+
+function normalizeOrder(order, { userId, workspaceId, connectionId }) {
   return {
-    user_id: connection.user_id || "default_user",
+    user_id: userId,
+    workspace_id: workspaceId,
+    connection_id: connectionId,
     order_id: String(order.id || order.reference_id),
     order_status: order.status?.name || order.status || null,
     total_amount: Number(order.total?.amount || order.amounts?.total?.amount || 0),
@@ -25,6 +34,59 @@ function normalizeOrder(order, connection) {
   };
 }
 
+// Salla's orders list is paginated — previous code only ever fetched page
+// 1, so any store with more orders than one page silently lost the rest.
+// This walks every page until Salla reports there's nothing left, using
+// the page's own item count as a fallback signal if the pagination
+// metadata shape isn't the one we expect.
+async function fetchAllOrders(accessToken) {
+  const allOrders = [];
+  let page = 1;
+  let totalPages = null;
+
+  while (page <= MAX_PAGES) {
+    const res = await fetch(
+      `https://api.salla.dev/admin/v2/orders?per_page=${PER_PAGE}&page=${page}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json"
+        },
+        cache: "no-store"
+      }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: data, orders: allOrders };
+    }
+
+    const pageOrders = Array.isArray(data.data) ? data.data : [];
+    allOrders.push(...pageOrders);
+
+    totalPages =
+      data.pagination?.totalPages ||
+      data.pagination?.total_pages ||
+      data.pagination?.lastPage ||
+      data.pagination?.last_page ||
+      null;
+
+    const hasMore = totalPages ? page < totalPages : pageOrders.length === PER_PAGE;
+
+    if (!hasMore) break;
+    page += 1;
+  }
+
+  return {
+    ok: true,
+    orders: allOrders,
+    pages_fetched: page,
+    total_pages_reported: totalPages,
+    hit_page_cap: page >= MAX_PAGES
+  };
+}
+
 export async function GET(request) {
   try {
     await requireUser(request);
@@ -35,75 +97,73 @@ export async function GET(request) {
     );
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const { user, workspace, connection } = await getSallaConnection(request);
 
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return NextResponse.json(
-      { success: false, error: "Missing Supabase environment variables" },
-      { status: 500 }
-    );
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-  const { data: connection, error: connectionError } = await supabase
-    .from("salla_connections")
-    .select("*")
-    .eq("user_id", "default_user")
-    .single();
-
-  if (connectionError || !connection?.access_token) {
+  if (!connection?.access_token) {
     return NextResponse.json(
       { success: false, error: "Salla is not connected" },
       { status: 401 }
     );
   }
 
-  const ordersRes = await fetch(
-    "https://api.salla.dev/admin/v2/orders?per_page=100&page=1",
-    {
-      headers: {
-        Authorization: `Bearer ${connection.access_token}`,
-        Accept: "application/json"
-      },
-      cache: "no-store"
-    }
-  );
+  const result = await fetchAllOrders(connection.access_token);
 
-  const ordersData = await ordersRes.json();
-
-  if (!ordersRes.ok) {
+  if (!result.ok) {
     return NextResponse.json(
-      { success: false, step: "salla_sync_orders", error: ordersData },
-      { status: ordersRes.status }
+      { success: false, step: "salla_sync_orders", error: result.error },
+      { status: 500 }
     );
   }
 
-  const orders = Array.isArray(ordersData.data) ? ordersData.data : [];
-  const rows = orders.map((order) => normalizeOrder(order, connection));
+  const rows = result.orders.map((order) =>
+    normalizeOrder(order, {
+      userId: user.id,
+      workspaceId: workspace.id,
+      connectionId: connection.id
+    })
+  );
 
-  if (rows.length) {
-    const { error: saveError } = await supabase.from("salla_orders").upsert(
-      rows,
-      {
-        onConflict: "user_id,order_id"
-      }
+  const admin = createSupabaseAdminClient();
+
+  // Upsert in batches — Supabase/PostgREST has a practical payload size
+  // limit, and a store with thousands of orders would otherwise be sent
+  // as one giant request.
+  const BATCH_SIZE = 500;
+  let savedCount = 0;
+
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+
+    if (!batch.length) continue;
+
+    const { error: saveError } = await admin.from("salla_orders").upsert(
+      batch,
+      { onConflict: "user_id,order_id" }
     );
 
     if (saveError) {
       return NextResponse.json(
-        { success: false, step: "supabase_orders_save", error: saveError },
+        {
+          success: false,
+          step: "supabase_orders_save",
+          error: saveError,
+          saved_before_failure: savedCount
+        },
         { status: 500 }
       );
     }
+
+    savedCount += batch.length;
   }
 
   return NextResponse.json({
     success: true,
-    store: connection.store_name,
-    merchant_id: connection.merchant_id,
-    fetched_orders: orders.length,
-    saved_orders: rows.length
+    store: connection.account_name,
+    merchant_id: connection.metadata?.merchant_id || null,
+    fetched_orders: result.orders.length,
+    saved_orders: savedCount,
+    pages_fetched: result.pages_fetched,
+    total_pages_reported: result.total_pages_reported,
+    hit_page_cap: result.hit_page_cap
   });
 }
