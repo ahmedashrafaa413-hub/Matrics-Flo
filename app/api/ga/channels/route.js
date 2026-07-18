@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { requireUser } from "../../../../lib/serverAuth";
+import { getGaConnection } from "../../../../lib/gaToken";
 
 export const dynamic = "force-dynamic";
 
@@ -20,68 +20,35 @@ function getDateRange(range) {
   return { startDate: "30daysAgo", endDate: "today" };
 }
 
-async function refreshGoogleToken(refreshToken) {
-  const response = await fetch(
-    "https://oauth2.googleapis.com/token",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded"
-      },
-      body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret:
-          process.env.GOOGLE_CLIENT_SECRET,
-        refresh_token: refreshToken,
-        grant_type: "refresh_token"
-      })
-    }
-  );
-
-  return response.json();
-}
-
 export async function GET(request) {
   try {
     await requireUser(request);
 
     const { searchParams } = new URL(request.url);
 
-    const range =
-      searchParams.get("range") || "30daysAgo";
-
-    const propertyIdFromQuery =
-      searchParams.get("propertyId");
+    const range = searchParams.get("range") || "30daysAgo";
+    const propertyIdFromQuery = searchParams.get("propertyId");
 
     const dateRange = getDateRange(range);
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
+    const { connection, propertyId: selectedPropertyId } = await getGaConnection(request);
 
-    const { data: connection } = await supabase
-      .from("ga_connections")
-      .select("*")
-      .eq("user_id", "default_user")
-      .single();
+    if (!connection) {
+      return NextResponse.json({ success: false, step: "missing_connection" }, { status: 401 });
+    }
 
-    const refreshed =
-      await refreshGoogleToken(
-        connection.refresh_token
-      );
+    const propertyId = propertyIdFromQuery || selectedPropertyId;
 
-    const propertyId =
-      propertyIdFromQuery ||
-      connection.property_id;
+    if (!propertyId) {
+      return NextResponse.json({ success: false, step: "missing_property" }, { status: 400 });
+    }
 
     const response = await fetch(
       `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${refreshed.access_token}`,
+          Authorization: `Bearer ${connection.access_token}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
