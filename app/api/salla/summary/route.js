@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseAdminClient } from "../../../../lib/supabaseServer";
 import { requireUser } from "../../../../lib/serverAuth";
+import { getSallaConnection } from "../../../../lib/sallaToken";
 
 export const dynamic = "force-dynamic";
 
@@ -38,28 +39,17 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const datePreset = searchParams.get("date_preset") || "last_30d";
 
-  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const { user, connection } = await getSallaConnection(request);
 
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return NextResponse.json({ success: false, error: "Missing Supabase environment variables" }, { status: 500 });
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-  const { data: connection } = await supabase
-    .from("salla_connections")
-    .select("store_name, merchant_id")
-    .eq("user_id", "default_user")
-    .single();
+  const admin = createSupabaseAdminClient();
 
   // Build date-filtered query
   const { from, to } = getDateFilter(datePreset);
 
-  let query = supabase
+  let query = admin
     .from("salla_orders")
     .select("order_id,total_amount,currency,order_status,order_date")
-    .eq("user_id", "default_user");
+    .eq("user_id", user.id);
 
   if (datePreset !== "maximum") {
     query = query
@@ -79,8 +69,8 @@ export async function GET(request) {
 
   return NextResponse.json({
     success: true,
-    store_name: connection?.store_name || "Salla Store",
-    merchant_id: connection?.merchant_id || null,
+    store_name: connection?.account_name || "Salla Store",
+    merchant_id: connection?.metadata?.merchant_id || null,
     date_preset: datePreset,
     date_range: { from, to },
     total_orders: totalOrders,
