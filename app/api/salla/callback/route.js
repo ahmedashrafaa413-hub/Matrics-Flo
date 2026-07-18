@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { requireUser } from "../../../../lib/serverAuth";
+import { saveSallaConnectionFromOAuth } from "../../../../lib/sallaToken";
 
 export const dynamic = "force-dynamic";
+
+function getAppUrl(request) {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    new URL(request.url).origin
+  );
+}
 
 export async function GET(request) {
   try {
@@ -16,6 +25,7 @@ export async function GET(request) {
 
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
+  const appUrl = getAppUrl(request);
 
   if (!code) {
     return NextResponse.json(
@@ -28,18 +38,9 @@ export async function GET(request) {
   const clientSecret = process.env.SALLA_CLIENT_SECRET;
   const redirectUri = process.env.SALLA_REDIRECT_URI;
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (
-    !clientId ||
-    !clientSecret ||
-    !redirectUri ||
-    !supabaseUrl ||
-    !supabaseServiceKey
-  ) {
+  if (!clientId || !clientSecret || !redirectUri) {
     return NextResponse.json(
-      { success: false, error: "Missing environment variables" },
+      { success: false, error: "Missing Salla environment variables" },
       { status: 500 }
     );
   }
@@ -98,37 +99,28 @@ export async function GET(request) {
       merchantId = null;
     }
 
-    const expiresAt = tokenData.expires_in
-      ? new Date(Date.now() + Number(tokenData.expires_in) * 1000).toISOString()
-      : null;
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const { error } = await supabase.from("salla_connections").upsert(
-      {
-        user_id: "default_user",
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token || null,
-        expires_at: expiresAt,
-        merchant_id: merchantId ? String(merchantId) : null,
-        store_name: storeName,
-        updated_at: new Date().toISOString()
-      },
-      {
-        onConflict: "user_id"
+    const saved = await saveSallaConnectionFromOAuth({
+      request,
+      accessToken: tokenData.access_token,
+      refreshToken: tokenData.refresh_token,
+      expiresIn: tokenData.expires_in,
+      merchantId,
+      storeName,
+      metadata: {
+        source: "salla_oauth_callback",
+        redirect_uri: redirectUri
       }
-    );
+    });
 
-    if (error) {
-      return NextResponse.json(
-        { success: false, step: "supabase_save", error },
-        { status: 500 }
+    if (!saved?.saved_to_db) {
+      return NextResponse.redirect(
+        `${appUrl}/connections?salla_error=${encodeURIComponent(
+          "Salla connected but was not saved to workspace. Please login again."
+        )}`
       );
     }
 
-    return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL}/connections?salla=connected`
-    );
+    return NextResponse.redirect(`${appUrl}/connections?salla=connected`);
   } catch (err) {
     return NextResponse.json(
       {
