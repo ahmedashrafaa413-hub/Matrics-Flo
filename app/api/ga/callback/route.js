@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { requireUser } from "../../../../lib/serverAuth";
+import { saveGaConnectionFromOAuth } from "../../../../lib/gaToken";
 
 export const dynamic = "force-dynamic";
+
+function getAppUrl(request) {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    new URL(request.url).origin
+  );
+}
 
 export async function GET(request) {
   try {
@@ -43,41 +52,26 @@ export async function GET(request) {
     });
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
+  const saved = await saveGaConnectionFromOAuth({
+    request,
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token,
+    expiresIn: tokenData.expires_in,
+    propertyId: null,
+    propertyName: null,
+    metadata: {
+      source: "ga_oauth_callback"
+    }
+  });
 
-  const { data: existing } = await supabase
-    .from("ga_connections")
-    .select("property_id, property_name, refresh_token")
-    .eq("user_id", "default_user")
-    .maybeSingle();
-
-  const expiresAt = tokenData.expires_in
-    ? new Date(Date.now() + Number(tokenData.expires_in) * 1000).toISOString()
-    : null;
-
-  const { error } = await supabase.from("ga_connections").upsert(
-    {
-      user_id: "default_user",
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token || existing?.refresh_token || null,
-      expires_at: expiresAt,
-      property_id: existing?.property_id || "428317178",
-      property_name: existing?.property_name || "lordoilsa.com",
-      updated_at: new Date().toISOString()
-    },
-    { onConflict: "user_id" }
-  );
-
-  if (error) {
+  if (!saved?.saved_to_db) {
     return NextResponse.json({
       success: false,
       step: "supabase_save",
-      error
+      error: "GA4 connected but was not saved to workspace"
     });
   }
 
-  return NextResponse.redirect("https://metricsflo.com/connections?ga=connected");
+  const appUrl = getAppUrl(request);
+  return NextResponse.redirect(`${appUrl}/connections?ga=connected`);
 }
