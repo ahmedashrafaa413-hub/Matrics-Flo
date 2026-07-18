@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { requireUser } from "../../../../lib/serverAuth";
+import { updateGaSelectedProperty } from "../../../../lib/gaToken";
 
 export const dynamic = "force-dynamic";
 
@@ -25,24 +25,12 @@ export async function POST(request) {
     );
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-
-  const { error } = await supabase
-    .from("ga_connections")
-    .update({
-      property_id: propertyId,
-      property_name: propertyName,
-      updated_at: new Date().toISOString()
-    })
-    .eq("user_id", "default_user");
-
-  if (error) {
+  try {
+    await updateGaSelectedProperty(request, { propertyId, propertyName });
+  } catch (error) {
     return NextResponse.json(
-      { success: false, step: "supabase_update", error },
-      { status: 500 }
+      { success: false, step: "supabase_update", error: error.message },
+      { status: error.status || 500 }
     );
   }
 
