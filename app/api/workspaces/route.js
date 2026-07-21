@@ -65,8 +65,35 @@ export async function POST(request) {
 
     let organizationId = body.organization_id || "";
 
+    const workspaces = await getUserWorkspaces(user.id);
+    const accessibleOrganizationIds = new Set(
+      workspaces.map((workspace) => workspace.organization_id).filter(Boolean)
+    );
+
+    if (organizationId && !accessibleOrganizationIds.has(organizationId)) {
+      const { data: ownedOrganization, error: organizationAccessError } = await admin
+        .from("organizations")
+        .select("id")
+        .eq("id", organizationId)
+        .eq("owner_user_id", user.id)
+        .maybeSingle();
+
+      if (organizationAccessError) {
+        throw new Error(organizationAccessError.message);
+      }
+
+      if (!ownedOrganization) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "You do not have access to this organization"
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     if (!organizationId) {
-      const workspaces = await getUserWorkspaces(user.id);
       organizationId = workspaces?.[0]?.organization_id || "";
     }
 
@@ -91,11 +118,11 @@ export async function POST(request) {
       .from("workspaces")
       .insert({
         organization_id: organizationId,
+        owner_user_id: user.id,
         name,
         slug: slugify(name),
-        default_currency: defaultCurrency,
-        timezone,
-        created_by: user.id
+        currency: defaultCurrency,
+        timezone
       })
       .select("*")
       .single();
@@ -114,13 +141,17 @@ export async function POST(request) {
       throw new Error(memberError.message);
     }
 
-    await admin.from("user_preferences").upsert(
+    const { error: preferenceError } = await admin.from("user_sessions").upsert(
       {
         user_id: user.id,
         active_workspace_id: workspace.id
       },
       { onConflict: "user_id" }
     );
+
+    if (preferenceError) {
+      throw new Error(preferenceError.message);
+    }
 
     setActiveWorkspaceCookie(workspace.id);
 
