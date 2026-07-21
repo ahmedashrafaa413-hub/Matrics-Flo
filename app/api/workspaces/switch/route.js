@@ -43,13 +43,17 @@ export async function POST(request) {
 
     const admin = createSupabaseAdminClient();
 
-    await admin.from("user_preferences").upsert(
+    const { error: preferenceError } = await admin.from("user_sessions").upsert(
       {
         user_id: user.id,
         active_workspace_id: workspaceId
       },
       { onConflict: "user_id" }
     );
+
+    if (preferenceError) {
+      throw new Error(preferenceError.message);
+    }
 
     setActiveWorkspaceCookie(workspaceId);
 
