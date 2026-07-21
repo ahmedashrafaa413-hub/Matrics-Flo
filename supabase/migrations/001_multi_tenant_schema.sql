@@ -367,4 +367,25 @@ create table if not exists public.ai_recommendations (
 create index if not exists idx_ai_recommendations_workspace_status
 on public.ai_recommendations (workspace_id, status);
 
-drop trigger if exists trg_ai_recommend
+drop trigger if exists trg_ai_recommendations_updated_at on public.ai_recommendations;
+
+create trigger trg_ai_recommendations_updated_at
+before update on public.ai_recommendations
+for each row
+execute function public.set_updated_at();
+
+-- =========================
+-- Row Level Security
+-- =========================
+-- Tenant data is accessed only by authenticated server routes after membership
+-- checks. The service role bypasses RLS; anon/authenticated browser clients do not.
+
+alter table public.organizations enable row level security;
+alter table public.workspaces enable row level security;
+alter table public.workspace_members enable row level security;
+alter table public.user_sessions enable row level security;
+alter table public.platform_connections enable row level security;
+alter table public.platform_accounts enable row level security;
+alter table public.salla_orders enable row level security;
+alter table public.platform_daily_metrics enable row level security;
+alter table public.ai_recommendations enable row level security;
