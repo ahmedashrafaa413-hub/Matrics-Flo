@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import { getSupabasePublicClient } from "../../../../lib/serverAuth";
+import {
+  AUTH_COOKIE_NAMES,
+  normalizeSessionMaxAge
+} from "../../../../lib/authFoundation.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -13,10 +18,9 @@ function getCookieOptions(maxAge) {
 }
 
 function clearAuthCookies(response) {
-  response.cookies.delete("sb-access-token");
-  response.cookies.delete("supabase-access-token");
-  response.cookies.delete("sb-refresh-token");
-  response.cookies.delete("metricsflo_active_workspace");
+  Object.values(AUTH_COOKIE_NAMES).forEach((name) => {
+    response.cookies.delete(name);
+  });
 }
 
 export async function POST(request) {
@@ -25,7 +29,9 @@ export async function POST(request) {
 
     const accessToken = body.access_token || body.accessToken || "";
     const refreshToken = body.refresh_token || body.refreshToken || "";
-    const expiresIn = Number(body.expires_in || body.expiresIn || 60 * 60);
+    const expiresIn = normalizeSessionMaxAge(
+      body.expires_in || body.expiresIn
+    );
 
     if (!accessToken) {
       return NextResponse.json(
@@ -39,26 +45,39 @@ export async function POST(request) {
       );
     }
 
+    const supabase = getSupabasePublicClient();
+    const { data, error } = await supabase.auth.getUser(accessToken);
+
+    if (error || !data?.user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid access token"
+        },
+        { status: 401 }
+      );
+    }
+
     const response = NextResponse.json({
       success: true,
       message: "Session saved successfully"
     });
 
     response.cookies.set(
-      "sb-access-token",
+      AUTH_COOKIE_NAMES.access,
       accessToken,
       getCookieOptions(expiresIn)
     );
 
     response.cookies.set(
-      "supabase-access-token",
+      AUTH_COOKIE_NAMES.legacyAccess,
       accessToken,
       getCookieOptions(expiresIn)
     );
 
     if (refreshToken) {
       response.cookies.set(
-        "sb-refresh-token",
+        AUTH_COOKIE_NAMES.refresh,
         refreshToken,
         getCookieOptions(60 * 60 * 24 * 180)
       );
