@@ -1,12 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { getSupabaseBrowserClient } from "../../lib/supabaseClient";
+import { getSafeInternalPath } from "../../lib/authFoundation.mjs";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -54,6 +50,8 @@ export default function LoginPage() {
     setSuccess(false);
 
     try {
+      const supabase = getSupabaseBrowserClient();
+
       if (!email || !password) {
         setError("Please enter email and password.");
         setLoading(false);
@@ -81,7 +79,8 @@ export default function LoginPage() {
       await completeServerLogin(data.session);
 
       setSuccess(true);
-      window.location.href = "/dashboard";
+      const params = new URLSearchParams(window.location.search);
+      window.location.href = getSafeInternalPath(params.get("next"));
     } catch (err) {
       setError(err.message || "Unexpected login error.");
       setLoading(false);
@@ -94,6 +93,8 @@ export default function LoginPage() {
     setSuccess(false);
 
     try {
+      const supabase = getSupabaseBrowserClient();
+
       const siteUrl =
         process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
 
