@@ -1,12 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import { getSupabaseBrowserClient } from "../../../lib/supabaseClient";
+import { getSafeInternalPath } from "../../../lib/authFoundation.mjs";
 
 export default function AuthCallbackPage() {
   const [message, setMessage] = useState("Completing login...");
@@ -18,6 +14,8 @@ export default function AuthCallbackPage() {
 
   async function completeLogin() {
     try {
+      const supabase = getSupabaseBrowserClient();
+
       setMessage("Reading Supabase session...");
 
       const { data, error: sessionError } = await supabase.auth.getSession();
@@ -78,7 +76,7 @@ export default function AuthCallbackPage() {
       setMessage("Redirecting...");
 
       const params = new URLSearchParams(window.location.search);
-      const next = params.get("next") || "/dashboard";
+      const next = getSafeInternalPath(params.get("next"));
 
       window.location.href = next;
     } catch (err) {
