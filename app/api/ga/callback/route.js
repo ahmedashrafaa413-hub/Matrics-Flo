@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../../lib/serverAuth";
 import { saveGaConnectionFromOAuth } from "../../../../lib/gaToken";
+import {
+  clearOAuthStateCookie,
+  getAppUrl,
+  getRequiredEnv,
+  verifyOAuthState
+} from "../../../../lib/oauthFoundation.mjs";
 
 export const dynamic = "force-dynamic";
 
-function getAppUrl(request) {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    new URL(request.url).origin
-  );
-}
-
 export async function GET(request) {
+  const appUrl = getAppUrl(request);
   try {
     await requireUser(request);
   } catch (authError) {
@@ -25,9 +23,27 @@ export async function GET(request) {
 
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
+  const state = searchParams.get("state");
+
+  if (!verifyOAuthState(request, "ga", state)) {
+    return NextResponse.redirect(`${appUrl}/connections?ga_error=Invalid+OAuth+state`);
+  }
 
   if (!code) {
-    return NextResponse.json({ success: false, error: "No code received" });
+    return NextResponse.redirect(`${appUrl}/connections?ga_error=Missing+code`);
+  }
+
+  let config;
+  try {
+    config = getRequiredEnv([
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_REDIRECT_URI"
+    ]);
+  } catch (error) {
+    return NextResponse.redirect(
+      `${appUrl}/connections?ga_error=${encodeURIComponent(error.message)}`
+    );
   }
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -35,9 +51,9 @@ export async function GET(request) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+      client_id: config.GOOGLE_CLIENT_ID,
+      client_secret: config.GOOGLE_CLIENT_SECRET,
+      redirect_uri: config.GOOGLE_REDIRECT_URI,
       grant_type: "authorization_code"
     })
   });
@@ -45,11 +61,14 @@ export async function GET(request) {
   const tokenData = await tokenRes.json();
 
   if (!tokenRes.ok) {
-    return NextResponse.json({
-      success: false,
-      step: "token_exchange",
-      error: tokenData
-    });
+    return clearOAuthStateCookie(
+      NextResponse.redirect(
+        `${appUrl}/connections?ga_error=${encodeURIComponent(
+          tokenData?.error_description || tokenData?.error || "Token exchange failed"
+        )}`
+      ),
+      "ga"
+    );
   }
 
   const saved = await saveGaConnectionFromOAuth({
@@ -72,6 +91,8 @@ export async function GET(request) {
     });
   }
 
-  const appUrl = getAppUrl(request);
-  return NextResponse.redirect(`${appUrl}/connections?ga=connected`);
+  return clearOAuthStateCookie(
+    NextResponse.redirect(`${appUrl}/connections?ga=connected`),
+    "ga"
+  );
 }
