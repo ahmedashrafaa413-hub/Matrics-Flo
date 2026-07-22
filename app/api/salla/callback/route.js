@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../../lib/serverAuth";
 import { saveSallaConnectionFromOAuth } from "../../../../lib/sallaToken";
+import {
+  clearOAuthStateCookie,
+  getAppUrl,
+  getRequiredEnv,
+  verifyOAuthState
+} from "../../../../lib/oauthFoundation.mjs";
 
 export const dynamic = "force-dynamic";
 
-function getAppUrl(request) {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    new URL(request.url).origin
-  );
-}
-
 export async function GET(request) {
+  const appUrl = getAppUrl(request);
   try {
     await requireUser(request);
   } catch (authError) {
@@ -25,7 +23,11 @@ export async function GET(request) {
 
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  const appUrl = getAppUrl(request);
+  const state = searchParams.get("state");
+
+  if (!verifyOAuthState(request, "salla", state)) {
+    return NextResponse.redirect(`${appUrl}/connections?salla_error=Invalid+OAuth+state`);
+  }
 
   if (!code) {
     return NextResponse.json(
@@ -34,14 +36,16 @@ export async function GET(request) {
     );
   }
 
-  const clientId = process.env.SALLA_CLIENT_ID;
-  const clientSecret = process.env.SALLA_CLIENT_SECRET;
-  const redirectUri = process.env.SALLA_REDIRECT_URI;
-
-  if (!clientId || !clientSecret || !redirectUri) {
-    return NextResponse.json(
-      { success: false, error: "Missing Salla environment variables" },
-      { status: 500 }
+  let config;
+  try {
+    config = getRequiredEnv([
+      "SALLA_CLIENT_ID",
+      "SALLA_CLIENT_SECRET",
+      "SALLA_REDIRECT_URI"
+    ]);
+  } catch (error) {
+    return NextResponse.redirect(
+      `${appUrl}/connections?salla_error=${encodeURIComponent(error.message)}`
     );
   }
 
@@ -53,9 +57,9 @@ export async function GET(request) {
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
+        client_id: config.SALLA_CLIENT_ID,
+        client_secret: config.SALLA_CLIENT_SECRET,
+        redirect_uri: config.SALLA_REDIRECT_URI,
         code
       }),
       cache: "no-store"
@@ -108,7 +112,7 @@ export async function GET(request) {
       storeName,
       metadata: {
         source: "salla_oauth_callback",
-        redirect_uri: redirectUri
+        redirect_uri: config.SALLA_REDIRECT_URI
       }
     });
 
@@ -120,7 +124,10 @@ export async function GET(request) {
       );
     }
 
-    return NextResponse.redirect(`${appUrl}/connections?salla=connected`);
+    return clearOAuthStateCookie(
+      NextResponse.redirect(`${appUrl}/connections?salla=connected`),
+      "salla"
+    );
   } catch (err) {
     return NextResponse.json(
       {
