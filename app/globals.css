@@ -98,7 +98,7 @@ body::after {
   background: var(--sidebar);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   padding: 0;
   position: sticky;
   top: 0;

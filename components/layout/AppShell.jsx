@@ -19,7 +19,7 @@ export default function AppShell({ children }) {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" dir="ltr">
       <Sidebar />
 
       <main className="main">
