@@ -6,6 +6,7 @@ import {
   getDateRange,
   fetchEntities,
   fetchEntityStats,
+  fetchAccountStats,
   mapWithConcurrency,
   buildMetrics,
   VALID_SWIPE,
@@ -135,6 +136,20 @@ export async function GET(request) {
     const { startTime, endTime } = getDateRange(datePreset);
     const admin = createSupabaseAdminClient();
 
+    const { data: accountConnection, error: accountConnectionError } = await admin
+      .from("platform_connections")
+      .select("account_currency")
+      .eq("workspace_id", workspace.id)
+      .eq("provider", "snapchat")
+      .eq("account_id", accountId)
+      .maybeSingle();
+
+    if (accountConnectionError) {
+      throw new Error(accountConnectionError.message);
+    }
+
+    const accountCurrency = accountConnection?.account_currency || "USD";
+
     let insertedRows = 0;
     const errors = [];
 
@@ -166,20 +181,26 @@ export async function GET(request) {
         let rows;
 
         if (level === "account") {
-          const campaignStats = await getCampaignStats();
+          const accountStats = await fetchAccountStats({
+            accountId,
+            token,
+            startTime,
+            endTime,
+            swipeWindow,
+            viewWindow
+          });
 
-          const summedStats = campaignStats.reduce((acc, row) => {
-            for (const key of Object.keys(row.stats || {})) {
-              acc[key] = (Number(acc[key]) || 0) + (Number(row.stats[key]) || 0);
-            }
-            return acc;
-          }, {});
+          if (!accountStats.ok) {
+            throw new Error(
+              `Failed to load Snapchat account total: ${JSON.stringify(accountStats.error)}`
+            );
+          }
 
           rows = [
             {
               entity_id: accountId,
               entity_name: "Account Total",
-              ...buildMetrics(summedStats)
+              ...accountStats.metrics
             }
           ];
         } else {
@@ -194,6 +215,13 @@ export async function GET(request) {
               viewWindow,
               candidateLimit
             });
+
+          const failedStats = levelStats.filter((row) => !row.ok);
+          if (failedStats.length) {
+            throw new Error(
+              `${failedStats.length} Snapchat ${level} stat request(s) failed; the previous complete cache was kept.`
+            );
+          }
 
           rows = levelStats
             .map((row) => ({
@@ -235,7 +263,7 @@ export async function GET(request) {
           entity_id: String(row.entity_id),
           entity_name: row.entity_name || String(row.entity_id),
           metric_date: metricDate,
-          currency: "USD",
+          currency: accountCurrency,
           spend: row.spend || 0,
           revenue: row.revenue || 0,
           purchases: row.purchases || 0,
@@ -268,7 +296,7 @@ export async function GET(request) {
     }
 
     return NextResponse.json({
-      success: true,
+      success: errors.length === 0,
       provider: "Snapchat Ads",
       version: "snapchat-sync-v3-per-entity",
       workspace_id: workspace.id,
@@ -278,7 +306,10 @@ export async function GET(request) {
       levels_synced: levels,
       candidate_limit: candidateLimit,
       inserted_rows: insertedRows,
-      errors
+      errors,
+      error: errors.length
+        ? "Snapchat sync was incomplete. Try a shorter date range."
+        : null
     });
   } catch (error) {
     return NextResponse.json(

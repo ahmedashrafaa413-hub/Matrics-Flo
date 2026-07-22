@@ -70,11 +70,14 @@ function moneySAR(value) {
   })}`;
 }
 
-function moneyUSD(value) {
-  return `$${safeNumber(value).toLocaleString(undefined, {
+function moneyInCurrency(value, currency = "USD") {
+  const safeCurrency = String(currency || "USD").toUpperCase();
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: safeCurrency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  })}`;
+  }).format(safeNumber(value));
 }
 
 function number(value) {
@@ -340,18 +343,18 @@ function DataTable({ title, rows, loading }) {
                     <StatusBadge status={row.status} />
                   </td>
                   <td>
-                    <b>{moneySAR(row.spend)}</b>
-                    <small>{moneyUSD(row.spend)}</small>
+                    <b>{moneyInCurrency(row.spend, row.currency)}</b>
+                    {row.currency === "USD" ? <small>{moneySAR(row.spend)}</small> : null}
                   </td>
                   <td>
-                    <b>{moneySAR(row.revenue)}</b>
-                    <small>{moneyUSD(row.revenue)}</small>
+                    <b>{moneyInCurrency(row.revenue, row.currency)}</b>
+                    {row.currency === "USD" ? <small>{moneySAR(row.revenue)}</small> : null}
                   </td>
                   <td style={{ color: roasColor(row.roas), fontWeight: 900 }}>
                     {roas(row.roas)}
                   </td>
                   <td>{number(row.purchases)}</td>
-                  <td>{moneySAR(row.cpa)}</td>
+                  <td>{moneyInCurrency(row.cpa, row.currency)}</td>
                   <td>{number(row.impressions)}</td>
                   <td>{number(row.swipes)}</td>
                   <td>{percent(row.ctr)}</td>
@@ -378,6 +381,7 @@ function CreativeView({ rows, loading }) {
         map.set(key, {
           id: row.id,
           name,
+          currency: row.currency || "USD",
           status: row.status,
           spend: 0,
           revenue: 0,
@@ -463,8 +467,8 @@ function CreativeView({ rows, loading }) {
               </div>
 
               <div className="snap-creative-metrics">
-                <MiniMetric label="Spend" value={moneySAR(item.spend)} />
-                <MiniMetric label="Revenue" value={moneySAR(item.revenue)} />
+                <MiniMetric label="Spend" value={moneyInCurrency(item.spend, item.currency)} />
+                <MiniMetric label="Revenue" value={moneyInCurrency(item.revenue, item.currency)} />
                 <MiniMetric label="ROAS" value={roas(item.roas)} />
                 <MiniMetric label="Purchases" value={number(item.purchases)} />
                 <MiniMetric label="CTR" value={percent(item.ctr)} />
@@ -481,7 +485,7 @@ function CreativeView({ rows, loading }) {
 export default function SnapchatPage() {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
-  const [datePreset, setDatePreset] = useState("maximum");
+  const [datePreset, setDatePreset] = useState("last_30d");
   const [swipeWindow, setSwipeWindow] = useState(() =>
     getSetting("snapchat_swipe_window", "28_DAY")
   );
@@ -507,6 +511,9 @@ export default function SnapchatPage() {
   );
 
   const currentLevel = getLevel(activeTab);
+  const accountCurrency = selectedAccount?.currency || summary.currency || "USD";
+  const secondaryMoney = (value) =>
+    accountCurrency === "USD" ? moneySAR(value) : null;
 
   useEffect(() => {
     loadAccounts();
@@ -598,7 +605,7 @@ export default function SnapchatPage() {
       // no matter which tab the user syncs from — not just the Overview tab.
       const levels =
         currentLevel === "overview"
-          ? "overview,campaign"
+          ? "overview"
           : currentLevel === "ad"
             ? "overview,ad"
             : `overview,${currentLevel}`;
@@ -613,7 +620,9 @@ export default function SnapchatPage() {
         view_window: viewWindow
       });
 
-      const result = await apiGet(`/api/snapchat/sync?${query}`);
+      const result = await apiGet(`/api/snapchat/sync?${query}`, {
+        timeoutMs: 60_000
+      });
 
       if (!result?.success) {
         throw new Error(result?.error || "Snapchat sync failed");
@@ -641,10 +650,6 @@ export default function SnapchatPage() {
     safeNumber(summary.purchases) === 0 &&
     rows.length === 0;
 
-  const lastSyncText = cacheInfo?.metricDate
-    ? `Cached data • ${cacheInfo.loadedRows || 0} rows • ${cacheInfo.metricDate}`
-    : "Cached data";
-
   return (
     <div className="snap-page">
       <style>{`
@@ -652,44 +657,6 @@ export default function SnapchatPage() {
           display: flex;
           flex-direction: column;
           gap: 18px;
-        }
-
-        .snap-hero {
-          position: relative;
-          overflow: hidden;
-          border-radius: 22px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background:
-            radial-gradient(circle at 85% 0%, rgba(34,211,238,0.10), transparent 32%),
-            linear-gradient(135deg, rgba(16,20,38,0.96), rgba(9,12,24,0.92));
-          padding: 22px 26px;
-        }
-
-        .snap-platform {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          color: #fffc00;
-          font-size: 12px;
-          font-weight: 900;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          margin-bottom: 10px;
-        }
-
-        .snap-hero h1 {
-          margin: 0;
-          color: #fff;
-          font-size: clamp(24px, 2.6vw, 34px);
-          line-height: 1.15;
-          font-family: 'Space Grotesk', sans-serif;
-        }
-
-        .snap-hero p {
-          margin: 12px 0 0;
-          color: var(--muted);
-          line-height: 1.7;
-          max-width: 720px;
         }
 
         .snap-control-card {
@@ -788,31 +755,6 @@ export default function SnapchatPage() {
         .snap-secondary:disabled {
           opacity: 0.55;
           cursor: not-allowed;
-        }
-
-        .snap-meta-line {
-          margin-top: 12px;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          color: var(--muted);
-          font-size: 12px;
-        }
-
-        .snap-pill {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 7px 10px;
-          border-radius: 999px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.04);
-        }
-
-        .snap-pill.success {
-          color: #12e6a3;
-          border-color: rgba(18,230,163,0.22);
-          background: rgba(18,230,163,0.08);
         }
 
         .snap-tabs {
@@ -1193,28 +1135,6 @@ export default function SnapchatPage() {
         }
       `}</style>
 
-      <section className="snap-hero">
-        <div className="snap-platform">Snapchat Ads • Cached Performance</div>
-        <h1>Snapchat Ads 👻</h1>
-        <p>
-          Fast workspace-based Snapchat reporting powered by Supabase Cache.
-          Live Snapchat API is used only when you run Sync.
-        </p>
-
-        <div className="snap-meta-line">
-          <span className="snap-pill success">● Connected</span>
-          <span className="snap-pill">Base currency: SAR</span>
-          <span className="snap-pill">
-            Account currency: {selectedAccount?.currency || "USD"}
-          </span>
-          <span className="snap-pill">
-            Attribution: {swipeWindow.replace("_", " ")} swipe /{" "}
-            {viewWindow.replace("_", " ")} view
-          </span>
-          <span className="snap-pill">{lastSyncText}</span>
-        </div>
-      </section>
-
       <div className="snap-control-card">
         <div className="snap-control-grid">
           <select
@@ -1326,15 +1246,15 @@ export default function SnapchatPage() {
       <div className="snap-grid">
         <KpiCard
           label="Spend"
-          value={moneySAR(summary.spend)}
-          sub={moneyUSD(summary.spend)}
+          value={moneyInCurrency(summary.spend, accountCurrency)}
+          sub={secondaryMoney(summary.spend)}
           icon="💰"
           tone="yellow"
         />
         <KpiCard
           label="Revenue"
-          value={moneySAR(summary.revenue)}
-          sub={moneyUSD(summary.revenue)}
+          value={moneyInCurrency(summary.revenue, accountCurrency)}
+          sub={secondaryMoney(summary.revenue)}
           icon="💵"
           tone="green"
         />
@@ -1352,8 +1272,8 @@ export default function SnapchatPage() {
         />
         <KpiCard
           label="CPA"
-          value={moneySAR(summary.cpa)}
-          sub={moneyUSD(summary.cpa)}
+          value={moneyInCurrency(summary.cpa, accountCurrency)}
+          sub={secondaryMoney(summary.cpa)}
           icon="🎯"
           tone="pink"
         />
@@ -1377,8 +1297,8 @@ export default function SnapchatPage() {
         />
         <KpiCard
           label="CPC"
-          value={moneySAR(summary.cpc)}
-          sub={moneyUSD(summary.cpc)}
+          value={moneyInCurrency(summary.cpc, accountCurrency)}
+          sub={secondaryMoney(summary.cpc)}
           icon="🖱️"
           tone="cyan"
         />
