@@ -3,25 +3,37 @@ import {
   getSnapchatAuthHeader,
   saveSnapchatConnectionFromOAuth
 } from "../../../../lib/snapchatToken";
+import { requireUser } from "../../../../lib/serverAuth";
+import {
+  clearOAuthStateCookie,
+  getAppUrl,
+  verifyOAuthState
+} from "../../../../lib/oauthFoundation.mjs";
 
 export const dynamic = "force-dynamic";
-
-function getAppUrl(request) {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    new URL(request.url).origin
-  );
-}
 
 export async function GET(request) {
   const url = new URL(request.url);
 
   const code = url.searchParams.get("code") || "";
   const error = url.searchParams.get("error") || "";
+  const state = url.searchParams.get("state") || "";
 
   const appUrl = getAppUrl(request);
+
+  try {
+    await requireUser(request);
+  } catch {
+    return NextResponse.redirect(
+      `${appUrl}/login?next=${encodeURIComponent("/connections")}`
+    );
+  }
+
+  if (!verifyOAuthState(request, "snapchat", state)) {
+    return NextResponse.redirect(
+      `${appUrl}/connections?snapchat_error=Invalid+OAuth+state`
+    );
+  }
 
   if (error) {
     return NextResponse.redirect(
@@ -98,7 +110,10 @@ export async function GET(request) {
       );
     }
 
-    return NextResponse.redirect(`${appUrl}/connections?snapchat=connected`);
+    return clearOAuthStateCookie(
+      NextResponse.redirect(`${appUrl}/connections?snapchat=connected`),
+      "snapchat"
+    );
   } catch (err) {
     return NextResponse.redirect(
       `${appUrl}/connections?snapchat_error=${encodeURIComponent(
