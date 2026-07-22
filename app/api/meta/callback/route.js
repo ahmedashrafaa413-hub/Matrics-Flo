@@ -1,26 +1,37 @@
 import { NextResponse } from "next/server";
 import { saveMetaConnectionFromOAuth } from "../../../../lib/metaToken";
 import { upsertPlatformConnection } from "../../../../lib/platformConnections";
+import { requireUser } from "../../../../lib/serverAuth";
+import {
+  clearOAuthStateCookie,
+  getAppUrl,
+  getRequiredEnv,
+  verifyOAuthState
+} from "../../../../lib/oauthFoundation.mjs";
 
 export const dynamic = "force-dynamic";
 
 const GRAPH_VERSION = "v19.0";
 
-function getAppUrl(request) {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    new URL(request.url).origin
-  );
-}
-
 export async function GET(request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code") || "";
   const error = url.searchParams.get("error") || "";
+  const state = url.searchParams.get("state") || "";
 
   const appUrl = getAppUrl(request);
+
+  try {
+    await requireUser(request);
+  } catch (authError) {
+    return NextResponse.redirect(
+      `${appUrl}/login?next=${encodeURIComponent("/connections")}`
+    );
+  }
+
+  if (!verifyOAuthState(request, "meta", state)) {
+    return NextResponse.redirect(`${appUrl}/connections?meta_error=Invalid+OAuth+state`);
+  }
 
   if (error) {
     return NextResponse.redirect(
@@ -35,8 +46,9 @@ export async function GET(request) {
   }
 
   try {
-    const appId = process.env.META_APP_ID;
-    const appSecret = process.env.META_APP_SECRET;
+    const config = getRequiredEnv(["META_APP_ID", "META_APP_SECRET"]);
+    const appId = config.META_APP_ID;
+    const appSecret = config.META_APP_SECRET;
     const redirectUri = `${appUrl}/api/meta/callback`;
 
     // Exchange code for a short-lived token
@@ -125,7 +137,10 @@ export async function GET(request) {
       // will simply be (re)discovered next time /api/meta/accounts runs.
     }
 
-    return NextResponse.redirect(`${appUrl}/connections?meta=connected`);
+    return clearOAuthStateCookie(
+      NextResponse.redirect(`${appUrl}/connections?meta=connected`),
+      "meta"
+    );
   } catch (err) {
     return NextResponse.redirect(
       `${appUrl}/connections?meta_error=${encodeURIComponent(
