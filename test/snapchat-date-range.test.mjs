@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   extractBreakdownStats,
-  getDateRange
+  getDateRange,
+  mergeBreakdownEntities
 } from "../lib/snapchatApi.js";
 
 test("Snapchat maximum range is capped at twelve months", () => {
@@ -11,6 +12,21 @@ test("Snapchat maximum range is capped at twelve months", () => {
 
   assert.ok(days >= 363, `expected at least 363 days, received ${days}`);
   assert.ok(days <= 365, `expected at most 365 days, received ${days}`);
+});
+
+test("deleted Snapchat ads remain in reports so attributed sales are not lost", () => {
+  const rows = mergeBreakdownEntities(
+    [
+      { id: "active-ad", stats: { conversion_purchases: 2 } },
+      { id: "deleted-ad", stats: { conversion_purchases: 15 } }
+    ],
+    [{ id: "active-ad", name: "Active Ad", status: "ACTIVE" }]
+  );
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].entity_name, "Active Ad");
+  assert.equal(rows[1].status, "ARCHIVED");
+  assert.equal(rows[1].metrics.purchases, 15);
 });
 
 test("Snapchat breakdown rows are extracted from the documented response", () => {

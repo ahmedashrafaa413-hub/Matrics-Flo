@@ -8,6 +8,7 @@ import {
   fetchEntityStats,
   fetchAccountStats,
   fetchBreakdownStats,
+  mergeBreakdownEntities,
   mapWithConcurrency,
   buildMetrics,
   VALID_SWIPE,
@@ -76,21 +77,7 @@ async function fetchLevelWithStats({
       );
     }
 
-    const entitiesById = new Map(scanned.map((entity) => [entity.id, entity]));
-
-    return breakdownResult.rows
-      .filter((row) => entitiesById.has(row.id))
-      .map((row) => {
-        const entity = entitiesById.get(row.id);
-        return {
-          entity_id: row.id,
-          entity_name: entity?.name || row.id,
-          status: entity?.status || "UNKNOWN",
-          ok: true,
-          stats: row.stats,
-          metrics: buildMetrics(row.stats)
-        };
-      });
+    return mergeBreakdownEntities(breakdownResult.rows, scanned);
   }
 
   const statsResults = await mapWithConcurrency(
