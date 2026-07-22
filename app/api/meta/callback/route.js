@@ -52,14 +52,18 @@ export async function GET(request) {
     const redirectUri = `${appUrl}/api/meta/callback`;
 
     // Exchange code for a short-lived token
-    const tokenUrl =
-      `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token` +
-      `?client_id=${encodeURIComponent(appId)}` +
-      `&client_secret=${encodeURIComponent(appSecret)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&code=${encodeURIComponent(code)}`;
-
-    const tokenRes = await fetch(tokenUrl, { cache: "no-store" });
+    const tokenUrl = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
+    const tokenRes = await fetch(tokenUrl, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        redirect_uri: redirectUri,
+        code
+      })
+    });
     const tokenData = await tokenRes.json();
 
     if (!tokenData.access_token) {
@@ -69,14 +73,18 @@ export async function GET(request) {
     }
 
     // Convert to a long-lived token (~60 days)
-    const longTokenUrl =
-      `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token` +
-      `?grant_type=fb_exchange_token` +
-      `&client_id=${encodeURIComponent(appId)}` +
-      `&client_secret=${encodeURIComponent(appSecret)}` +
-      `&fb_exchange_token=${encodeURIComponent(tokenData.access_token)}`;
-
-    const longRes = await fetch(longTokenUrl, { cache: "no-store" });
+    const longTokenUrl = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
+    const longRes = await fetch(longTokenUrl, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "fb_exchange_token",
+        client_id: appId,
+        client_secret: appSecret,
+        fb_exchange_token: tokenData.access_token
+      })
+    });
     const longData = await longRes.json();
 
     const finalToken = longData.access_token || tokenData.access_token;
@@ -106,9 +114,11 @@ export async function GET(request) {
     try {
       const accountsRes = await fetch(
         `https://graph.facebook.com/${GRAPH_VERSION}/me/adaccounts` +
-          `?fields=id,name,account_status,currency` +
-          `&access_token=${encodeURIComponent(finalToken)}`,
-        { cache: "no-store" }
+          `?fields=id,name,account_status,currency`,
+        {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${finalToken}` }
+        }
       );
 
       const accountsData = await accountsRes.json();
@@ -120,10 +130,10 @@ export async function GET(request) {
           accountId: account.id,
           accountName: account.name || account.id,
           accountCurrency: account.currency || "USD",
-          accessToken: finalToken,
+          accessToken: "",
           refreshToken: "",
           tokenType: "Bearer",
-          expiresAt: saved.connection?.expires_at || null,
+          expiresAt: null,
           scopes: [],
           metadata: {
             account_status: account.account_status,

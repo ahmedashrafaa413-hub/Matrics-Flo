@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const token    = searchParams.get("token") || (await getMetaToken(request));
+  const token    = await getMetaToken(request);
   const adIdsRaw = searchParams.get("ad_ids") || "";
 
   if (!token) return NextResponse.json({ success: false, error: "Not connected to Meta" }, { status: 401 });
@@ -17,8 +17,11 @@ export async function GET(request) {
 
   const results = await Promise.allSettled(
     adIds.map(async (adId) => {
-      const url  = `https://graph.facebook.com/v19.0/${adId}?fields=${fields}&access_token=${token}`;
-      const res  = await fetch(url, { cache: "no-store" });
+      const url  = `https://graph.facebook.com/v19.0/${adId}?fields=${encodeURIComponent(fields)}`;
+      const res  = await fetch(url, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiGet } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 
 const SAR_RATE = 3.75;
@@ -620,7 +620,7 @@ export default function SnapchatPage() {
         view_window: viewWindow
       });
 
-      const result = await apiGet(`/api/snapchat/sync?${query}`, {
+      const result = await apiPost(`/api/snapchat/sync?${query}`, {}, {
         timeoutMs: 60_000
       });
 

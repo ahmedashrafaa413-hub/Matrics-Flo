@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { safeNumber, safeDivide, toSAR } from "../../../../lib/currency";
+import { buildPerformanceSummary } from "../../../../lib/performanceSummary.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -116,56 +117,6 @@ function normalizeSource({
     sales_currency: salesCurrency,
 
     roas: safeDivide(salesSAR, spendSAR)
-  };
-}
-
-function buildSummary(sources) {
-  const rowsWithoutTotal = sources.filter((row) => row.source !== "Total");
-
-  const totalSales = rowsWithoutTotal.reduce(
-    (sum, row) => sum + safeNumber(row.sales),
-    0
-  );
-
-  const totalAdsSpend = rowsWithoutTotal
-    .filter((row) => row.type === "ads")
-    .reduce((sum, row) => sum + safeNumber(row.spend), 0);
-
-  const totalAdsSales = rowsWithoutTotal
-    .filter((row) => row.type === "ads")
-    .reduce((sum, row) => sum + safeNumber(row.sales), 0);
-
-  const totalOrganicSales = rowsWithoutTotal
-    .filter((row) => row.type === "organic")
-    .reduce((sum, row) => sum + safeNumber(row.sales), 0);
-
-  const totalOtherSales = rowsWithoutTotal
-    .filter((row) => row.type === "other")
-    .reduce((sum, row) => sum + safeNumber(row.sales), 0);
-
-  const totalPurchases = rowsWithoutTotal.reduce(
-    (sum, row) => sum + safeNumber(row.purchases),
-    0
-  );
-
-  const totalClicks = rowsWithoutTotal.reduce(
-    (sum, row) => sum + safeNumber(row.clicks),
-    0
-  );
-
-  return {
-    currency: "SAR",
-    total_sales: totalSales,
-    total_ads_sales: totalAdsSales,
-    total_organic_sales: totalOrganicSales,
-    total_other_sales: totalOtherSales,
-    total_ads_spend: totalAdsSpend,
-    total_purchases: totalPurchases,
-    total_clicks: totalClicks,
-
-    actual_roas: safeDivide(totalSales, totalAdsSpend),
-    ads_roas: safeDivide(totalAdsSales, totalAdsSpend),
-    cost_per_purchase: safeDivide(totalAdsSpend, totalPurchases)
   };
 }
 
@@ -436,7 +387,11 @@ export async function GET(request) {
     exchange_rates: {
       USD_SAR: 3.75
     },
-    summary: buildSummary(rows),
+    summary: buildPerformanceSummary(rows, {
+      actualSalesAvailable: sallaResult.success,
+      actualSales: sallaSalesSAR,
+      actualPurchases: sallaOrders
+    }),
     sources: rows,
     debug,
     note: null

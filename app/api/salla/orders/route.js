@@ -2,29 +2,9 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../../lib/supabaseServer";
 import { requireUser } from "../../../../lib/serverAuth";
 import { getSallaConnection } from "../../../../lib/sallaToken";
+import { getRiyadhDateRange } from "../../../../lib/riyadhDateRange.mjs";
 
 export const dynamic = "force-dynamic";
-
-function getDateFilter(preset) {
-  const now = new Date();
-  const pad = n => String(n).padStart(2, "0");
-  function daysAgo(n) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - n);
-    return d.toISOString().split("T")[0];
-  }
-  const today = now.toISOString().split("T")[0];
-  const map = {
-    today:      { from: today,          to: today },
-    yesterday:  { from: daysAgo(1),     to: daysAgo(1) },
-    last_7d:    { from: daysAgo(6),     to: today },
-    last_30d:   { from: daysAgo(29),    to: today },
-    this_month: { from: `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`, to: today },
-    last_90d:   { from: daysAgo(89),    to: today },
-    maximum:    { from: "2000-01-01",   to: today },
-  };
-  return map[preset] || map.last_30d;
-}
 
 function orderDateOnly(order) {
   const raw = order.order_date || "";
@@ -79,7 +59,8 @@ export async function GET(request) {
   }
 
   const admin = createSupabaseAdminClient();
-  const { from, to } = getDateFilter(datePreset);
+  const { from, to, fromTimestamp, toExclusiveTimestamp } =
+    getRiyadhDateRange(datePreset);
 
   let query = admin
     .from("salla_orders")
@@ -88,8 +69,8 @@ export async function GET(request) {
 
   if (datePreset !== "maximum") {
     query = query
-      .gte("order_date", from + "T00:00:00")
-      .lte("order_date", to + "T23:59:59");
+      .gte("order_date", fromTimestamp)
+      .lt("order_date", toExclusiveTimestamp);
   }
 
   const { data: orders, error } = await query;

@@ -10,6 +10,15 @@ const PUBLIC_PATHS = [
   "/favicon.ico"
 ];
 
+const SNAPCHAT_DEBUG_PATHS = [
+  "/api/snapchat/debug",
+  "/api/snapchat/debug-breakdown",
+  "/api/snapchat/debug-compare",
+  "/api/snapchat/debug-stats",
+  "/api/snapchat/raw-test",
+  "/api/snapchat/test-fields"
+];
+
 function isPublicPath(pathname) {
   return PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(path)
@@ -27,6 +36,18 @@ function hasAuthCookie(request) {
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    SNAPCHAT_DEBUG_PATHS.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`)
+    )
+  ) {
+    return NextResponse.json(
+      { success: false, error: "Not found" },
+      { status: 404 }
+    );
+  }
 
   if (isPublicPath(pathname)) return NextResponse.next();
 
@@ -65,5 +86,6 @@ export const config = {
     "/connections/:path*",
     "/settings/:path*",
     "/agency/:path*"
+    ,"/api/snapchat/:path*"
   ]
 };

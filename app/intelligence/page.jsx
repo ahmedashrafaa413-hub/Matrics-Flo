@@ -145,7 +145,13 @@ export default function IntelligencePage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type":"application/json" },
-        body: JSON.stringify({ metaAccountId: metaAccId, snapAccountId: snapAccId, datePreset }),
+        body: JSON.stringify({
+          metaAccountId: metaAccId,
+          snapAccountId: snapAccId,
+          datePreset,
+          metaCurrency: metaAccounts.find((account) => account.id === metaAccId)?.currency || "USD",
+          snapCurrency: snapAccounts.find((account) => account.id === snapAccId)?.currency || "USD"
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "فشل التحليل");
