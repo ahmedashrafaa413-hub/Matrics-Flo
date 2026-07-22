@@ -13,7 +13,7 @@ const DATE_OPTIONS = [
   { value: "last_30d", label: "Last 30 Days" },
   { value: "this_month", label: "This Month" },
   { value: "last_90d", label: "Last 90 Days" },
-  { value: "maximum", label: "Maximum" }
+  { value: "maximum", label: "Last 12 Months" }
 ];
 
 // Matches Snapchat Ads Manager's attribution settings. Defaulting to
