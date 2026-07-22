@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../../lib/serverAuth";
+import {
+  createOAuthState,
+  getRequiredEnv,
+  setOAuthStateCookie
+} from "../../../../lib/oauthFoundation.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +18,14 @@ export async function GET(request) {
     );
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  let config;
+  try {
+    config = getRequiredEnv(["GOOGLE_CLIENT_ID", "GOOGLE_REDIRECT_URI"]);
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+
+  const state = createOAuthState();
 
   const scope = [
     "https://www.googleapis.com/auth/analytics.readonly"
@@ -23,13 +34,14 @@ export async function GET(request) {
   const authUrl =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
+      client_id: config.GOOGLE_CLIENT_ID,
+      redirect_uri: config.GOOGLE_REDIRECT_URI,
       response_type: "code",
       access_type: "offline",
       prompt: "consent",
-      scope
+      scope,
+      state
     });
 
-  return NextResponse.redirect(authUrl);
+  return setOAuthStateCookie(NextResponse.redirect(authUrl), "ga", state);
 }
