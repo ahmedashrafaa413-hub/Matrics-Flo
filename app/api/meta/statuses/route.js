@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
 
-  const token     = searchParams.get("token") || (await getMetaToken(request));
+  const token     = await getMetaToken(request);
   const accountId = searchParams.get("account_id");
   const level     = searchParams.get("level") || "campaign";
 
@@ -30,14 +30,16 @@ export async function GET(request) {
 
   const params = new URLSearchParams({
     fields:       "id,name,status,effective_status",
-    limit:        "500",
-    access_token: token
+    limit:        "500"
   });
 
   const url = `https://graph.facebook.com/v19.0/${endpoint}?${params}`;
 
   try {
-    const res  = await fetch(url, { cache: "no-store" });
+    const res  = await fetch(url, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` }
+    });
     const data = await res.json();
 
     if (data.error) {

@@ -60,7 +60,6 @@ export async function GET(request) {
     const level      = searchParams.get("level")       || "campaign";
     const datePreset = searchParams.get("date_preset") || "last_30d";
     const force      = searchParams.get("force")       === "1";
-    const snapToken  = searchParams.get("snap_token")  || null;
 
     const swRaw=searchParams.get("swipe_window")||"28_DAY";
     const vwRaw=searchParams.get("view_window") ||"1_DAY";
@@ -76,7 +75,7 @@ export async function GET(request) {
     }
 
     // Use cookie-based token (no parameters) — this is what actually works
-    const token = snapToken || await getSnapchatToken(request);
+    const token = await getSnapchatToken(request);
     if (!token) return NextResponse.json({success:false,error:"Not connected to Snapchat"},{status:401});
 
     const {startTime,endTime}=getDateRange(datePreset);

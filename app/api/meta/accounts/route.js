@@ -6,11 +6,8 @@ export const dynamic = "force-dynamic";
 const GRAPH_VERSION = "v19.0";
 
 export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const queryToken = searchParams.get("token"); // manual override, useful for debugging
-
   try {
-    const token = queryToken || (await getMetaToken(request));
+    const token = await getMetaToken(request);
 
     if (!token) {
       return NextResponse.json(
@@ -21,10 +18,12 @@ export async function GET(request) {
 
     const url =
       `https://graph.facebook.com/${GRAPH_VERSION}/me/adaccounts` +
-      "?fields=id,name,account_status,currency" +
-      `&access_token=${encodeURIComponent(token)}`;
+      "?fields=id,name,account_status,currency";
 
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` }
+    });
     const data = await response.json();
 
     if (data.error) {

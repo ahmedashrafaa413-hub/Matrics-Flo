@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { getSnapchatToken } from "../../../../lib/snapchatToken";
-import { getMetaToken } from "../../../../lib/metaToken";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +9,13 @@ function toSAR(v, cur="USD") {
   return safeNum(v) * (rates[String(cur).toUpperCase()] || 1);
 }
 
-function generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency, datePreset }) {
+function generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency, snapCurrency, datePreset }) {
   const signals = [];
 
   const metaSpendSAR   = toSAR(metaSummary.spend || 0, metaCurrency);
   const metaRevSAR     = toSAR(metaSummary.purchase_value || 0, metaCurrency);
-  const snapSpendSAR   = toSAR(snapSummary.spend || 0, "USD");
-  const snapRevSAR     = toSAR(snapSummary.revenue || 0, "USD");
+  const snapSpendSAR   = toSAR(snapSummary.spend || 0, snapCurrency);
+  const snapRevSAR     = toSAR(snapSummary.revenue || 0, snapCurrency);
   const sallaRevSAR    = safeNum(sallaSummary.total_revenue || sallaSummary.total_sales || 0);
   const sallaOrders    = safeNum(sallaSummary.total_orders || 0);
   const totalSpendSAR  = metaSpendSAR + snapSpendSAR;
@@ -28,7 +26,7 @@ function generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency,
   const snapCTR        = safeNum(snapSummary.ctr || 0);
   const metaFreq       = safeNum(metaSummary.frequency || 0);
   const metaCPA        = toSAR(metaSummary.cpa || 0, metaCurrency);
-  const snapCPA        = toSAR(snapSummary.cpa || 0, "USD");
+  const snapCPA        = toSAR(snapSummary.cpa || 0, snapCurrency);
   const snapHookRate   = safeNum(snapSummary.hook_rate || snapSummary.video_view_rate || 0);
   const metaPurchases  = safeNum(metaSummary.purchases || 0);
   const snapPurchases  = safeNum(snapSummary.purchases || 0);
@@ -96,9 +94,9 @@ function generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency,
   return signals.sort((a,b) => a.priority - b.priority || b.ice - a.ice);
 }
 
-function buildPrompt({ signals, metaSummary, snapSummary, sallaSummary, metaCurrency, datePreset }) {
+function buildPrompt({ signals, metaSummary, snapSummary, sallaSummary, metaCurrency, snapCurrency, datePreset }) {
   const metaSpendSAR  = toSAR(metaSummary.spend || 0, metaCurrency);
-  const snapSpendSAR  = toSAR(snapSummary.spend || 0, "USD");
+  const snapSpendSAR  = toSAR(snapSummary.spend || 0, snapCurrency);
   const sallaRevSAR   = safeNum(sallaSummary.total_revenue || sallaSummary.total_sales || 0);
   const totalSpendSAR = metaSpendSAR + snapSpendSAR;
   const actualROAS    = safeDivide(sallaRevSAR, totalSpendSAR);
@@ -148,28 +146,26 @@ ${signals.map((s,i) => `${i+1}. [${s.type.toUpperCase()}] ${s.platform} — ${s.
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { metaAccountId, snapAccountId, datePreset = "last_7d", metaCurrency = "USD" } = body;
+    const { metaAccountId, snapAccountId, datePreset = "last_7d", metaCurrency = "USD", snapCurrency = "USD" } = body;
     const baseUrl     = `${new URL(request.url).protocol}//${new URL(request.url).host}`;
     const cookieHeader = request.headers.get("cookie") || "";
-    const metaToken   = await getMetaToken(request).catch(() => null) || "";
-    const snapToken   = await getSnapchatToken(request).catch(() => null);
 
     const [metaRes, snapRes, sallaRes] = await Promise.all([
-      metaAccountId && metaToken
-        ? fetch(`${baseUrl}/api/meta/insights?account_id=${metaAccountId}&level=campaign&date_preset=${datePreset}&token=${metaToken}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({ summary:{} }))
+      metaAccountId
+        ? fetch(`${baseUrl}/api/meta/insights?account_id=${encodeURIComponent(metaAccountId)}&level=campaign&date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({ summary:{} }))
         : Promise.resolve({ summary:{} }),
-      snapAccountId && snapToken
-        ? fetch(`${baseUrl}/api/snapchat/insights?account_id=${snapAccountId}&level=campaign&date_preset=${datePreset}&snap_token=${encodeURIComponent(snapToken)}`, { cache:"no-store" }).then(r=>r.json()).catch(()=>({ summary:{} }))
+      snapAccountId
+        ? fetch(`${baseUrl}/api/snapchat/insights?account_id=${encodeURIComponent(snapAccountId)}&level=campaign&date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({ summary:{} }))
         : Promise.resolve({ summary:{} }),
-      fetch(`${baseUrl}/api/salla/summary`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({})),
+      fetch(`${baseUrl}/api/salla/summary?date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({})),
     ]);
 
     const metaSummary  = metaRes?.summary  || {};
     const snapSummary  = snapRes?.summary  || {};
     const sallaSummary = sallaRes || {};
 
-    const signals = generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency, datePreset });
-    const prompt  = buildPrompt({ signals, metaSummary, snapSummary, sallaSummary, metaCurrency, datePreset });
+    const signals = generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency, snapCurrency, datePreset });
+    const prompt  = buildPrompt({ signals, metaSummary, snapSummary, sallaSummary, metaCurrency, snapCurrency, datePreset });
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     let aiText = "تعذّر توليد التحليل.";
@@ -211,7 +207,7 @@ export async function POST(request) {
       analysis: aiText,
       ai_error: aiError,
       meta:  { spend_sar: toSAR(metaSummary.spend||0,metaCurrency),  roas: metaSummary.roas,  purchases: metaSummary.purchases },
-      snap:  { spend_sar: toSAR(snapSummary.spend||0,"USD"),          roas: snapSummary.roas,  purchases: snapSummary.purchases },
+      snap:  { spend_sar: toSAR(snapSummary.spend||0,snapCurrency),    roas: snapSummary.roas,  purchases: snapSummary.purchases },
       salla: { revenue: sallaSummary.total_revenue||sallaSummary.total_sales||0, orders: sallaSummary.total_orders||0 },
     });
   } catch (err) {

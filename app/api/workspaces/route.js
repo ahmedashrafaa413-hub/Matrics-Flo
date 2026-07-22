@@ -102,6 +102,7 @@ export async function POST(request) {
         .from("organizations")
         .insert({
           name: user.user_metadata?.company_name || "My Organization",
+          owner_id: user.id,
           owner_user_id: user.id
         })
         .select("*")
@@ -118,10 +119,11 @@ export async function POST(request) {
       .from("workspaces")
       .insert({
         organization_id: organizationId,
-        owner_user_id: user.id,
+        owner_id: user.id,
+        created_by: user.id,
         name,
         slug: slugify(name),
-        currency: defaultCurrency,
+        default_currency: defaultCurrency,
         timezone
       })
       .select("*")

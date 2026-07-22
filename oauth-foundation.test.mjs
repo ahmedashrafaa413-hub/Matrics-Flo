@@ -5,7 +5,7 @@ import {
   getRequiredEnv,
   oauthStateCookie,
   verifyOAuthState
-} from "../lib/oauthFoundation.mjs";
+} from "./lib/oauthFoundation.mjs";
 
 test("canonical app URL uses SITE_URL and removes trailing slash", () => {
   const request = { url: "https://preview.example/api/test" };

@@ -32,9 +32,7 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
 
-    const token =
-      searchParams.get("token") ||
-      (await getMetaToken(request));
+    const token = await getMetaToken(request);
 
     const accountId  = searchParams.get("account_id");
     const level      = searchParams.get("level")      || "campaign";
@@ -89,8 +87,7 @@ export async function GET(request) {
     const params = new URLSearchParams({
       fields,
       level,
-      limit: "200",
-      access_token: token
+      limit: "200"
     });
 
     // Custom date range takes priority over date_preset
@@ -102,7 +99,10 @@ export async function GET(request) {
 
     const url = `https://graph.facebook.com/v19.0/${accountId}/insights?${params.toString()}`;
 
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` }
+    });
     const data = await response.json();
 
     if (data.error) {
