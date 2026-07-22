@@ -20,7 +20,12 @@ export const dynamic = "force-dynamic";
 const CONCURRENCY = 6;
 
 function todayDate() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
 }
 
 function normalizeLevel(level) {

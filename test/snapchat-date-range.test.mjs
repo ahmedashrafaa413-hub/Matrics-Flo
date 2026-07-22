@@ -14,6 +14,14 @@ test("Snapchat maximum range is capped at twelve months", () => {
   assert.ok(days <= 365, `expected at most 365 days, received ${days}`);
 });
 
+test("Snapchat today range ends at the current Riyadh minute", () => {
+  const { startTime, endTime } = getDateRange("today");
+
+  assert.match(startTime, /T00:00:00\.000\+03:00$/);
+  assert.match(endTime, /T\d{2}:\d{2}:00\.000\+03:00$/);
+  assert.ok(new Date(endTime) >= new Date(startTime));
+});
+
 test("deleted Snapchat ads remain in reports so attributed sales are not lost", () => {
   const rows = mergeBreakdownEntities(
     [
