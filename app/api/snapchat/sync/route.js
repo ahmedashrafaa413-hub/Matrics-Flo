@@ -181,6 +181,15 @@ export async function GET(request) {
         let rows;
 
         if (level === "account") {
+          const campaignStats = await getCampaignStats();
+          const failedStats = campaignStats.filter((row) => !row.ok);
+
+          if (failedStats.length) {
+            throw new Error(
+              `${failedStats.length} Snapchat campaign stat request(s) failed; the previous complete cache was kept.`
+            );
+          }
+
           const accountStats = await fetchAccountStats({
             accountId,
             token,
@@ -196,11 +205,24 @@ export async function GET(request) {
             );
           }
 
+          const summedStats = campaignStats.reduce((acc, row) => {
+            for (const key of Object.keys(row.stats || {})) {
+              acc[key] = (Number(acc[key]) || 0) + (Number(row.stats[key]) || 0);
+            }
+            return acc;
+          }, {});
+
+          // Snapchat documents spend as the only metric available directly
+          // at ad-account level. Use that authoritative value, while all
+          // conversion and delivery metrics come from a complete campaign
+          // set using the same date and attribution windows.
+          summedStats.spend = accountStats.stats?.spend || summedStats.spend || 0;
+
           rows = [
             {
               entity_id: accountId,
               entity_name: "Account Total",
-              ...accountStats.metrics
+              ...buildMetrics(summedStats)
             }
           ];
         } else {
@@ -308,7 +330,7 @@ export async function GET(request) {
       inserted_rows: insertedRows,
       errors,
       error: errors.length
-        ? "Snapchat sync was incomplete. Try a shorter date range."
+        ? errors[0]?.error || "Snapchat sync was incomplete."
         : null
     });
   } catch (error) {
