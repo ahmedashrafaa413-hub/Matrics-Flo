@@ -7,6 +7,7 @@ import {
   fetchEntities,
   fetchEntityStats,
   fetchAccountStats,
+  fetchBreakdownStats,
   mapWithConcurrency,
   buildMetrics,
   VALID_SWIPE,
@@ -57,6 +58,40 @@ async function fetchLevelWithStats({
   }
 
   const scanned = entitiesResult.entities.slice(0, candidateLimit);
+
+  if (level === "adsquad" || level === "ad") {
+    const breakdownResult = await fetchBreakdownStats({
+      accountId,
+      level,
+      token,
+      startTime,
+      endTime,
+      swipeWindow,
+      viewWindow
+    });
+
+    if (!breakdownResult.ok) {
+      throw new Error(
+        `Failed to load Snapchat ${level} breakdown: ${JSON.stringify(breakdownResult.error)}`
+      );
+    }
+
+    const entitiesById = new Map(scanned.map((entity) => [entity.id, entity]));
+
+    return breakdownResult.rows
+      .filter((row) => entitiesById.has(row.id))
+      .map((row) => {
+        const entity = entitiesById.get(row.id);
+        return {
+          entity_id: row.id,
+          entity_name: entity?.name || row.id,
+          status: entity?.status || "UNKNOWN",
+          ok: true,
+          stats: row.stats,
+          metrics: buildMetrics(row.stats)
+        };
+      });
+  }
 
   const statsResults = await mapWithConcurrency(
     scanned,
