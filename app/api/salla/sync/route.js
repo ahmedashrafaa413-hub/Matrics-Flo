@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../../lib/supabaseServer";
 import { requireUser } from "../../../../lib/serverAuth";
 import { getSallaConnection } from "../../../../lib/sallaToken";
+import { assertTrustedMutation } from "../../../../lib/requestSecurity.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -87,8 +88,9 @@ async function fetchAllOrders(accessToken) {
   };
 }
 
-export async function GET(request) {
+export async function POST(request) {
   try {
+    assertTrustedMutation(request);
     await requireUser(request);
   } catch (authError) {
     return NextResponse.json(
@@ -138,7 +140,7 @@ export async function GET(request) {
 
     const { error: saveError } = await admin.from("salla_orders").upsert(
       batch,
-      { onConflict: "user_id,order_id" }
+      { onConflict: "workspace_id,order_id" }
     );
 
     if (saveError) {
@@ -166,4 +168,11 @@ export async function GET(request) {
     total_pages_reported: result.total_pages_reported,
     hit_page_cap: result.hit_page_cap
   });
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { success: false, error: "Method not allowed. Use POST for synchronization." },
+    { status: 405, headers: { Allow: "POST" } }
+  );
 }
