@@ -115,6 +115,7 @@ export default function PerformanceOverviewPage() {
   const [activeTab, setActiveTab] = useState("all");
 
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [accountsResolved, setAccountsResolved] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState("");
   const [accountsError, setAccountsError] = useState("");
@@ -125,9 +126,9 @@ export default function PerformanceOverviewPage() {
 
   useEffect(() => {
     // Only fetch performance data once we've finished resolving accounts
-    if (loadingAccounts) return;
+    if (!accountsResolved || loadingAccounts) return;
     loadData();
-  }, [datePreset, metaAccountId, snapchatAccountId, loadingAccounts]);
+  }, [datePreset, metaAccountId, snapchatAccountId, loadingAccounts, accountsResolved]);
 
   async function loadAccounts() {
     setLoadingAccounts(true);
@@ -193,6 +194,7 @@ export default function PerformanceOverviewPage() {
       setAccountsError(err.message || "Failed to load accounts");
     } finally {
       setLoadingAccounts(false);
+      setAccountsResolved(true);
     }
   }
 
@@ -209,11 +211,13 @@ export default function PerformanceOverviewPage() {
 
       params.set("salla_currency", "SAR");
 
-      const result = await apiGet(`/api/performance/overview?${params.toString()}`);
+      const result = await apiGet(`/api/performance/overview?${params.toString()}`, {
+        timeoutMs: 30000
+      });
       setData(result);
     } catch (err) {
       setData(null);
-      setError(err.message || "Failed to load performance overview");
+      setError(err.message || "تعذر تحميل نظرة الأداء");
     } finally {
       setLoadingData(false);
     }

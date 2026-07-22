@@ -12,7 +12,9 @@ function getCookieHeader(request) {
   return request.headers.get("cookie") || "";
 }
 
-async function fetchJson(url, request) {
+async function fetchJson(url, request, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const cookieHeader = getCookieHeader(request);
 
@@ -22,7 +24,8 @@ async function fetchJson(url, request) {
       headers: {
         Accept: "application/json",
         ...(cookieHeader ? { Cookie: cookieHeader } : {})
-      }
+      },
+      signal: controller.signal
     });
 
     const text = await response.text();
@@ -62,9 +65,14 @@ async function fetchJson(url, request) {
   } catch (error) {
     return {
       success: false,
-      error: error.message,
+      error:
+        error?.name === "AbortError"
+          ? "انتهت مهلة تحميل المصدر"
+          : error.message,
       data: null
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -195,10 +203,10 @@ export async function GET(request) {
   const sources = [];
   const debug = [];
 
-  const metaAccountsResult = await fetchJson(
-    `${baseUrl}/api/meta/accounts`,
-    request
-  );
+  const [metaAccountsResult, snapAccountsResult] = await Promise.all([
+    fetchJson(`${baseUrl}/api/meta/accounts`, request),
+    fetchJson(`${baseUrl}/api/snapchat/accounts`, request)
+  ]);
 
   const metaAccounts = Array.isArray(metaAccountsResult.data?.data)
     ? metaAccountsResult.data.data
@@ -212,11 +220,6 @@ export async function GET(request) {
     );
   }
 
-  const snapAccountsResult = await fetchJson(
-    `${baseUrl}/api/snapchat/accounts`,
-    request
-  );
-
   const snapAccounts = Array.isArray(snapAccountsResult.data?.data)
     ? snapAccountsResult.data.data
     : [];
@@ -229,14 +232,38 @@ export async function GET(request) {
     );
   }
 
-  if (metaAccountId) {
-    const metaUrl =
-      `${baseUrl}/api/meta/insights` +
-      `?account_id=${encodeURIComponent(metaAccountId)}` +
-      `&level=account` +
-      `&date_preset=${encodeURIComponent(datePreset)}`;
+  const metaPromise = metaAccountId
+    ? fetchJson(
+        `${baseUrl}/api/meta/insights` +
+          `?account_id=${encodeURIComponent(metaAccountId)}` +
+          `&level=account` +
+          `&date_preset=${encodeURIComponent(datePreset)}`,
+        request
+      )
+    : Promise.resolve({ success: false, error: "لم يتم اختيار حساب Meta", data: null });
 
-    const metaResult = await fetchJson(metaUrl, request);
+  const snapPromise = snapchatAccountId
+    ? fetchJson(
+        `${baseUrl}/api/snapchat/data` +
+          `?account_id=${encodeURIComponent(snapchatAccountId)}` +
+          `&level=account` +
+          `&date_preset=${encodeURIComponent(datePreset)}`,
+        request
+      )
+    : Promise.resolve({ success: false, error: "لم يتم اختيار حساب Snapchat", data: null });
+
+  const sallaPromise = fetchJson(
+    `${baseUrl}/api/salla/summary?date_preset=${encodeURIComponent(datePreset)}`,
+    request
+  );
+
+  const [metaResult, snapResult, sallaResult] = await Promise.all([
+    metaPromise,
+    snapPromise,
+    sallaPromise
+  ]);
+
+  if (metaAccountId) {
 
     debug.push({
       source: "Meta Ads",
@@ -281,15 +308,6 @@ export async function GET(request) {
   }
 
   if (snapchatAccountId) {
-    const snapUrl =
-      `${baseUrl}/api/snapchat/insights` +
-      `?account_id=${encodeURIComponent(snapchatAccountId)}` +
-      `&level=campaign` +
-      `&date_preset=${encodeURIComponent(datePreset)}` +
-      `&limit=20`;
-
-    const snapResult = await fetchJson(snapUrl, request);
-
     debug.push({
       source: "Snapchat Ads",
       success: snapResult.success,
@@ -333,12 +351,6 @@ export async function GET(request) {
       })
     );
   }
-
-  const sallaUrl =
-    `${baseUrl}/api/salla/summary` +
-    `?date_preset=${encodeURIComponent(datePreset)}`;
-
-  const sallaResult = await fetchJson(sallaUrl, request);
 
   debug.push({
     source: "Salla",
@@ -427,7 +439,6 @@ export async function GET(request) {
     summary: buildSummary(rows),
     sources: rows,
     debug,
-    note:
-      "All internal API requests now forward the user cookies. All spend, sales, CPA, CPC and ROAS are normalized to SAR. Actual ROAS = Salla real sales in SAR / total ad spend in SAR."
+    note: null
   });
 }
