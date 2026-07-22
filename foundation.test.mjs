@@ -4,7 +4,7 @@ import {
   getSafeInternalPath,
   getSupabasePublicConfig,
   normalizeSessionMaxAge
-} from "../lib/authFoundation.mjs";
+} from "./lib/authFoundation.mjs";
 
 test("safe redirects keep valid internal paths", () => {
   assert.equal(
