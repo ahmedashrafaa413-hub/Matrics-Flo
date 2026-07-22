@@ -26,69 +26,45 @@ export default function ConnectionsPage() {
   const [snapAccount,     setSnapAccount]     = useState("");
 
   useEffect(() => {
-    loadAccounts();
-    checkGA4();
-    checkSalla();
-    checkSnapchat();
+    loadConnectionStatus();
   }, []);
 
-  async function loadAccounts() {
+  async function loadConnectionStatus() {
     setMetaLoading(true);
     try {
-      const data = await apiGet("/api/meta/accounts");
-      const list = data.data || [];
+      const data = await apiGet("/api/connections/status");
+      const providers = data.providers || {};
+      const list = providers.meta?.accounts || [];
       setAccounts(list);
       const saved = getSetting("primary_meta_account", "");
-      const def   = saved || list?.[0]?.id || "";
+      const savedExists = list.some((account) => account.id === saved);
+      const def = (savedExists && saved) || list?.[0]?.id || "";
       setSelectedAccount(def);
       if (def) saveSetting("primary_meta_account", def);
-      setMetaConnected(list.length > 0);
-      setMetaStatus(list.length ? "Connected successfully" : "No accounts found");
+      setMetaConnected(Boolean(providers.meta?.connected));
+      setMetaStatus(
+        providers.meta?.connected ? "Connected successfully" : "Not connected"
+      );
+
+      setGaConnected(Boolean(providers.ga4?.connected));
+      setGaProperty(providers.ga4?.property_name || "");
+      setGaStatus(
+        providers.ga4?.connected ? "Connected successfully" : "Not connected"
+      );
+
+      setSallaConnected(Boolean(providers.salla?.connected));
+      setSnapConnected(Boolean(providers.snapchat?.connected));
+      setSnapAccount(providers.snapchat?.account_name || "");
     } catch (e) {
       setMetaConnected(false);
       setMetaStatus(e.message || "Not connected");
-    } finally {
-      setMetaLoading(false);
-    }
-  }
-
-  async function checkGA4() {
-    try {
-      const data = await apiGet("/api/ga/overview");
-      if (data?.success && data?.property_name) {
-        setGaConnected(true);
-        setGaProperty(data.property_name);
-        setGaStatus("Connected successfully");
-      } else {
-        setGaConnected(false);
-        setGaStatus("Not connected");
-      }
-    } catch {
       setGaConnected(false);
       setGaStatus("Not connected");
-    }
-  }
-
-  async function checkSalla() {
-    try {
-      const data = await apiGet("/api/salla/orders?date_range=last_7d");
-      setSallaConnected(data?.success === true);
-    } catch {
       setSallaConnected(false);
-    }
-  }
-
-  async function checkSnapchat() {
-    try {
-      const data = await apiGet("/api/snapchat/accounts");
-      if (data?.success && data?.data?.length > 0) {
-        setSnapConnected(true);
-        setSnapAccount(data.data[0]?.name || "");
-      } else {
-        setSnapConnected(false);
-      }
-    } catch {
       setSnapConnected(false);
+      setSnapAccount("");
+    } finally {
+      setMetaLoading(false);
     }
   }
 
@@ -201,7 +177,7 @@ export default function ConnectionsPage() {
                   </select>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={loadAccounts} disabled={metaLoading} style={{
+                  <button onClick={loadConnectionStatus} disabled={metaLoading} style={{
                     background: "var(--glass-2)", color: "var(--text)",
                     border: "1px solid var(--border-2)", padding: "11px 16px",
                     borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 600,
@@ -288,7 +264,7 @@ export default function ConnectionsPage() {
           </div>
           {gaConnected && (
             <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", gap: 12 }}>
-              <button onClick={checkGA4} style={{
+              <button onClick={loadConnectionStatus} disabled={metaLoading} style={{
                 background: "var(--glass-2)", color: "var(--text)",
                 border: "1px solid var(--border-2)", padding: "9px 16px",
                 borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 600,

@@ -137,6 +137,7 @@ function SidebarLink({ item }) {
   return (
     <Link
       href={item.href}
+      prefetch={false}
       style={{
         display: "flex",
         alignItems: "center",
@@ -213,6 +214,7 @@ export default function Sidebar() {
     >
       <Link
         href="/dashboard"
+        prefetch={false}
         style={{
           display: "flex",
           alignItems: "center",
