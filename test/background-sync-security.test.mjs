@@ -44,6 +44,22 @@ test("sync mutations return quickly through durable background jobs", () => {
   assert.match(snapchatPage, /\/api\/sync-jobs\//);
 });
 
+test("Snapchat overview uses one aggregate account request", () => {
+  const syncService = read("lib/snapchatSyncService.js");
+  const snapchatApi = read("lib/snapchatApi.js");
+  const accountBranch =
+    syncService.match(
+      /if \(level === "account"\) \{([\s\S]*?)\n      \} else \{/
+    )?.[1] || "";
+
+  assert.match(accountBranch, /fetchAccountStats/);
+  assert.doesNotMatch(accountBranch, /getCampaignStats/);
+  assert.match(
+    snapchatApi,
+    /adaccounts\/\$\{encodeURIComponent\(accountId\)\}\/stats[\s\S]*fields=\$\{encodeURIComponent\(FIELDS\)\}/
+  );
+});
+
 test("rate limit and job tables are server-only and tenant-scoped", () => {
   const migration = read(
     "supabase/migrations/202607230001_sync_jobs_and_rate_limits.sql"
