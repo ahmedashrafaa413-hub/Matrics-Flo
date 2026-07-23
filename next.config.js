@@ -1,6 +1,16 @@
+const { withWorkflow } = require("workflow/next");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  webpack(config, { isServer }) {
+    if (isServer) {
+      config.resolve.alias["xdg-app-paths"] = require.resolve(
+        "./lib/vendor/xdg-app-paths.cjs"
+      );
+    }
+    return config;
+  },
   async headers() {
     return [
       {
@@ -34,4 +44,4 @@ const nextConfig = {
   }
 };
 
-module.exports = nextConfig;
+module.exports = withWorkflow(nextConfig);
