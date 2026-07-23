@@ -9,11 +9,11 @@ const read = (path) => fs.readFileSync(new URL(`../${path}`, import.meta.url), "
 
 test("Salla summaries and upserts are scoped by workspace", () => {
   const summary = read("app/api/salla/summary/route.js");
-  const sync = read("app/api/salla/sync/route.js");
+  const syncService = read("lib/sallaSyncService.js");
 
   assert.match(summary, /\.eq\("workspace_id", workspace\.id\)/);
   assert.doesNotMatch(summary, /\.eq\("user_id", user\.id\)/);
-  assert.match(sync, /onConflict: "workspace_id,order_id"/);
+  assert.match(syncService, /onConflict: "workspace_id,order_id"/);
 });
 
 test("Salla synchronization cannot mutate data through GET", () => {

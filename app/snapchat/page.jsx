@@ -59,6 +59,32 @@ function buildQuery(params) {
   return query.toString();
 }
 
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForSyncJob(jobId, { timeoutMs = 6 * 60_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const response = await apiGet(`/api/sync-jobs/${encodeURIComponent(jobId)}`, {
+      timeoutMs: 15_000
+    });
+    const job = response?.job;
+
+    if (job?.status === "succeeded") return job;
+    if (job?.status === "failed") {
+      throw new Error(job.error || "Snapchat sync failed");
+    }
+
+    await wait(2000);
+  }
+
+  throw new Error(
+    "Sync is still running in the background. Refresh the page in a minute."
+  );
+}
+
 function toSAR(value) {
   return safeNumber(value) * SAR_RATE;
 }
@@ -621,14 +647,21 @@ export default function SnapchatPage() {
       });
 
       const result = await apiPost(`/api/snapchat/sync?${query}`, {}, {
-        timeoutMs: 60_000
+        timeoutMs: 15_000
       });
 
-      if (!result?.success) {
-        throw new Error(result?.error || "Snapchat sync failed");
-      }
+      if (!result?.job_id) throw new Error("Sync job was not created");
 
-      setNotice(`Sync completed. Inserted rows: ${result.inserted_rows || 0}`);
+      setNotice(
+        result.reused
+          ? "This sync is already running. Waiting for it to finish..."
+          : "Sync is running safely in the background. You can keep using the app."
+      );
+
+      const job = await waitForSyncJob(result.job_id);
+      const insertedRows = job?.result?.inserted_rows || 0;
+
+      setNotice(`Sync completed. Inserted rows: ${insertedRows}`);
       await loadCachedData();
     } catch (err) {
       setError(err.message || "Snapchat sync failed");

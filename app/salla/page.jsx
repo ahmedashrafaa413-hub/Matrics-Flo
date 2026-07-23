@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { apiGet } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
 const fmt = {
@@ -15,6 +15,8 @@ export default function SallaPage() {
   const [data,     setData]     = useState(null);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState("");
+  const [notice,   setNotice]   = useState("");
+  const [syncing,  setSyncing]  = useState(false);
   const [dateRange,setDateRange]= useState("last_30d");
 
   useEffect(()=>{ load(); }, [dateRange]);
@@ -28,6 +30,50 @@ export default function SallaPage() {
       if (!e.message?.includes("NOT_CONNECTED")) setError(e.message);
       else setError("NOT_CONNECTED");
     } finally { setLoading(false); }
+  }
+
+  async function syncOrders() {
+    setSyncing(true);
+    setError("");
+    setNotice("Salla sync is running safely in the background.");
+
+    try {
+      const started = await apiPost("/api/salla/sync", {}, { timeoutMs: 15_000 });
+      if (!started?.job_id) throw new Error("Sync job was not created");
+
+      const deadline = Date.now() + 6 * 60_000;
+
+      while (Date.now() < deadline) {
+        const response = await apiGet(
+          `/api/sync-jobs/${encodeURIComponent(started.job_id)}`,
+          { timeoutMs: 15_000 }
+        );
+        const job = response?.job;
+
+        if (job?.status === "succeeded") {
+          setNotice(
+            `Sync completed. Saved orders: ${job.result?.saved_orders || 0}`
+          );
+          await load();
+          return;
+        }
+
+        if (job?.status === "failed") {
+          throw new Error(job.error || "Salla sync failed");
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
+      setNotice(
+        "Sync is still running in the background. Refresh the page in a minute."
+      );
+    } catch (syncError) {
+      setNotice("");
+      setError(syncError.message || "Salla sync failed");
+    } finally {
+      setSyncing(false);
+    }
   }
 
   if (error==="NOT_CONNECTED") return (
@@ -58,10 +104,14 @@ export default function SallaPage() {
           <select value={dateRange} onChange={e=>setDateRange(e.target.value)} style={{ background:"var(--card)", color:"var(--text)", border:"1px solid var(--border-2)", borderRadius:"var(--radius-md)", padding:"8px 12px", fontSize:12, fontWeight:600, fontFamily:"inherit", outline:"none", cursor:"pointer" }}>
             {DATE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+          <button className="dash-refresh" onClick={syncOrders} disabled={syncing}>
+            {syncing ? "⏳ Syncing" : "↻ Sync Orders"}
+          </button>
           <button className="dash-refresh" onClick={load} disabled={loading}>{loading?"⏳":"↺"} Refresh</button>
         </div>
       </div>
 
+      {notice && <div className="dash-message">{notice}</div>}
       {error && error!=="NOT_CONNECTED" && <div className="dash-message error">⚠ {error}</div>}
 
       <div className="dash-kpi-grid" style={{ gridTemplateColumns:"repeat(4,1fr)" }}>
