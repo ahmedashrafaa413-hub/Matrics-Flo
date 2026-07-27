@@ -26,8 +26,32 @@ test("provider credentials use authenticated AES-256-GCM encryption", () => {
   );
 });
 
+test("new provider credentials cannot be stored without encryption", () => {
+  assert.throws(
+    () => encryptSecret("provider-secret", { key: "" }),
+    /TOKEN_ENCRYPTION_KEY is required/
+  );
+});
+
 test("plaintext credentials remain readable during the rollout", () => {
   assert.equal(decryptSecret("legacy-plaintext-token"), "legacy-plaintext-token");
+});
+
+test("Snapchat diagnostic routes are unavailable in production", () => {
+  const diagnosticRoutes = [
+    "app/api/snapchat/debug/route.js",
+    "app/api/snapchat/raw-test/route.js",
+    "app/api/snapchat/test-fields/route.js",
+    "app/api/snapchat/debug-stats/route.js",
+    "app/api/snapchat/debug-breakdown/route.js",
+    "app/api/snapchat/debug-compare/route.js"
+  ];
+
+  for (const path of diagnosticRoutes) {
+    const route = read(path);
+    assert.match(route, /process\.env\.NODE_ENV === "production"/);
+    assert.match(route, /status: 404/);
+  }
 });
 
 test("sync mutations return quickly through durable background jobs", () => {
