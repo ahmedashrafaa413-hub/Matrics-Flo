@@ -44,20 +44,24 @@ test("sync mutations return quickly through durable background jobs", () => {
   assert.match(snapchatPage, /\/api\/sync-jobs\//);
 });
 
-test("Snapchat overview uses one aggregate account request", () => {
+test("Snapchat overview aggregates one campaign-breakdown request", () => {
   const syncService = read("lib/snapchatSyncService.js");
   const snapchatApi = read("lib/snapchatApi.js");
   const accountBranch =
     syncService.match(
       /if \(level === "account"\) \{([\s\S]*?)\n      \} else \{/
     )?.[1] || "";
+  const accountHelper =
+    snapchatApi.match(
+      /export async function fetchAccountStats\(args\) \{([\s\S]*?)\n\}/
+    )?.[1] || "";
 
   assert.match(accountBranch, /fetchAccountStats/);
   assert.doesNotMatch(accountBranch, /getCampaignStats/);
-  assert.match(
-    snapchatApi,
-    /adaccounts\/\$\{encodeURIComponent\(accountId\)\}\/stats[\s\S]*fields=\$\{encodeURIComponent\(FIELDS\)\}/
-  );
+  assert.match(accountHelper, /fetchBreakdownStats/);
+  assert.match(accountHelper, /level: "campaign"/);
+  assert.match(accountHelper, /result\.rows\.reduce/);
+  assert.doesNotMatch(accountHelper, /fields=.*FIELDS/);
 });
 
 test("Snapchat date ranges end on an exact hour boundary", () => {
