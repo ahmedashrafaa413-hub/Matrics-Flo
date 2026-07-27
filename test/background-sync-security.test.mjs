@@ -60,6 +60,13 @@ test("Snapchat overview uses one aggregate account request", () => {
   );
 });
 
+test("Snapchat date ranges end on an exact hour boundary", () => {
+  const snapchatApi = read("lib/snapchatApi.js");
+
+  assert.match(snapchatApi, /T\$\{pad\(h\)\}:00:00\.000\+03:00/);
+  assert.doesNotMatch(snapchatApi, /getUTCMinutes|nowMin|endMinute/);
+});
+
 test("rate limit and job tables are server-only and tenant-scoped", () => {
   const migration = read(
     "supabase/migrations/202607230001_sync_jobs_and_rate_limits.sql"
