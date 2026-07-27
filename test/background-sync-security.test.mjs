@@ -63,7 +63,7 @@ test("Snapchat overview uses one aggregate account request", () => {
 test("Snapchat date ranges end on an exact hour boundary", () => {
   const snapchatApi = read("lib/snapchatApi.js");
 
-  assert.match(snapchatApi, /T\\$\\{pad\\(h\\)\\}:00:00\\.000\\+03:00/);
+  assert.match(snapchatApi, /T\$\{pad\(h\)\}:00:00\.000\+03:00/);
   assert.doesNotMatch(snapchatApi, /getUTCMinutes|nowMin|endMinute/);
 });
 
