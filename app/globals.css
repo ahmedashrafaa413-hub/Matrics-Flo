@@ -1588,3 +1588,30 @@ body::after {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
+
+
+@media (max-width: 768px) {
+  .login-shell {
+    display: block !important;
+    min-height: 100dvh !important;
+  }
+
+  .login-brand-panel {
+    display: none !important;
+  }
+
+  .login-form-panel {
+    width: 100% !important;
+    min-height: 100dvh !important;
+    padding: 28px 18px !important;
+  }
+
+  .login-form-panel > div {
+    max-width: 440px !important;
+  }
+
+  .login-form-panel input,
+  .login-form-panel button {
+    min-height: 48px;
+  }
+}
