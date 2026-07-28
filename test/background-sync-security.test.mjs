@@ -68,7 +68,7 @@ test("sync mutations return quickly through durable background jobs", () => {
   assert.match(snapchatPage, /\/api\/sync-jobs\//);
 });
 
-test("Snapchat overview sums complete active-campaign stats", () => {
+test("Snapchat overview includes non-archived campaigns for attribution accuracy", () => {
   const syncService = read("lib/snapchatSyncService.js");
   const snapchatApi = read("lib/snapchatApi.js");
   const accountBranch =
@@ -83,7 +83,9 @@ test("Snapchat overview sums complete active-campaign stats", () => {
   assert.match(accountBranch, /fetchAccountStats/);
   assert.doesNotMatch(accountBranch, /getCampaignStats/);
   assert.match(accountHelper, /fetchEntities/);
-  assert.match(accountHelper, /entity\.status === "ACTIVE"/);
+  assert.match(accountHelper, /DELETED/);
+  assert.match(accountHelper, /ARCHIVED/);
+  assert.doesNotMatch(accountHelper, /entity\\.status === "ACTIVE"/);
   assert.match(accountHelper, /fetchEntityStats/);
   assert.match(accountHelper, /results\.reduce/);
   assert.match(accountHelper, /failed\.length/);

@@ -116,7 +116,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{
+    <main className="login-shell" style={{
       minHeight: "100vh",
       background: "#070817",
       display: "flex",
@@ -125,7 +125,7 @@ export default function LoginPage() {
     }}>
 
       {/* ── Left panel — brand ── */}
-      <div style={{
+      <div className="login-brand-panel" style={{
         flex: "0 0 45%",
         background: "linear-gradient(160deg, rgba(99,102,241,0.18) 0%, rgba(6,214,160,0.06) 100%)",
         borderRight: "1px solid rgba(99,102,241,0.15)",
@@ -219,7 +219,7 @@ export default function LoginPage() {
       </div>
 
       {/* ── Right panel — form ── */}
-      <div style={{
+      <div className="login-form-panel" style={{
         flex: 1,
         display: "flex",
         alignItems: "center",

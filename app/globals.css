@@ -1475,3 +1475,143 @@ body::after {
   .recharts-cartesian-axis-tick text { font-size: 10px !important; }
   .recharts-legend-item-text         { font-size: 11px !important; }
 }
+
+
+/* Mobile shell hardening: Sidebar JSX historically used inline desktop styles.
+   These overrides deliberately win on narrow screens to prevent overlap. */
+@media (max-width: 960px) {
+  .metrics-sidebar {
+    width: 100% !important;
+    min-height: 0 !important;
+    height: 68px !important;
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 0 !important;
+    overflow: hidden !important;
+    border-right: 0 !important;
+    border-top: 1px solid var(--border) !important;
+  }
+
+  .metrics-sidebar > .sidebar-header,
+  .metrics-sidebar > .sidebar-workspace,
+  .metrics-sidebar > .sidebar-nav-account,
+  .metrics-sidebar > .sidebar-footer {
+    display: none !important;
+  }
+
+  .metrics-sidebar > .sidebar-nav-channels {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    flex-direction: row !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+  }
+
+  .metrics-sidebar .sidebar-nav-channels > div:first-child {
+    display: none !important;
+  }
+
+  .metrics-sidebar .nav-item {
+    min-width: 72px !important;
+    min-height: 68px !important;
+    flex: 1 0 72px !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    padding: 7px 5px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    font-size: 10px !important;
+    text-align: center !important;
+  }
+
+  .metrics-sidebar .nav-item > span:nth-child(2) {
+    flex: 0 0 auto !important;
+    max-width: 70px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 9px !important;
+  }
+
+  .metrics-sidebar .nav-item > span:nth-child(n+3) {
+    display: none !important;
+  }
+
+  .metrics-sidebar .nav-item-icon {
+    width: 24px !important;
+    height: 24px !important;
+    flex: 0 0 24px !important;
+  }
+
+  .main {
+    width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: clip !important;
+    padding: 16px 12px 88px !important;
+  }
+
+  .main > *,
+  .page-shell,
+  .dash-pro {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .glass-card,
+  .dash-table-card,
+  .dash-chart-card {
+    max-width: 100% !important;
+  }
+
+  .dash-table-scroll {
+    width: 100% !important;
+    overflow-x: auto !important;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .metrics-sidebar .nav-item {
+    min-width: 64px !important;
+    flex-basis: 64px !important;
+  }
+
+  .dash-kpi-grid,
+  .ga-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+
+@media (max-width: 768px) {
+  .login-shell {
+    display: block !important;
+    min-height: 100dvh !important;
+  }
+
+  .login-brand-panel {
+    display: none !important;
+  }
+
+  .login-form-panel {
+    width: 100% !important;
+    min-height: 100dvh !important;
+    padding: 28px 18px !important;
+  }
+
+  .login-form-panel > div {
+    max-width: 440px !important;
+  }
+
+  .login-form-panel input,
+  .login-form-panel button {
+    min-height: 48px;
+  }
+}
