@@ -92,6 +92,22 @@ test("Snapchat overview includes non-archived campaigns for attribution accuracy
   assert.doesNotMatch(accountHelper, /fetchBreakdownStats/);
 });
 
+test("Snapchat reports match Ads Manager attribution and account spend", () => {
+  const snapchatApi = read("lib/snapchatApi.js");
+
+  assert.match(snapchatApi, /ACTION_REPORT_TIME = "impression"/);
+  assert.match(snapchatApi, /action_report_time=\$\{ACTION_REPORT_TIME\}/);
+  assert.match(snapchatApi, /conversion_start_checkout/);
+  assert.match(snapchatApi, /fetchAdAccountSpend/);
+  assert.match(snapchatApi, /fields=spend/);
+  assert.match(snapchatApi, /stats\.spend = accountSpendResult\.spend/);
+  assert.match(snapchatApi, /new Map\(reportableCampaigns\.map/);
+  assert.doesNotMatch(
+    snapchatApi,
+    /const ic=safeNum\(s\.conversion_add_billing\)/
+  );
+});
+
 test("Snapchat date ranges end on an exact hour boundary", () => {
   const snapchatApi = read("lib/snapchatApi.js");
 
