@@ -68,29 +68,23 @@ test("sync mutations return quickly through durable background jobs", () => {
   assert.match(snapchatPage, /\/api\/sync-jobs\//);
 });
 
-test("Snapchat overview includes non-archived campaigns for attribution accuracy", () => {
+test("Snapchat uses complete async reports at every entity level", () => {
   const syncService = read("lib/snapchatSyncService.js");
   const snapchatApi = read("lib/snapchatApi.js");
-  const accountBranch =
-    syncService.match(
-      /if \(level === "account"\) \{([\s\S]*?)\n      \} else \{/
-    )?.[1] || "";
-  const accountHelper =
-    snapchatApi.match(
-      /export async function fetchAccountStats\(args\) \{([\s\S]*?)\n\}/
-    )?.[1] || "";
 
-  assert.match(accountBranch, /fetchAccountStats/);
-  assert.doesNotMatch(accountBranch, /getCampaignStats/);
-  assert.match(accountHelper, /fetchEntities/);
-  assert.match(accountHelper, /DELETED/);
-  assert.match(accountHelper, /ARCHIVED/);
-  assert.doesNotMatch(accountHelper, /entity\\.status === "ACTIVE"/);
-  assert.match(accountHelper, /fetchEntityStats/);
-  assert.match(accountHelper, /results\.reduce/);
-  assert.match(accountHelper, /failed\.length/);
-  assert.doesNotMatch(accountHelper, /fetchBreakdownStats/);
+  assert.match(snapchatApi, /async=true&async_format=csv/);
+  assert.match(snapchatApi, /stats_report/);
+  assert.match(snapchatApi, /report_run_id/);
+  assert.match(snapchatApi, /parseAsyncStatsCsv/);
+  assert.match(snapchatApi, /level === "adsquad" \? "ad_squad"/);
+  assert.match(snapchatApi, /campaignReport\.rows\.reduce/);
+  assert.match(syncService, /fetchBreakdownStats/);
+  assert.match(syncService, /mergeBreakdownEntities/);
+  assert.doesNotMatch(syncService, /\.slice\(0, limit\)/);
+  assert.doesNotMatch(syncService, /\.slice\(0, candidateLimit\)/);
+  assert.match(syncService, /row\.purchases > 0/);
 });
+
 
 test("Snapchat reports match Ads Manager attribution and account spend", () => {
   const snapchatApi = read("lib/snapchatApi.js");
@@ -101,7 +95,7 @@ test("Snapchat reports match Ads Manager attribution and account spend", () => {
   assert.match(snapchatApi, /fetchAdAccountSpend/);
   assert.match(snapchatApi, /fields=spend/);
   assert.match(snapchatApi, /stats\.spend = accountSpendResult\.spend/);
-  assert.match(snapchatApi, /new Map\(reportableCampaigns\.map/);
+  assert.match(snapchatApi, /campaignReport\.rows\.reduce/);
   assert.doesNotMatch(
     snapchatApi,
     /const ic=safeNum\(s\.conversion_add_billing\)/

@@ -623,25 +623,17 @@ export default function SnapchatPage() {
 
     setSyncing(true);
     setError("");
-    setNotice("Sync started. This may take a little time for large accounts.");
+    setNotice("Sync started for all Campaigns, Ad Squads and Ads. Large accounts may take a few minutes.");
 
     try {
-      // "overview" is always included: it's the single source of truth for
-      // the top-line summary cards on every tab, so it must be kept fresh
-      // no matter which tab the user syncs from — not just the Overview tab.
-      const levels =
-        currentLevel === "overview"
-          ? "overview"
-          : currentLevel === "ad"
-            ? "overview,ad"
-            : `overview,${currentLevel}`;
+      // One sync refreshes the complete hierarchy. Snapchat async reporting
+      // handles large accounts without truncating Campaigns, Ad Squads or Ads.
+      const levels = "overview,campaign,adsquad,ad";
 
       const query = buildQuery({
         account_id: accountId,
         date_preset: datePreset,
         levels,
-        limit: currentLevel === "ad" ? 50 : 20,
-        candidate_limit: 1000,
         swipe_window: swipeWindow,
         view_window: viewWindow
       });
