@@ -70,6 +70,7 @@ function isActive(pathname, href) {
 function NavIcon({ children, active }) {
   return (
     <span
+      className="nav-item-icon"
       style={{
         width: 24,
         height: 24,
@@ -96,6 +97,7 @@ function SidebarLink({ item }) {
   if (item.soon) {
     return (
       <div
+        className="nav-item nav-item-soon"
         style={{
           display: "flex",
           alignItems: "center",
@@ -136,6 +138,7 @@ function SidebarLink({ item }) {
 
   return (
     <Link
+      className={`nav-item${active ? " active" : ""}`}
       href={item.href}
       prefetch={false}
       style={{
@@ -199,6 +202,7 @@ function SidebarLink({ item }) {
 export default function Sidebar() {
   return (
     <aside
+      className="sidebar metrics-sidebar"
       style={{
         width: 280,
         minHeight: "100vh",
@@ -213,6 +217,7 @@ export default function Sidebar() {
       }}
     >
       <Link
+        className="sidebar-header"
         href="/dashboard"
         prefetch={false}
         style={{
@@ -246,6 +251,7 @@ export default function Sidebar() {
       </Link>
 
       <div
+        className="sidebar-workspace"
         style={{
           background: "rgba(255,255,255,0.035)",
           border: "1px solid var(--border)",
@@ -291,6 +297,7 @@ export default function Sidebar() {
       </div>
 
       <nav
+        className="sidebar-nav sidebar-nav-channels"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -316,6 +323,7 @@ export default function Sidebar() {
       </nav>
 
       <nav
+        className="sidebar-nav sidebar-nav-account"
         style={{
           display: "flex",
           flexDirection: "column",
@@ -342,7 +350,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div style={{ marginTop: "auto" }}>
+      <div className="sidebar-footer" style={{ marginTop: "auto" }}>
         <div
           style={{
             border: "1px solid rgba(6,214,160,0.25)",
