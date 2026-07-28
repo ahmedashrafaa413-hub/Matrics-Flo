@@ -68,7 +68,7 @@ test("sync mutations return quickly through durable background jobs", () => {
   assert.match(snapchatPage, /\/api\/sync-jobs\//);
 });
 
-test("Snapchat overview sums complete active-campaign stats", () => {
+test("Snapchat overview includes non-archived campaigns for attribution accuracy", () => {
   const syncService = read("lib/snapchatSyncService.js");
   const snapchatApi = read("lib/snapchatApi.js");
   const accountBranch =
