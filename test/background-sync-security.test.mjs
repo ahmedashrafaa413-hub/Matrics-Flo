@@ -83,7 +83,9 @@ test("Snapchat overview includes non-archived campaigns for attribution accuracy
   assert.match(accountBranch, /fetchAccountStats/);
   assert.doesNotMatch(accountBranch, /getCampaignStats/);
   assert.match(accountHelper, /fetchEntities/);
-  assert.match(accountHelper, /DELETED/);\n  assert.match(accountHelper, /ARCHIVED/);\n  assert.doesNotMatch(accountHelper, /entity\\.status === "ACTIVE"/);
+  assert.match(accountHelper, /DELETED/);
+  assert.match(accountHelper, /ARCHIVED/);
+  assert.doesNotMatch(accountHelper, /entity\\.status === "ACTIVE"/);
   assert.match(accountHelper, /fetchEntityStats/);
   assert.match(accountHelper, /results\.reduce/);
   assert.match(accountHelper, /failed\.length/);
