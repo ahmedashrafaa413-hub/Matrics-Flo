@@ -76,7 +76,7 @@ test("Snapchat uses complete async reports at every entity level", () => {
   assert.match(snapchatApi, /stats_report/);
   assert.match(snapchatApi, /report_run_id/);
   assert.match(snapchatApi, /parseAsyncStatsCsv/);
-  assert.match(snapchatApi, /breakdown === "adsquad" \? "ad_squad"/);
+  assert.match(snapchatApi, /level === "adsquad" \? "ad_squad"/);
   assert.match(snapchatApi, /campaignReport\.rows\.reduce/);
   assert.match(syncService, /fetchBreakdownStats/);
   assert.match(syncService, /mergeBreakdownEntities/);
@@ -95,7 +95,7 @@ test("Snapchat reports match Ads Manager attribution and account spend", () => {
   assert.match(snapchatApi, /fetchAdAccountSpend/);
   assert.match(snapchatApi, /fields=spend/);
   assert.match(snapchatApi, /stats\.spend = accountSpendResult\.spend/);
-  assert.match(snapchatApi, /new Map\(reportableCampaigns\.map/);
+  assert.match(snapchatApi, /campaignReport\.rows\.reduce/);
   assert.doesNotMatch(
     snapchatApi,
     /const ic=safeNum\(s\.conversion_add_billing\)/
