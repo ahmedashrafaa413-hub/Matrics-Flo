@@ -262,6 +262,12 @@ export async function GET(request) {
       total_rows: count || rows.length,
       loaded_rows: rows.length,
       has_more: entityLevel !== "account" ? to + 1 < (count || 0) : false,
+      last_synced_at:
+        accountRow?.updated_at ||
+        accountRow?.created_at ||
+        dbRows[0]?.updated_at ||
+        dbRows[0]?.created_at ||
+        null,
       summary,
       rows,
       data: rows,

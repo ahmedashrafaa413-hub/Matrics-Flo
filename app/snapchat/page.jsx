@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPost } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 
@@ -63,7 +63,7 @@ function wait(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function waitForSyncJob(jobId, { timeoutMs = 6 * 60_000 } = {}) {
+async function waitForSyncJob(jobId, { timeoutMs = 12 * 60_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -118,6 +118,14 @@ function percent(value) {
 
 function roas(value) {
   return `${safeNumber(value).toFixed(2)}x`;
+}
+
+function formatLastUpdated(value) {
+  if (!value) return "Waiting for first complete sync";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
 }
 
 function getLevel(tab) {
@@ -511,7 +519,7 @@ function CreativeView({ rows, loading }) {
 export default function SnapchatPage() {
   const [accounts, setAccounts] = useState([]);
   const [accountId, setAccountId] = useState("");
-  const [datePreset, setDatePreset] = useState("last_30d");
+  const [datePreset, setDatePreset] = useState("today");
   const [swipeWindow, setSwipeWindow] = useState(() =>
     getSetting("snapchat_swipe_window", "28_DAY")
   );
@@ -527,6 +535,7 @@ export default function SnapchatPage() {
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const syncingRef = useRef(false);
 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -549,6 +558,26 @@ export default function SnapchatPage() {
     if (!accountId) return;
     loadCachedData();
   }, [accountId, datePreset, activeTab]);
+
+  // Snapchat refreshes reporting data approximately every 15 minutes. Keep
+  // Today close to Ads Manager automatically while preventing overlapping
+  // full-hierarchy syncs. Historical ranges remain manual because they do not
+  // benefit from continuous refreshes.
+  useEffect(() => {
+    if (!accountId || datePreset !== "today") return undefined;
+
+    const initial = window.setTimeout(() => {
+      runSync({ automatic: true });
+    }, 1200);
+    const interval = window.setInterval(() => {
+      runSync({ automatic: true });
+    }, 15 * 60_000);
+
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
+  }, [accountId, datePreset, swipeWindow, viewWindow]);
 
   async function loadAccounts() {
     setError("");
@@ -589,16 +618,30 @@ export default function SnapchatPage() {
     setLoadingData(true);
 
     try {
-      const query = buildQuery({
-        account_id: accountId,
-        level: currentLevel,
-        date_preset: datePreset
-      });
+      // The API is intentionally paginated, but the dashboard promise is to
+      // show the complete hierarchy. Read every page instead of silently
+      // stopping after the first 50/200 Campaigns, Ad Squads or Ads.
+      let page = 1;
+      let data = null;
+      const completeRows = [];
 
-      const data = await apiGet(`/api/snapchat/data?${query}`);
+      do {
+        const query = buildQuery({
+          account_id: accountId,
+          level: currentLevel,
+          date_preset: datePreset,
+          page,
+          page_size: 200
+        });
+        const response = await apiGet(`/api/snapchat/data?${query}`);
+        if (!data) data = response;
+        completeRows.push(...(response?.rows || response?.data || []));
+        if (!response?.has_more) break;
+        page += 1;
+      } while (page <= 50);
 
       const nextSummary = normalizeSummary(data?.summary || {});
-      const nextRows = normalizeRows(data?.rows || data?.data || []);
+      const nextRows = normalizeRows(completeRows);
 
       setSummary(nextSummary);
       setRows(nextRows);
@@ -606,7 +649,8 @@ export default function SnapchatPage() {
         source: data?.source || "supabase_cache",
         loadedRows: data?.loaded_rows || nextRows.length,
         metricDate: data?.metric_date || "",
-        cached: Boolean(data?.is_cached_data)
+        cached: Boolean(data?.is_cached_data),
+        lastSyncedAt: data?.last_synced_at || null
       });
     } catch (err) {
       setRows([]);
@@ -618,12 +662,17 @@ export default function SnapchatPage() {
     }
   }
 
-  async function runSync() {
-    if (!accountId) return;
+  async function runSync({ automatic = false } = {}) {
+    if (!accountId || syncingRef.current) return;
 
+    syncingRef.current = true;
     setSyncing(true);
     setError("");
-    setNotice("Sync started for all Campaigns, Ad Squads and Ads. Large accounts may take a few minutes.");
+    setNotice(
+      automatic
+        ? "Updating Today from Snapchat. Live reporting refreshes approximately every 15 minutes."
+        : "Sync started for all Campaigns, Ad Squads and Ads. Large accounts may take a few minutes."
+    );
 
     try {
       // One sync refreshes the complete hierarchy. Snapchat async reporting
@@ -659,6 +708,7 @@ export default function SnapchatPage() {
       setError(err.message || "Snapchat sync failed");
       setNotice("");
     } finally {
+      syncingRef.current = false;
       setSyncing(false);
     }
   }
@@ -745,6 +795,24 @@ export default function SnapchatPage() {
           font-size: 12px;
           color: var(--muted);
           opacity: 0.75;
+        }
+
+        .snap-live-status {
+          margin-left: auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          color: #a7f3d0;
+          font-size: 11px;
+          font-weight: 800;
+        }
+
+        .snap-live-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 999px;
+          background: #12e6a3;
+          box-shadow: 0 0 12px rgba(18,230,163,0.75);
         }
 
         .snap-control-actions {
@@ -1250,6 +1318,13 @@ export default function SnapchatPage() {
             Changes apply on next Sync Now — match this to your Snapchat Ads
             Manager attribution settings to avoid number mismatches.
           </span>
+
+          {datePreset === "today" ? (
+            <span className="snap-live-status">
+              <span className="snap-live-dot" />
+              Live Today · auto-refresh every 15 min · {formatLastUpdated(cacheInfo?.lastSyncedAt)}
+            </span>
+          ) : null}
         </div>
       </div>
 
