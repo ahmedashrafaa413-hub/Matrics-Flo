@@ -76,8 +76,10 @@ test("Snapchat uses complete async reports at every entity level", () => {
   assert.match(snapchatApi, /stats_report/);
   assert.match(snapchatApi, /report_run_id/);
   assert.match(snapchatApi, /parseAsyncStatsCsv/);
-  assert.match(snapchatApi, /level === "adsquad" \? "adsquad"/);
-  assert.doesNotMatch(snapchatApi, /level === "adsquad" \? "ad_squad"/);
+  assert.match(snapchatApi, /ownerPath: .*campaigns/);
+  assert.match(snapchatApi, /breakdown: "adsquad"/);
+  assert.doesNotMatch(snapchatApi, /const breakdown = level === "adsquad"/);
+  assert.match(syncService, /campaignIds/);
   assert.match(snapchatApi, /campaignReport\.rows\.reduce/);
   assert.match(syncService, /fetchBreakdownStats/);
   assert.match(syncService, /mergeBreakdownEntities/);
