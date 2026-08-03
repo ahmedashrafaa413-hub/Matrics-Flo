@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 import { formatSAR, formatNumber, formatROAS } from "../../lib/currency";
@@ -12,415 +12,237 @@ const DATE_OPTIONS = [
   { value: "last_30d", label: "آخر 30 يوم" },
   { value: "this_month", label: "هذا الشهر" },
   { value: "last_90d", label: "آخر 90 يوم" },
-  { value: "maximum", label: "كل الفترة" }
+  { value: "maximum", label: "آخر 12 شهر" }
+];
+
+const TABS = [
+  { key: "all", label: "الكل" },
+  { key: "ads", label: "الإعلانات" },
+  { key: "organic", label: "العضوي" },
+  { key: "other", label: "أخرى" }
 ];
 
 function getAccountId(account) {
-  return (
-    account?.id ||
-    account?.account_id ||
-    account?.ad_account_id ||
-    account?.snapchat_account_id ||
-    account?.adaccount_id ||
-    ""
-  );
+  return account?.id || account?.account_id || account?.ad_account_id || account?.snapchat_account_id || account?.adaccount_id || "";
 }
 
 function getAccountName(account) {
-  return (
-    account?.name ||
-    account?.account_name ||
-    account?.business_name ||
-    account?.organization_name ||
-    "Account"
-  );
+  return account?.name || account?.account_name || account?.business_name || account?.organization_name || "Account";
 }
 
-// Meta accounts response shape: { success, data: [...] }
-function normalizeMetaAccounts(response) {
-  const raw = response?.data || response?.accounts || [];
+function normalizeAccounts(response) {
+  const raw = response?.data || response?.accounts || response?.adaccounts || [];
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => item?.account || item?.adaccount || item)
-    .filter((item) => getAccountId(item));
-}
-
-// Snapchat accounts response shape: { success, data: [...], accounts: [...] }
-function normalizeSnapchatAccounts(response) {
-  const raw =
-    response?.data ||
-    response?.accounts ||
-    response?.adaccounts ||
-    [];
-  if (!Array.isArray(raw)) return [];
-  const mapped = raw
-    .map((item) => item?.account || item?.adaccount || item)
-    .filter((item) => getAccountId(item));
-  // De-dupe by id
-  return Array.from(new Map(mapped.map((a) => [getAccountId(a), a])).values());
+  const accounts = raw.map((item) => item?.account || item?.adaccount || item).filter((item) => getAccountId(item));
+  return Array.from(new Map(accounts.map((account) => [getAccountId(account), account])).values());
 }
 
 function roasColor(value) {
   const roas = Number(value || 0);
-  if (roas >= 5) return "#06d6a0";
-  if (roas >= 2) return "#f59e0b";
-  return "#ff477e";
+  if (roas >= 5) return "#19d3a2";
+  if (roas >= 2) return "#f7b84b";
+  return "#ff5c8a";
 }
 
-function KPICard({ label, value, sub, icon, color }) {
+function MetricSignal({ values, color = "#6366f1" }) {
+  const points = useMemo(() => {
+    const numeric = values.map(Number).filter(Number.isFinite);
+    if (!numeric.length) return "4,32 116,32";
+    const max = Math.max(...numeric, 1);
+    const expanded = numeric.length === 1 ? [numeric[0], numeric[0]] : numeric;
+    return expanded.map((value, index) => {
+      const x = 4 + (index / Math.max(expanded.length - 1, 1)) * 112;
+      const y = 48 - (value / max) * 38;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+  }, [values]);
+
   return (
-    <div className="dash-kpi-card" style={{ position: "relative" }}>
-      <div
-        style={{
-          position: "absolute", top: 0, left: 0, right: 0, height: 2,
-          background: color, borderRadius: "20px 20px 0 0"
-        }}
-      />
-      <div className="dash-kpi-top">
-        <span className="dash-kpi-label">{label}</span>
-        <span className="dash-kpi-icon">{icon}</span>
+    <svg className="perf-signal" viewBox="0 0 120 54" role="img" aria-label="توزيع القيمة بين مصادر البيانات">
+      <defs>
+        <linearGradient id={`signal-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function KPICard({ label, value, values, color, hint }) {
+  return (
+    <article className="perf-kpi-card">
+      <div className="perf-kpi-copy">
+        <span className="perf-kpi-label">{label}</span>
+        <strong>{value}</strong>
+        <small>{hint}</small>
       </div>
-      <strong style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, color: "var(--text)" }}>
-        {value}
-      </strong>
-      {sub && <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>{sub}</p>}
-    </div>
+      <MetricSignal values={values} color={color} />
+      <span className="perf-info" title={hint} aria-label={hint}>i</span>
+    </article>
   );
 }
 
 function SourceIcon({ source }) {
-  const s = String(source || "").toLowerCase();
-  let icon = "📊", color = "#8b95c9";
-  if (s.includes("meta"))     { icon = "f";  color = "#1877f2"; }
-  if (s.includes("snapchat")) { icon = "👻"; color = "#fffc00"; }
-  if (s.includes("salla"))    { icon = "س";  color = "#8b5cf6"; }
-  if (s.includes("total") || s.includes("الإجمالي")) { icon = "Σ"; color = "#06d6a0"; }
-  return (
-    <span style={{ width: 24, height: 24, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: `${color}22`, color, fontWeight: 900, fontSize: 12 }}>
-      {icon}
-    </span>
-  );
+  const name = String(source || "").toLowerCase();
+  let icon = "◫", className = "default";
+  if (name.includes("meta")) { icon = "f"; className = "meta"; }
+  if (name.includes("snapchat")) { icon = "👻"; className = "snapchat"; }
+  if (name.includes("salla")) { icon = "س"; className = "salla"; }
+  if (name.includes("total")) { icon = "Σ"; className = "total"; }
+  return <span className={`perf-source-icon ${className}`}>{icon}</span>;
+}
+
+function downloadCsv(rows) {
+  const headers = ["Source", "Spend SAR", "Clicks", "Purchases", "Cost per purchase SAR", "Sales SAR", "ROAS"];
+  const lines = rows.map((row) => [row.source, row.spend, row.clicks, row.purchases, row.cost_per_purchase, row.sales, row.roas]
+    .map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","));
+  const blob = new Blob(["\uFEFF", headers.join(","), "\n", lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `metricsflo-performance-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function PerformanceOverviewPage() {
   const [datePreset, setDatePreset] = useState("last_30d");
-
   const [metaAccounts, setMetaAccounts] = useState([]);
   const [snapchatAccounts, setSnapchatAccounts] = useState([]);
-
   const [metaAccountId, setMetaAccountId] = useState("");
   const [snapchatAccountId, setSnapchatAccountId] = useState("");
-
   const [data, setData] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
-
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [accountsResolved, setAccountsResolved] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState("");
   const [accountsError, setAccountsError] = useState("");
 
-  useEffect(() => {
-    loadAccounts();
-  }, []);
-
-  useEffect(() => {
-    // Only fetch performance data once we've finished resolving accounts
-    if (!accountsResolved || loadingAccounts) return;
-    loadData();
-  }, [datePreset, metaAccountId, snapchatAccountId, loadingAccounts, accountsResolved]);
-
-  async function loadAccounts() {
+  const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
     setAccountsError("");
-
     try {
       const [metaResponse, snapchatResponse] = await Promise.allSettled([
         apiGet("/api/meta/accounts"),
         apiGet("/api/snapchat/accounts")
       ]);
+      const nextMeta = metaResponse.status === "fulfilled" ? normalizeAccounts(metaResponse.value) : [];
+      const nextSnapchat = snapchatResponse.status === "fulfilled" ? normalizeAccounts(snapchatResponse.value) : [];
+      const errors = [];
+      if (metaResponse.status === "rejected") errors.push(`Meta: ${metaResponse.reason?.message || "تعذر التحميل"}`);
+      if (snapchatResponse.status === "rejected") errors.push(`Snapchat: ${snapchatResponse.reason?.message || "تعذر التحميل"}`);
+      setMetaAccounts(nextMeta);
+      setSnapchatAccounts(nextSnapchat);
+      setAccountsError(errors.join(" • "));
 
-      let nextMetaAccounts = [];
-      let nextSnapchatAccounts = [];
-      const errs = [];
-
-      if (metaResponse.status === "fulfilled") {
-        nextMetaAccounts = normalizeMetaAccounts(metaResponse.value);
-      } else {
-        errs.push(`Meta: ${metaResponse.reason?.message || "failed to load"}`);
-      }
-
-      if (snapchatResponse.status === "fulfilled") {
-        nextSnapchatAccounts = normalizeSnapchatAccounts(snapchatResponse.value);
-        if (nextSnapchatAccounts.length === 0) {
-          errs.push("Snapchat: no accounts returned (check connection)");
-        }
-      } else {
-        errs.push(`Snapchat: ${snapchatResponse.reason?.message || "failed to load"}`);
-      }
-
-      setMetaAccounts(nextMetaAccounts);
-      setSnapchatAccounts(nextSnapchatAccounts);
-      if (errs.length) setAccountsError(errs.join(" • "));
-
-      // Resolve Meta selection: saved → first available
-      const savedMetaId = getSetting("primary_meta_account", "");
-      const validMeta =
-        nextMetaAccounts.find((a) => getAccountId(a) === savedMetaId) ||
-        nextMetaAccounts[0];
-
-      if (validMeta) {
-        const id = getAccountId(validMeta);
-        setMetaAccountId(id);
-        saveSetting("primary_meta_account", id);
-      } else {
-        setMetaAccountId("");
-      }
-
-      // Resolve Snapchat selection: saved → first available
-      const savedSnapId = getSetting("primary_snapchat_account", "");
-      const validSnap =
-        nextSnapchatAccounts.find((a) => getAccountId(a) === savedSnapId) ||
-        nextSnapchatAccounts[0];
-
-      if (validSnap) {
-        const id = getAccountId(validSnap);
-        setSnapchatAccountId(id);
-        saveSetting("primary_snapchat_account", id);
-      } else {
-        setSnapchatAccountId("");
-      }
-    } catch (err) {
-      setAccountsError(err.message || "Failed to load accounts");
+      const meta = nextMeta.find((account) => getAccountId(account) === getSetting("primary_meta_account", "")) || nextMeta[0];
+      const snap = nextSnapchat.find((account) => getAccountId(account) === getSetting("primary_snapchat_account", "")) || nextSnapchat[0];
+      const nextMetaId = meta ? getAccountId(meta) : "";
+      const nextSnapId = snap ? getAccountId(snap) : "";
+      setMetaAccountId(nextMetaId);
+      setSnapchatAccountId(nextSnapId);
+      if (nextMetaId) saveSetting("primary_meta_account", nextMetaId);
+      if (nextSnapId) saveSetting("primary_snapchat_account", nextSnapId);
+    } catch (requestError) {
+      setAccountsError(requestError.message || "تعذر تحميل الحسابات");
     } finally {
       setLoadingAccounts(false);
-      setAccountsResolved(true);
     }
-  }
+  }, []);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoadingData(true);
     setError("");
-
     try {
-      const params = new URLSearchParams();
-      params.set("date_preset", datePreset);
-
+      const params = new URLSearchParams({ date_preset: datePreset, salla_currency: "SAR" });
       if (metaAccountId) params.set("meta_account_id", metaAccountId);
       if (snapchatAccountId) params.set("snapchat_account_id", snapchatAccountId);
-
-      params.set("salla_currency", "SAR");
-
-      const result = await apiGet(`/api/performance/overview?${params.toString()}`, {
-        timeoutMs: 30000
-      });
-      setData(result);
-    } catch (err) {
-      setData(null);
-      setError(err.message || "تعذر تحميل نظرة الأداء");
+      setData(await apiGet(`/api/performance/overview?${params.toString()}`));
+    } catch (requestError) {
+      setError(requestError.message || "تعذر تحميل نظرة الأداء");
     } finally {
       setLoadingData(false);
     }
-  }
+  }, [datePreset, metaAccountId, snapchatAccountId]);
 
-  function handleMetaChange(value) {
-    setMetaAccountId(value);
-    saveSetting("primary_meta_account", value);
-  }
-
-  function handleSnapchatChange(value) {
-    setSnapchatAccountId(value);
-    saveSetting("primary_snapchat_account", value);
-  }
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => { if (!loadingAccounts) loadData(); }, [loadingAccounts, loadData]);
 
   const summary = data?.summary || {};
   const sources = data?.sources || [];
-
+  const sourceRows = useMemo(() => sources.filter((row) => row.source !== "Total"), [sources]);
   const filteredSources = useMemo(() => {
-    if (activeTab === "ads") {
-      return sources.filter((row) => row.type === "ads" || row.type === "total");
-    }
-    if (activeTab === "organic") {
-      return sources.filter((row) => row.type === "organic" || row.type === "total");
-    }
-    return sources;
-  }, [sources, activeTab]);
+    if (activeTab === "all") return sources;
+    const filtered = sourceRows.filter((row) => row.type === activeTab);
+    const total = sources.find((row) => row.source === "Total");
+    return total && filtered.length ? [...filtered, total] : filtered;
+  }, [activeTab, sourceRows, sources]);
+
+  const metricValues = useMemo(() => ({
+    total: sourceRows.map((row) => row.sales),
+    ads: sourceRows.filter((row) => row.type === "ads").map((row) => row.sales),
+    organic: sourceRows.filter((row) => row.type === "organic").map((row) => row.sales),
+    other: sourceRows.filter((row) => row.type === "other").map((row) => row.sales),
+    spend: sourceRows.filter((row) => row.type === "ads").map((row) => row.spend),
+    roas: sourceRows.filter((row) => row.type === "ads").map((row) => row.roas)
+  }), [sourceRows]);
+
+  const dateLabel = DATE_OPTIONS.find((option) => option.value === datePreset)?.label || "الفترة المحددة";
 
   return (
-    <main dir="rtl" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <div>
-          <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 900, marginBottom: 4 }}>
-            نظرة عامة على الأداء 📊
-          </h1>
-          <p style={{ color: "var(--muted)", fontSize: 13 }}>
-            ROAS الفعلي = مبيعات سلة ÷ إجمالي الإنفاق الإعلاني — كل الأرقام بالريال السعودي
-          </p>
+    <main className="perf-page" dir="rtl">
+      <section className="perf-toolbar" aria-label="أدوات نظرة الأداء">
+        <div className="perf-title"><span className="perf-dashboard-icon">◧</span><h1>نظرة الأداء</h1></div>
+        <label className="perf-date-control"><span>▣</span><select value={datePreset} onChange={(event) => setDatePreset(event.target.value)} disabled={loadingData}>{DATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <div className="perf-attribution"><span className="perf-bars">▂▅▇</span><span>Attribution المنصة</span></div>
+        <div className="perf-toolbar-actions">
+          <button type="button" className={showFilters ? "active" : ""} onClick={() => setShowFilters((value) => !value)} title="الحسابات والفلاتر" aria-label="الحسابات والفلاتر">☷</button>
+          <button type="button" onClick={loadData} disabled={loadingData || loadingAccounts} title="تحديث البيانات" aria-label="تحديث البيانات">{loadingData ? "…" : "↻"}</button>
+          <span className="perf-live-dot" title="بيانات متصلة">●</span>
+        </div>
+      </section>
+
+      {showFilters ? (
+        <section className="perf-account-filters">
+          <label><span>حساب Meta</span><select value={metaAccountId} onChange={(event) => { setMetaAccountId(event.target.value); saveSetting("primary_meta_account", event.target.value); }} disabled={loadingAccounts}><option value="">لا يوجد حساب Meta</option>{metaAccounts.map((account) => <option key={getAccountId(account)} value={getAccountId(account)}>{getAccountName(account)} — {account.currency || account.account_currency || "USD"}</option>)}</select></label>
+          <label><span>حساب Snapchat</span><select value={snapchatAccountId} onChange={(event) => { setSnapchatAccountId(event.target.value); saveSetting("primary_snapchat_account", event.target.value); }} disabled={loadingAccounts}><option value="">لا يوجد حساب Snapchat</option>{snapchatAccounts.map((account) => <option key={getAccountId(account)} value={getAccountId(account)}>{getAccountName(account)} — {account.currency || account.account_currency || "USD"}</option>)}</select></label>
+          <button type="button" onClick={loadAccounts} disabled={loadingAccounts}>{loadingAccounts ? "جاري تحميل الحسابات…" : "تحديث الحسابات"}</button>
+        </section>
+      ) : null}
+
+      {accountsError ? <div className="dash-message error">⚠ {accountsError}</div> : null}
+      {error ? <div className="dash-message error">⚠ {error}</div> : null}
+      {data?.note ? <div className="dash-message warning">⚠ {data.note}</div> : null}
+
+      <section className="perf-content-card">
+        <div className="perf-kpi-grid">
+          <KPICard label="إجمالي المبيعات" value={loadingData ? "—" : formatSAR(summary.total_sales)} values={metricValues.total} color="#2870ff" hint="مبيعات سلة من كل المصادر" />
+          <KPICard label="مبيعات الإعلانات" value={loadingData ? "—" : formatSAR(summary.total_ads_sales)} values={metricValues.ads} color="#2870ff" hint="المبيعات المنسوبة لمنصات الإعلانات" />
+          <KPICard label="المبيعات العضوية" value={loadingData ? "—" : formatSAR(summary.total_organic_sales)} values={metricValues.organic} color="#19d3a2" hint="مبيعات سلة غير المنسوبة للإعلانات" />
+          <KPICard label="مبيعات أخرى" value={loadingData ? "—" : formatSAR(summary.total_other_sales)} values={metricValues.other} color="#8b5cf6" hint="أي مصادر أخرى مسجلة" />
+          <KPICard label="إجمالي الإنفاق الإعلاني" value={loadingData ? "—" : formatSAR(summary.total_ads_spend)} values={metricValues.spend} color="#f7b84b" hint="Meta وSnapchat موحدان بالريال" />
+          <KPICard label="العائد التسويقي" value={loadingData ? "—" : `${(Number(summary.actual_roas || 0) * 100).toFixed(0)}%`} values={metricValues.roas} color={roasColor(summary.actual_roas)} hint="إجمالي المبيعات ÷ الإنفاق الإعلاني" />
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select
-            value={metaAccountId}
-            onChange={(e) => handleMetaChange(e.target.value)}
-            disabled={loadingAccounts}
-            style={{ minWidth: 220 }}
-          >
-            {metaAccounts.length === 0 ? (
-              <option value="">{loadingAccounts ? "جاري التحميل..." : "لا يوجد حساب Meta"}</option>
-            ) : (
-              metaAccounts.map((account) => {
-                const id = getAccountId(account);
-                const currency = account.currency || account.account_currency || "USD";
-                return (
-                  <option key={id} value={id}>
-                    {getAccountName(account)} — {currency}
-                  </option>
-                );
-              })
-            )}
-          </select>
-
-          <select
-            value={snapchatAccountId}
-            onChange={(e) => handleSnapchatChange(e.target.value)}
-            disabled={loadingAccounts}
-            style={{ minWidth: 220 }}
-          >
-            {snapchatAccounts.length === 0 ? (
-              <option value="">{loadingAccounts ? "جاري التحميل..." : "لا يوجد حساب Snapchat"}</option>
-            ) : (
-              snapchatAccounts.map((account) => {
-                const id = getAccountId(account);
-                const currency = account.currency || account.account_currency || "USD";
-                return (
-                  <option key={id} value={id}>
-                    {getAccountName(account)} — {currency}
-                  </option>
-                );
-              })
-            )}
-          </select>
-
-          <select value={datePreset} onChange={(e) => setDatePreset(e.target.value)} disabled={loadingData}>
-            {DATE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-
-          <button className="dash-refresh" onClick={() => { loadAccounts(); }} disabled={loadingData || loadingAccounts}>
-            {loadingAccounts ? "جاري التحديث..." : "تحديث الحسابات ↺"}
-          </button>
-        </div>
-      </div>
-
-      {accountsError && (
-        <div className="dash-message error">⚠ {accountsError}</div>
-      )}
-      {error && <div className="dash-message error">⚠ {error}</div>}
-      {data?.note && <div className="dash-message warning">⚠ {data.note}</div>}
-
-      <div className="dash-kpi-grid">
-        <KPICard label="إجمالي المبيعات" value={loadingData ? "—" : formatSAR(summary.total_sales)} sub="سلة — كل المصادر" color="#06d6a0" icon="📦" />
-        <KPICard label="مبيعات الإعلانات" value={loadingData ? "—" : formatSAR(summary.total_ads_sales)} sub="مبيعات منسوبة للإعلانات" color="#38bdf8" icon="📣" />
-        <KPICard label="مبيعات عضوية / أخرى" value={loadingData ? "—" : formatSAR(summary.total_organic_sales)} sub="مبيعات بدون إعلانات" color="#8b5cf6" icon="🌱" />
-        <KPICard label="إجمالي الإنفاق" value={loadingData ? "—" : formatSAR(summary.total_ads_spend)} sub="Meta + Snapchat" color="#f59e0b" icon="💳" />
-        <KPICard label="ROAS الفعلي" value={loadingData ? "—" : formatROAS(summary.actual_roas)} sub="مبيعات سلة ÷ إنفاق إعلاني" color={roasColor(summary.actual_roas)} icon="📈" />
-        <KPICard label="تكلفة الشراء" value={loadingData ? "—" : formatSAR(summary.cost_per_purchase)} sub="إنفاق ÷ عدد الطلبات" color="#ff477e" icon="🎯" />
-      </div>
-
-      <div style={{ display: "flex", gap: 10, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>
-        {[
-          { key: "all", label: "الكل" },
-          { key: "ads", label: "إعلانات" },
-          { key: "organic", label: "عضوي" }
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            style={{
-              border: "none", background: "transparent",
-              color: activeTab === tab.key ? "var(--text)" : "var(--muted)",
-              fontWeight: 900, cursor: "pointer", padding: "8px 4px",
-              borderBottom: activeTab === tab.key ? "2px solid #ffcc00" : "2px solid transparent"
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="dash-table-card">
-        <div className="dash-table-head">
-          <div>
-            <h2>أداء المصادر</h2>
-            <p>{loadingData ? "جاري التحميل..." : `${filteredSources.length} مصادر • موحد بالريال السعودي`}</p>
-          </div>
+        <div className="perf-section-bar">
+          <nav className="perf-tabs" aria-label="فلترة نوع المصدر">{TABS.map((tab) => <button type="button" key={tab.key} className={activeTab === tab.key ? "active" : ""} onClick={() => setActiveTab(tab.key)}>{tab.label}</button>)}</nav>
+          <button type="button" className="perf-download" onClick={() => downloadCsv(filteredSources)} disabled={!filteredSources.length} title="تحميل CSV" aria-label="تحميل CSV">⇩</button>
         </div>
 
-        {loadingData ? (
-          <div className="dash-empty"><h3>⏳ جاري تحميل البيانات...</h3></div>
-        ) : filteredSources.length === 0 ? (
-          <div className="dash-empty"><h3>لا توجد بيانات</h3></div>
-        ) : (
-          <div className="dash-table-scroll">
-            <table className="dash-data-table">
-              <thead>
-                <tr>
-                  <th>المصدر</th><th>الإنفاق ريال</th><th>الكليكات</th><th>الطلبات</th>
-                  <th>تكلفة الشراء ريال</th><th>المبيعات ريال</th><th>ROAS</th><th>نسبة المبيعات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSources.map((row) => {
-                  const salesShare = summary.total_sales > 0
-                    ? (Number(row.sales || 0) / Number(summary.total_sales)) * 100
-                    : 0;
-                  return (
-                    <tr key={row.source} style={{ fontWeight: row.source === "Total" ? 900 : 600, borderTop: row.source === "Total" ? "1px solid var(--border-2)" : undefined }}>
-                      <td className="dash-name-cell">
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                          <SourceIcon source={row.source} />
-                          {row.source === "Total" ? "الإجمالي" : row.source}
-                        </span>
-                      </td>
-                      <td>{formatSAR(row.spend)}</td>
-                      <td>{formatNumber(row.clicks)}</td>
-                      <td>{formatNumber(row.purchases)}</td>
-                      <td>{formatSAR(row.cost_per_purchase)}</td>
-                      <td>{formatSAR(row.sales)}</td>
-                      <td style={{ color: roasColor(row.roas), fontWeight: 900 }}>{formatROAS(row.roas)}</td>
-                      <td>{salesShare.toFixed(1)}%</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+        <div className="perf-table-wrap">
+          {loadingData ? <div className="perf-empty">جاري تحميل بيانات {dateLabel}…</div> : filteredSources.length === 0 ? <div className="perf-empty">لا توجد بيانات في هذا التصنيف</div> : (
+            <table className="perf-table">
+              <thead><tr><th>المصدر</th><th>الإنفاق</th><th>النقرات</th><th>المشتريات</th><th>تكلفة الشراء</th><th>المبيعات</th><th>ROAS</th></tr></thead>
+              <tbody>{filteredSources.map((row) => <tr key={`${activeTab}-${row.source}`} className={row.source === "Total" ? "total" : ""}><td><SourceIcon source={row.source} /><span>{row.source === "Total" ? "الإجمالي" : row.source}</span></td><td>{formatSAR(row.spend)}</td><td>{formatNumber(row.clicks)}</td><td>{formatNumber(row.purchases)}</td><td>{formatSAR(row.cost_per_purchase)}</td><td>{formatSAR(row.sales)}</td><td style={{ color: roasColor(row.roas) }}>{formatROAS(row.roas)}</td></tr>)}</tbody>
             </table>
-          </div>
-        )}
-      </div>
-
-      {data?.debug?.length > 0 && (
-        <div className="dash-table-card">
-          <div className="dash-table-head">
-            <div><h2>حالة مصادر البيانات</h2><p>اتصال وصحة الـ API</p></div>
-          </div>
-          <div className="dash-table-scroll">
-            <table className="dash-data-table">
-              <thead><tr><th>المصدر</th><th>الحالة</th><th>العملة</th><th>الخطأ</th></tr></thead>
-              <tbody>
-                {data.debug.map((row) => (
-                  <tr key={row.source}>
-                    <td>{row.source}</td>
-                    <td>{row.success ? "✅ متصل" : "❌ مشكلة"}</td>
-                    <td>{row.assumed_currency || "—"}</td>
-                    <td>{row.error || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          )}
         </div>
-      )}
+      </section>
+
+      {data?.debug?.some((row) => !row.success) ? <details className="perf-diagnostics"><summary>حالة مصادر البيانات</summary>{data.debug.map((row) => <p key={row.source}><strong>{row.source}:</strong> {row.success ? "متصل" : row.error || "مشكلة في الاتصال"}</p>)}</details> : null}
     </main>
   );
 }
