@@ -44,6 +44,35 @@ function roasColor(value) {
   return "#ff5c8a";
 }
 
+function changePercent(currentValue, previousValue) {
+  const current = Number(currentValue || 0);
+  const previous = Number(previousValue || 0);
+  if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
+  if (previous === 0) return current === 0 ? 0 : null;
+  return ((current - previous) / Math.abs(previous)) * 100;
+}
+
+function ChangeBadge({ current, previous }) {
+  const change = changePercent(current, previous);
+  if (change === null) return <span className="perf-change neutral">جديد</span>;
+  const direction = change > 0 ? "up" : change < 0 ? "down" : "neutral";
+  const arrow = change > 0 ? "↑" : change < 0 ? "↓" : "—";
+  return <span className={`perf-change ${direction}`}>{arrow} {Math.abs(change).toFixed(1)}%</span>;
+}
+
+function ComparisonMetric({ label, current, previous, formatter = formatNumber, unavailable = false }) {
+  return (
+    <article className="perf-compare-metric">
+      <span className="perf-compare-label">{label}</span>
+      <div className="perf-compare-result">
+        <strong>{unavailable ? "—" : formatter(current)}</strong>
+        {unavailable ? <span className="perf-change neutral">GA4 غير متاح</span> : <ChangeBadge current={current} previous={previous} />}
+      </div>
+      <small>مقارنة بأمس</small>
+    </article>
+  );
+}
+
 function MetricSignal({ values, color = "#6366f1" }) {
   const points = useMemo(() => {
     const numeric = values.map(Number).filter(Number.isFinite);
@@ -120,6 +149,9 @@ export default function PerformanceOverviewPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState("");
   const [accountsError, setAccountsError] = useState("");
+  const [comparison, setComparison] = useState(null);
+  const [comparisonLoading, setComparisonLoading] = useState(true);
+  const [liveUsers, setLiveUsers] = useState(null);
 
   const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
@@ -168,8 +200,55 @@ export default function PerformanceOverviewPage() {
     }
   }, [datePreset, metaAccountId, snapchatAccountId]);
 
+  const performanceUrl = useCallback((preset) => {
+    const params = new URLSearchParams({ date_preset: preset, salla_currency: "SAR" });
+    if (metaAccountId) params.set("meta_account_id", metaAccountId);
+    if (snapchatAccountId) params.set("snapchat_account_id", snapchatAccountId);
+    return `/api/performance/overview?${params.toString()}`;
+  }, [metaAccountId, snapchatAccountId]);
+
+  const loadDailyComparison = useCallback(async () => {
+    setComparisonLoading(true);
+    const results = await Promise.allSettled([
+      apiGet(performanceUrl("today")),
+      apiGet(performanceUrl("yesterday")),
+      apiGet("/api/ga/overview?range=today"),
+      apiGet("/api/ga/overview?range=yesterday")
+    ]);
+    const value = (index) => results[index].status === "fulfilled" ? results[index].value : null;
+    setComparison({
+      today: value(0)?.summary || null,
+      yesterday: value(1)?.summary || null,
+      gaToday: value(2)?.metrics || null,
+      gaYesterday: value(3)?.metrics || null
+    });
+    setComparisonLoading(false);
+  }, [performanceUrl]);
+
+  const loadRealtime = useCallback(async () => {
+    try {
+      const response = await apiGet("/api/ga/realtime");
+      const activeUsers = response?.realtime?.rows?.[0]?.metricValues?.[0]?.value;
+      setLiveUsers(Number.isFinite(Number(activeUsers)) ? Number(activeUsers) : 0);
+    } catch {
+      setLiveUsers(null);
+    }
+  }, []);
+
+  const refreshPage = useCallback(() => {
+    loadData();
+    loadDailyComparison();
+    loadRealtime();
+  }, [loadDailyComparison, loadData, loadRealtime]);
+
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
   useEffect(() => { if (!loadingAccounts) loadData(); }, [loadingAccounts, loadData]);
+  useEffect(() => { if (!loadingAccounts) loadDailyComparison(); }, [loadingAccounts, loadDailyComparison]);
+  useEffect(() => {
+    loadRealtime();
+    const intervalId = window.setInterval(loadRealtime, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [loadRealtime]);
 
   const summary = data?.summary || {};
   const sources = data?.sources || [];
@@ -200,7 +279,7 @@ export default function PerformanceOverviewPage() {
         <div className="perf-attribution"><span className="perf-bars">▂▅▇</span><span>Attribution المنصة</span></div>
         <div className="perf-toolbar-actions">
           <button type="button" className={showFilters ? "active" : ""} onClick={() => setShowFilters((value) => !value)} title="الحسابات والفلاتر" aria-label="الحسابات والفلاتر">☷</button>
-          <button type="button" onClick={loadData} disabled={loadingData || loadingAccounts} title="تحديث البيانات" aria-label="تحديث البيانات">{loadingData ? "…" : "↻"}</button>
+          <button type="button" onClick={refreshPage} disabled={loadingData || loadingAccounts} title="تحديث البيانات" aria-label="تحديث البيانات">{loadingData ? "…" : "↻"}</button>
           <span className="perf-live-dot" title="بيانات متصلة">●</span>
         </div>
       </section>
@@ -216,6 +295,23 @@ export default function PerformanceOverviewPage() {
       {accountsError ? <div className="dash-message error">⚠ {accountsError}</div> : null}
       {error ? <div className="dash-message error">⚠ {error}</div> : null}
       {data?.note ? <div className="dash-message warning">⚠ {data.note}</div> : null}
+
+      <section className="perf-comparison-strip" aria-label="مقارنة اليوم بأمس">
+        <header className="perf-comparison-heading">
+          <span>كل القنوات</span>
+          <strong>اليوم</strong>
+          <small>مقارنة مباشرة بأمس</small>
+        </header>
+        <ComparisonMetric label="الجلسات" current={comparison?.gaToday?.sessions} previous={comparison?.gaYesterday?.sessions} unavailable={!comparisonLoading && !comparison?.gaToday} />
+        <ComparisonMetric label="إجمالي المبيعات" current={comparison?.today?.total_sales} previous={comparison?.yesterday?.total_sales} formatter={formatSAR} unavailable={!comparisonLoading && !comparison?.today} />
+        <ComparisonMetric label="متوسط قيمة الطلب" current={Number(comparison?.today?.total_purchases) ? Number(comparison?.today?.total_sales || 0) / Number(comparison.today.total_purchases) : 0} previous={Number(comparison?.yesterday?.total_purchases) ? Number(comparison?.yesterday?.total_sales || 0) / Number(comparison.yesterday.total_purchases) : 0} formatter={formatSAR} unavailable={!comparisonLoading && !comparison?.today} />
+        <ComparisonMetric label="معدل التحويل" current={comparison?.gaToday?.conversionRate} previous={comparison?.gaYesterday?.conversionRate} formatter={(value) => `${Number(value || 0).toFixed(2)}%`} unavailable={!comparisonLoading && !comparison?.gaToday} />
+        <article className="perf-compare-metric perf-live-users">
+          <span className="perf-compare-label">المستخدمون النشطون الآن</span>
+          <div className="perf-compare-result"><strong>{liveUsers === null ? "—" : formatNumber(liveUsers)}</strong><span className="perf-realtime-status"><i /> مباشر</span></div>
+          <small>يتحدث كل 30 ثانية من GA4</small>
+        </article>
+      </section>
 
       <section className="perf-content-card">
         <div className="perf-kpi-grid">
