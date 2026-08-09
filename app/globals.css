@@ -1207,6 +1207,35 @@ body::after {
 @keyframes perf-live-pulse { 50% { opacity: .38; } }
 .perf-content-card { padding: 30px; background: var(--card); border: 1px solid var(--border); border-radius: 24px; overflow: hidden; }
 .perf-kpi-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.perf-hourly-section { margin-top: 26px; padding: 22px; background: rgba(7,10,24,.48); border: 1px solid var(--border); border-radius: 18px; }
+.perf-hourly-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; margin-bottom: 18px; }
+.perf-hourly-header span { color: var(--accent); font-size: 11px; font-weight: 900; }
+.perf-hourly-header h2 { margin: 4px 0; color: var(--text); font-size: 20px; }
+.perf-hourly-header p { margin: 0; color: var(--muted); font-size: 11px; }
+.perf-hourly-tabs { display: flex; gap: 6px; padding: 4px; background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 12px; }
+.perf-hourly-tabs button { min-height: 34px; padding: 0 13px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 900; cursor: pointer; }
+.perf-hourly-tabs button.active { background: rgba(99,102,241,.2); color: var(--text); }
+.perf-hourly-chart-wrap { direction: ltr; }
+.perf-hourly-chart { display: block; width: 100%; min-width: 680px; height: auto; overflow: visible; }
+.perf-chart-grid { stroke: rgba(148,163,184,.12); stroke-width: 1; }
+.perf-chart-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.perf-chart-line.today { stroke: #19d3a2; filter: drop-shadow(0 0 5px rgba(25,211,162,.32)); }
+.perf-chart-line.yesterday { stroke: #6366f1; stroke-dasharray: 7 6; opacity: .82; }
+.perf-chart-label { fill: var(--muted); font-size: 10px; text-anchor: middle; }
+.perf-chart-legend { display: flex; align-items: center; gap: 16px; padding: 4px 42px 0; color: var(--muted); font-size: 11px; }
+.perf-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.perf-chart-legend i { width: 18px; height: 3px; border-radius: 99px; }
+.perf-chart-legend i.today { background: #19d3a2; }
+.perf-chart-legend i.yesterday { background: #6366f1; }
+.perf-chart-legend strong { margin-inline-start: auto; color: var(--text-2); }
+.perf-chart-empty { min-height: 240px; display: grid; place-items: center; color: var(--muted); font-weight: 800; }
+.perf-source-freshness { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.perf-source-freshness > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 13px; background: rgba(255,255,255,.025); border: 1px solid var(--border); border-radius: 11px; }
+.perf-source-freshness span { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 11px; font-weight: 900; }
+.perf-source-freshness i { width: 7px; height: 7px; border-radius: 50%; }
+.perf-source-freshness strong { color: var(--muted); font-size: 10px; }
+.perf-source-freshness .connected i { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.perf-source-freshness .unavailable i { background: #ff5c8a; }
 .perf-kpi-card { min-height: 140px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 22px; position: relative; background: rgba(10,14,31,.66); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
 .perf-kpi-card:hover { border-color: var(--border-2); }
 .perf-kpi-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; z-index: 1; }
@@ -1255,6 +1284,12 @@ body::after {
   .perf-comparison-heading, .perf-compare-metric { padding: 9px 10px; }
   .perf-content-card { padding: 14px; border-radius: 16px; }
   .perf-kpi-grid { grid-template-columns: 1fr; }
+  .perf-hourly-section { padding: 14px; overflow: hidden; }
+  .perf-hourly-header { align-items: stretch; flex-direction: column; }
+  .perf-hourly-tabs { width: 100%; }
+  .perf-hourly-tabs button { flex: 1; }
+  .perf-hourly-chart-wrap { overflow-x: auto; }
+  .perf-source-freshness { grid-template-columns: 1fr; }
   .perf-kpi-card { min-height: 125px; padding: 18px; }
   .perf-kpi-copy strong { font-size: 24px; }
   .perf-section-bar { margin-top: 22px; }

@@ -22,6 +22,12 @@ const TABS = [
   { key: "other", label: "أخرى" }
 ];
 
+const HOURLY_METRICS = [
+  { key: "sales", label: "المبيعات", formatter: formatSAR },
+  { key: "orders", label: "الطلبات", formatter: formatNumber },
+  { key: "sessions", label: "الجلسات", formatter: formatNumber }
+];
+
 function getAccountId(account) {
   return account?.id || account?.account_id || account?.ad_account_id || account?.snapchat_account_id || account?.adaccount_id || "";
 }
@@ -70,6 +76,43 @@ function ComparisonMetric({ label, current, previous, formatter = formatNumber, 
       </div>
       <small>مقارنة بأمس</small>
     </article>
+  );
+}
+
+function formatUpdateTime(value) {
+  if (!value) return "غير متاح";
+  return new Intl.DateTimeFormat("ar-SA", {
+    timeZone: "Asia/Riyadh",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function HourlyChart({ rows, metric }) {
+  const width = 960;
+  const height = 260;
+  const padding = { top: 22, right: 28, bottom: 38, left: 42 };
+  const selected = HOURLY_METRICS.find((item) => item.key === metric) || HOURLY_METRICS[0];
+  const todayValues = rows.map((row) => Number(row[`today_${metric}`] || 0));
+  const yesterdayValues = rows.map((row) => Number(row[`yesterday_${metric}`] || 0));
+  const max = Math.max(...todayValues, ...yesterdayValues, 1);
+  const x = (hour) => padding.left + (hour / 23) * (width - padding.left - padding.right);
+  const y = (value) => padding.top + (1 - value / max) * (height - padding.top - padding.bottom);
+  const points = (values) => values.map((value, hour) => `${x(hour).toFixed(1)},${y(value).toFixed(1)}`).join(" ");
+
+  return (
+    <div className="perf-hourly-chart-wrap">
+      <svg className="perf-hourly-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`مقارنة ${selected.label} بالساعة بين اليوم وأمس`}>
+        {[0, .25, .5, .75, 1].map((ratio) => {
+          const gridY = padding.top + ratio * (height - padding.top - padding.bottom);
+          return <line key={ratio} x1={padding.left} x2={width - padding.right} y1={gridY} y2={gridY} className="perf-chart-grid" />;
+        })}
+        <polyline points={points(yesterdayValues)} className="perf-chart-line yesterday" />
+        <polyline points={points(todayValues)} className="perf-chart-line today" />
+        {[0, 4, 8, 12, 16, 20, 23].map((hour) => <text key={hour} x={x(hour)} y={height - 12} className="perf-chart-label">{String(hour).padStart(2, "0")}:00</text>)}
+      </svg>
+      <div className="perf-chart-legend"><span><i className="today" />اليوم</span><span><i className="yesterday" />أمس</span><strong>أعلى قيمة: {selected.formatter(max)}</strong></div>
+    </div>
   );
 }
 
@@ -152,6 +195,9 @@ export default function PerformanceOverviewPage() {
   const [comparison, setComparison] = useState(null);
   const [comparisonLoading, setComparisonLoading] = useState(true);
   const [liveUsers, setLiveUsers] = useState(null);
+  const [hourlyData, setHourlyData] = useState(null);
+  const [hourlyMetric, setHourlyMetric] = useState("sales");
+  const [hourlyLoading, setHourlyLoading] = useState(true);
 
   const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
@@ -235,11 +281,23 @@ export default function PerformanceOverviewPage() {
     }
   }, []);
 
+  const loadHourlyData = useCallback(async () => {
+    setHourlyLoading(true);
+    try {
+      setHourlyData(await apiGet("/api/performance/hourly"));
+    } catch {
+      setHourlyData(null);
+    } finally {
+      setHourlyLoading(false);
+    }
+  }, []);
+
   const refreshPage = useCallback(() => {
     loadData();
     loadDailyComparison();
     loadRealtime();
-  }, [loadDailyComparison, loadData, loadRealtime]);
+    loadHourlyData();
+  }, [loadDailyComparison, loadData, loadHourlyData, loadRealtime]);
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
   useEffect(() => { if (!loadingAccounts) loadData(); }, [loadingAccounts, loadData]);
@@ -249,6 +307,7 @@ export default function PerformanceOverviewPage() {
     const intervalId = window.setInterval(loadRealtime, 30000);
     return () => window.clearInterval(intervalId);
   }, [loadRealtime]);
+  useEffect(() => { loadHourlyData(); }, [loadHourlyData]);
 
   const summary = data?.summary || {};
   const sources = data?.sources || [];
@@ -322,6 +381,18 @@ export default function PerformanceOverviewPage() {
           <KPICard label="إجمالي الإنفاق الإعلاني" value={loadingData ? "—" : formatSAR(summary.total_ads_spend)} values={metricValues.spend} color="#f7b84b" hint="Meta وSnapchat موحدان بالريال" />
           <KPICard label="العائد التسويقي" value={loadingData ? "—" : `${(Number(summary.actual_roas || 0) * 100).toFixed(0)}%`} values={metricValues.roas} color={roasColor(summary.actual_roas)} hint="إجمالي المبيعات ÷ الإنفاق الإعلاني" />
         </div>
+
+        <section className="perf-hourly-section" aria-label="الأداء بالساعة">
+          <header className="perf-hourly-header">
+            <div><span>تحليل اليوم</span><h2>اليوم مقابل أمس بالساعة</h2><p>حسب توقيت الرياض — بيانات فعلية من Salla وGA4</p></div>
+            <div className="perf-hourly-tabs" role="group" aria-label="اختر المقياس">{HOURLY_METRICS.map((item) => <button type="button" key={item.key} className={hourlyMetric === item.key ? "active" : ""} onClick={() => setHourlyMetric(item.key)}>{item.label}</button>)}</div>
+          </header>
+          {hourlyLoading ? <div className="perf-chart-empty">جاري تحميل المقارنة بالساعة…</div> : hourlyData?.rows?.length ? <HourlyChart rows={hourlyData.rows} metric={hourlyMetric} /> : <div className="perf-chart-empty">تعذر تحميل بيانات المقارنة بالساعة</div>}
+          <footer className="perf-source-freshness">
+            <div className={hourlyData?.sources?.salla?.success ? "connected" : "unavailable"}><span><i /> Salla</span><strong>{hourlyData?.sources?.salla?.success ? `آخر جلب ${formatUpdateTime(hourlyData.sources.salla.fetched_at)}` : "غير متصل"}</strong></div>
+            <div className={hourlyData?.sources?.ga4?.success ? "connected" : "unavailable"}><span><i /> Google Analytics</span><strong>{hourlyData?.sources?.ga4?.success ? `آخر جلب ${formatUpdateTime(hourlyData.sources.ga4.fetched_at)}` : "غير متصل"}</strong></div>
+          </footer>
+        </section>
 
         <div className="perf-section-bar">
           <nav className="perf-tabs" aria-label="فلترة نوع المصدر">{TABS.map((tab) => <button type="button" key={tab.key} className={activeTab === tab.key ? "active" : ""} onClick={() => setActiveTab(tab.key)}>{tab.label}</button>)}</nav>
