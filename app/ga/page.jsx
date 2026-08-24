@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import DateRangePicker from "../../components/DateRangePicker";
+import PlatformLogo from "../../components/PlatformLogo";
 import { useDateRange } from "../context/DateRangeContext";
 import {
   ResponsiveContainer,
@@ -228,12 +229,17 @@ export default function GoogleAnalyticsDashboard() {
       </div>
 
       <header className="dash-pro-header">
-        <div>
-          <span className="dash-badge">Google Analytics 4</span>
-          <h1>GA4 Executive Overview</h1>
-          <p>
-            Current Property: <strong>{currentProperty?.name || selectedPropertyName || "Loading..."}</strong>
-          </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 46, height: 46, borderRadius: 14, background: "rgba(255,255,255,.96)", display: "grid", placeItems: "center", padding: 7 }}>
+            <PlatformLogo platform="ga4" size={32} decorative />
+          </div>
+          <div>
+            <span className="dash-badge">Google Analytics 4</span>
+            <h1>GA4 Executive Overview</h1>
+            <p>
+              Current Property: <strong>{currentProperty?.name || selectedPropertyName || "Loading..."}</strong>
+            </p>
+          </div>
         </div>
 
         <button

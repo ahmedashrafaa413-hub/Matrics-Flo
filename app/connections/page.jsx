@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PlatformLogo from "../../components/PlatformLogo";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
 const COMING_SOON = [
-  { name: "Google Ads", icon: "G", iconBg: "#4285F4", desc: "Search, Performance Max, YouTube" },
-  { name: "TikTok Ads", icon: "T", iconBg: "#010101", desc: "Campaigns, ad groups, creatives"  },
-  { name: "Shopify",    icon: "S", iconBg: "#96BF48", desc: "Revenue, orders, products"         },
+  { name: "Google Ads", platform: "google-ads", desc: "Search, Performance Max, YouTube" },
+  { name: "TikTok Ads", platform: "tiktok", desc: "Campaigns, ad groups, creatives"  },
+  { name: "Shopify", platform: "shopify", desc: "Revenue, orders, products" },
 ];
 
 export default function ConnectionsPage() {
@@ -114,12 +115,12 @@ export default function ConnectionsPage() {
             padding: "22px 24px", borderBottom: metaConnected ? "1px solid var(--border)" : "none"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 12, background: "#1877F2",
+              <div className="connection-platform-logo" style={{
+                width: 44, height: 44, borderRadius: 12, background: "rgba(255,255,255,0.96)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20, fontWeight: 900, color: "white", flexShrink: 0,
+                flexShrink: 0, padding: 7,
                 boxShadow: "0 0 16px rgba(24,119,242,0.3)"
-              }}>f</div>
+              }}><PlatformLogo platform="meta" size={30} decorative /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -215,12 +216,12 @@ export default function ConnectionsPage() {
             padding: "22px 24px", borderBottom: gaConnected ? "1px solid var(--border)" : "none"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 12, background: "#E37400",
+              <div className="connection-platform-logo" style={{
+                width: 44, height: 44, borderRadius: 12, background: "rgba(255,255,255,0.96)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 18, fontWeight: 900, color: "white", flexShrink: 0,
+                flexShrink: 0, padding: 7,
                 boxShadow: "0 0 16px rgba(227,116,0,0.3)"
-              }}>G</div>
+              }}><PlatformLogo platform="ga4" size={30} decorative /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -288,13 +289,13 @@ export default function ConnectionsPage() {
             padding: "22px 24px"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
+              <div className="connection-platform-logo" style={{
                 width: 44, height: 44, borderRadius: 12,
-                background: "linear-gradient(135deg,#7C3AED,#5B21B6)",
+                background: "#103f38",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 16, fontWeight: 900, color: "white", flexShrink: 0,
+                flexShrink: 0, padding: 6,
                 boxShadow: "0 0 16px rgba(124,58,237,0.3)"
-              }}>س</div>
+              }}><PlatformLogo platform="salla" size={32} decorative /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -339,12 +340,12 @@ export default function ConnectionsPage() {
             padding: "22px 24px"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
+              <div className="connection-platform-logo" style={{
                 width: 44, height: 44, borderRadius: 12, background: "#FFFC00",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 22, flexShrink: 0,
+                flexShrink: 0, overflow: "hidden",
                 boxShadow: "0 0 16px rgba(255,252,0,0.25)"
-              }}>👻</div>
+              }}><PlatformLogo platform="snapchat" size={44} decorative /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -409,12 +410,11 @@ export default function ConnectionsPage() {
               padding: "20px", display: "flex", flexDirection: "column",
               gap: 10, opacity: 0.6
             }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: 10, background: p.iconBg,
+              <div className="connection-platform-logo" style={{
+                width: 40, height: 40, borderRadius: 10, background: "rgba(255,255,255,0.96)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 16, fontWeight: 900,
-                color: p.iconBg === "#FFFC00" ? "#000" : "white"
-              }}>{p.icon}</div>
+                padding: 6
+              }}><PlatformLogo platform={p.platform} size={28} decorative /></div>
               <div>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>{p.name}</h3>
                 <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>{p.desc}</p>

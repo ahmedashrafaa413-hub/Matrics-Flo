@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import PlatformLogo from "../../components/PlatformLogo";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 import { toSAR, safeDivide, formatSAR, formatROAS } from "../../lib/currency";
@@ -395,7 +396,7 @@ export default function MetaPage() {
       {/* ── Top Bar ── */}
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:36, height:36, borderRadius:10, background:"#1877F220", border:"1px solid #1877F240", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:900, color:"#1877F2" }}>f</div>
+          <div style={{ width:36, height:36, borderRadius:10, background:"rgba(255,255,255,.96)", border:"1px solid #1877F240", display:"flex", alignItems:"center", justifyContent:"center", padding:6 }}><PlatformLogo platform="meta" size={26} decorative /></div>
           <div>
             <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:20, fontWeight:700, color:"var(--text)", letterSpacing:"-0.3px" }}>Meta Ads</h1>
             <p style={{ fontSize:12, color:"var(--muted)" }}>{accounts.find(a=>a.id===accountId)?.name || "No account selected"}</p>

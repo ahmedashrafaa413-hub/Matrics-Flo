@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import PlatformLogo from "../../components/PlatformLogo";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 import { formatSAR, formatNumber, formatROAS } from "../../lib/currency";
@@ -158,12 +159,11 @@ function KPICard({ label, value, values, color, hint }) {
 
 function SourceIcon({ source }) {
   const name = String(source || "").toLowerCase();
-  let icon = "◫", className = "default";
-  if (name.includes("meta")) { icon = "f"; className = "meta"; }
-  if (name.includes("snapchat")) { icon = "👻"; className = "snapchat"; }
-  if (name.includes("salla")) { icon = "س"; className = "salla"; }
-  if (name.includes("total")) { icon = "Σ"; className = "total"; }
-  return <span className={`perf-source-icon ${className}`}>{icon}</span>;
+  if (name.includes("meta")) return <span className="perf-source-icon brand"><PlatformLogo platform="meta" size={22} decorative /></span>;
+  if (name.includes("snapchat")) return <span className="perf-source-icon brand"><PlatformLogo platform="snapchat" size={24} decorative /></span>;
+  if (name.includes("salla")) return <span className="perf-source-icon brand"><PlatformLogo platform="salla" size={23} decorative /></span>;
+  if (name.includes("total")) return <span className="perf-source-icon total">Σ</span>;
+  return <span className="perf-source-icon default">◫</span>;
 }
 
 function downloadCsv(rows) {
