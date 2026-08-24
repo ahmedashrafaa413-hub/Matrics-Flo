@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import PlatformLogo from "../../components/PlatformLogo";
 import { apiGet, apiPost } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 
@@ -1227,6 +1228,16 @@ export default function SnapchatPage() {
           }
         }
       `}</style>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 13, overflow: "hidden", flexShrink: 0 }}>
+          <PlatformLogo platform="snapchat" size={44} decorative />
+        </div>
+        <div>
+          <h1 style={{ color: "var(--text)", fontSize: 21, fontWeight: 900, margin: 0 }}>Snapchat Ads</h1>
+          <p style={{ color: "var(--muted)", fontSize: 12, margin: "3px 0 0" }}>Campaign, Ad Squad and Ad performance</p>
+        </div>
+      </div>
 
       <div className="snap-control-card">
         <div className="snap-control-grid">

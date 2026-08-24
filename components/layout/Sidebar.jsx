@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import PlatformLogo from "../PlatformLogo";
 
 const channels = [
   {
@@ -19,27 +20,27 @@ const channels = [
   {
     label: "Meta Ads",
     href: "/meta",
-    icon: "f"
+    platform: "meta"
   },
   {
     label: "Google Analytics",
     href: "/ga",
-    icon: "G"
+    platform: "ga4"
   },
   {
     label: "Salla",
     href: "/salla",
-    icon: "س"
+    platform: "salla"
   },
   {
     label: "Snapchat Ads",
     href: "/snapchat",
-    icon: "👻"
+    platform: "snapchat"
   },
   {
     label: "Shopify",
     href: "/shopify",
-    icon: "S",
+    platform: "shopify",
     soon: true
   }
 ];
@@ -109,7 +110,7 @@ function SidebarLink({ item }) {
           opacity: 0.65
         }}
       >
-        <NavIcon active={false}>{item.icon}</NavIcon>
+        <NavIcon active={false}>{item.platform ? <PlatformLogo platform={item.platform} size={18} decorative /> : item.icon}</NavIcon>
 
         <span
           style={{
@@ -156,7 +157,7 @@ function SidebarLink({ item }) {
         transition: "all 0.18s ease"
       }}
     >
-      <NavIcon active={active}>{item.icon}</NavIcon>
+      <NavIcon active={active}>{item.platform ? <PlatformLogo platform={item.platform} size={18} decorative /> : item.icon}</NavIcon>
 
       <span
         style={{

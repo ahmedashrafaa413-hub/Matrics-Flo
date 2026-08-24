@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import PlatformLogo from "../../components/PlatformLogo";
 import { apiGet, apiPost } from "../../lib/api";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
@@ -94,7 +95,7 @@ export default function SallaPage() {
     <main style={{ display:"flex", flexDirection:"column", gap:14 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:36, height:36, borderRadius:10, background:"#7C3AED20", border:"1px solid #7C3AED40", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:900, color:"#7C3AED" }}>س</div>
+          <div style={{ width:36, height:36, borderRadius:10, background:"#103f38", border:"1px solid #BBF3E540", display:"flex", alignItems:"center", justifyContent:"center", padding:5 }}><PlatformLogo platform="salla" size={27} decorative /></div>
           <div>
             <h1 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:20, fontWeight:700, color:"var(--text)" }}>Salla Store</h1>
             <p style={{ fontSize:12, color:"var(--muted)" }}>{data?.success ? `${data.date_range?.from} → ${data.date_range?.to}` : "Loading..."}</p>
