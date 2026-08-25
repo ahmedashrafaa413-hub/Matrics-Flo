@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
+import { useLanguage } from "../../app/context/LanguageContext";
 
 const AUTH_PATHS = ["/login", "/signup", "/auth"];
 
@@ -13,13 +14,14 @@ function isAuthPath(pathname) {
 
 export default function AppShell({ children }) {
   const pathname = usePathname();
+  const { direction } = useLanguage();
 
   if (isAuthPath(pathname)) {
     return children;
   }
 
   return (
-    <div className="app-shell" dir="ltr">
+    <div className="app-shell" dir={direction}>
       <Sidebar />
 
       <main className="main">
