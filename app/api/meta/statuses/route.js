@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMetaToken } from "../../../../lib/metaToken";
+import { buildMetaGraphUrl, fetchMetaCollection } from "../../../../lib/metaApi.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -33,30 +34,22 @@ export async function GET(request) {
     limit:        "500"
   });
 
-  const url = `https://graph.facebook.com/v19.0/${endpoint}?${params}`;
+  const url = buildMetaGraphUrl(endpoint, params);
 
   try {
-    const res  = await fetch(url, {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const data = await res.json();
-
-    if (data.error) {
-      return NextResponse.json({ success: false, error: data.error }, { status: 400 });
-    }
+    const result = await fetchMetaCollection({ url, token });
 
     // Return a flat map: { [id]: { status, effective_status } }
     const statusMap = {};
-    for (const item of data.data || []) {
+    for (const item of result.data) {
       statusMap[item.id] = {
         status:           item.status,
         effective_status: item.effective_status
       };
     }
 
-    return NextResponse.json({ success: true, level, statusMap });
+    return NextResponse.json({ success: true, level, statusMap, pages_loaded: result.pages });
   } catch (err) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: err.message }, { status: err.status || 500 });
   }
 }

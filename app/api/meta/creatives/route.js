@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMetaToken } from "../../../../lib/metaToken";
+import { buildMetaGraphUrl } from "../../../../lib/metaApi.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function GET(request) {
 
   const results = await Promise.allSettled(
     adIds.map(async (adId) => {
-      const url  = `https://graph.facebook.com/v19.0/${adId}?fields=${encodeURIComponent(fields)}`;
+      const url = buildMetaGraphUrl(adId, { fields });
       const res  = await fetch(url, {
         cache: "no-store",
         headers: { Authorization: `Bearer ${token}` }
