@@ -2,42 +2,44 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import LanguageSwitcher from "../LanguageSwitcher";
+import { useLanguage } from "../../app/context/LanguageContext";
 
 const channels = [
   {
-    label: "Intelligence Engine",
+    labelKey: "navigation.analytics",
     href: "/intelligence",
     icon: "🧠",
     badge: "AI"
   },
   {
-    label: "Performance Overview",
+    labelKey: "navigation.performance",
     href: "/performance-overview",
     icon: "📊",
-    badge: "New"
+    badgeKey: "common.new"
   },
   {
-    label: "Meta Ads",
+    labelKey: "navigation.meta",
     href: "/meta",
     icon: "f"
   },
   {
-    label: "Google Analytics",
+    labelKey: "navigation.googleAnalytics",
     href: "/ga",
     icon: "G"
   },
   {
-    label: "Salla",
+    labelKey: "navigation.salla",
     href: "/salla",
     icon: "س"
   },
   {
-    label: "Snapchat Ads",
+    labelKey: "navigation.snapchat",
     href: "/snapchat",
     icon: "👻"
   },
   {
-    label: "Shopify",
+    labelKey: "navigation.shopify",
     href: "/shopify",
     icon: "S",
     soon: true
@@ -46,17 +48,17 @@ const channels = [
 
 const accountLinks = [
   {
-    label: "Agency Overview",
+    labelKey: "navigation.agency",
     href: "/agency",
     icon: "🏢"
   },
   {
-    label: "Connections",
+    labelKey: "navigation.connections",
     href: "/connections",
     icon: "◇"
   },
   {
-    label: "Settings",
+    labelKey: "navigation.settings",
     href: "/settings",
     icon: "⚙️"
   }
@@ -92,7 +94,9 @@ function NavIcon({ children, active }) {
 
 function SidebarLink({ item }) {
   const pathname = usePathname();
+  const { t } = useLanguage();
   const active = isActive(pathname, item.href);
+  const label = t(item.labelKey);
 
   if (item.soon) {
     return (
@@ -118,7 +122,7 @@ function SidebarLink({ item }) {
             flex: 1
           }}
         >
-          {item.label}
+          {label}
         </span>
 
         <span
@@ -130,7 +134,7 @@ function SidebarLink({ item }) {
             color: "rgba(255,255,255,0.25)"
           }}
         >
-          Soon
+          {t("common.soon")}
         </span>
       </div>
     );
@@ -165,10 +169,10 @@ function SidebarLink({ item }) {
           flex: 1
         }}
       >
-        {item.label}
+        {label}
       </span>
 
-      {item.badge && (
+      {item.badgeKey && (
         <span
           style={{
             fontSize: 9,
@@ -180,7 +184,7 @@ function SidebarLink({ item }) {
             borderRadius: 999
           }}
         >
-          {item.badge}
+          {t(item.badgeKey)}
         </span>
       )}
 
@@ -200,6 +204,7 @@ function SidebarLink({ item }) {
 }
 
 export default function Sidebar() {
+  const { t } = useLanguage();
   return (
     <aside
       className="sidebar metrics-sidebar"
@@ -245,7 +250,7 @@ export default function Sidebar() {
             Metrics<span style={{ color: "#06d6a0" }}>Flo</span>
           </div>
           <div style={{ fontSize: 9, fontWeight: 700, color: "#4a5278", letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 4 }}>
-            Ad Intelligence
+            {t("brand.subtitle")}
           </div>
         </div>
       </Link>
@@ -275,7 +280,7 @@ export default function Sidebar() {
             fontSize: 14
           }}
         >
-          <span>Select workspace</span>
+          <span>{t("common.selectWorkspace")}</span>
 
           <span
             style={{
@@ -314,7 +319,7 @@ export default function Sidebar() {
             padding: "8px 12px"
           }}
         >
-          Channels
+          {t("common.channels")}
         </div>
 
         {channels.map((item) => (
@@ -342,7 +347,7 @@ export default function Sidebar() {
             padding: "8px 12px"
           }}
         >
-          Account
+          {t("common.account")}
         </div>
 
         {accountLinks.map((item) => (
@@ -350,7 +355,8 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-footer" style={{ marginTop: "auto" }}>
+      <div className="sidebar-footer" style={{ marginTop: "auto", display: "grid", gap: 10 }}>
+        <LanguageSwitcher />
         <div
           style={{
             border: "1px solid rgba(6,214,160,0.25)",
@@ -370,7 +376,7 @@ export default function Sidebar() {
               fontWeight: 900
             }}
           >
-            Platform Connected
+            {t("common.connected")}
           </span>
 
           <span
