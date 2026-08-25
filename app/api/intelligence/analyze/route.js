@@ -230,8 +230,24 @@ export async function POST(request) {
       fetch(`${baseUrl}/api/salla/summary?date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({})),
     ]);
 
-    const metaSummary  = metaRes?.summary  || {};
-    const snapSummary  = snapRes?.summary  || {};
+    if (snapAccountId && (!snapRes?.success || !snapRes?.last_synced_at)) {
+      const error = new Error(
+        "Snapchat data is not synchronized for the selected period. Sync Snapchat first, then retry the analysis."
+      );
+      error.status = 409;
+      throw error;
+    }
+
+    const metaSummary = metaRes?.summary || {};
+    const rawSnapSummary = snapRes?.summary || {};
+    const snapSummary = {
+      ...rawSnapSummary,
+      video_view_rate:
+        rawSnapSummary.video_view_rate ??
+        (safeNum(rawSnapSummary.impressions)
+          ? (safeNum(rawSnapSummary.video_views) / safeNum(rawSnapSummary.impressions)) * 100
+          : 0)
+    };
     const sallaSummary = sallaRes || {};
 
     const signals = generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency, snapCurrency, datePreset });
