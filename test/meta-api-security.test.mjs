@@ -85,4 +85,7 @@ test("Intelligence analysis requires tenant auth, trusted origin, and rate limit
   assert.match(source, /scope:\s*"intelligence_analysis"/);
   assert.match(source, /\/api\/snapchat\/data\?/);
   assert.doesNotMatch(source, /\/api\/snapchat\/insights\?/);
+  assert.match(source, /!snapRes\?\.last_synced_at/);
+  assert.match(source, /rawSnapSummary\.video_views/);
+  assert.match(source, /error\.status = 409/);
 });
