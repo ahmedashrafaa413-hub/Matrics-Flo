@@ -1,6 +1,38 @@
 import { NextResponse } from "next/server";
+import { getActiveWorkspace } from "../../../../lib/workspace";
+import { assertTrustedMutation } from "../../../../lib/requestSecurity.mjs";
+import { assertRateLimit, consumeRateLimit } from "../../../../lib/rateLimit.mjs";
 
 export const dynamic = "force-dynamic";
+
+const ALLOWED_DATE_PRESETS = new Set([
+  "today",
+  "yesterday",
+  "last_7d",
+  "last_30d",
+  "maximum"
+]);
+const ACCOUNT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const MAX_BODY_BYTES = 16 * 1024;
+
+function validateAccountId(value, field) {
+  const id = String(value || "").trim();
+  if (id && !ACCOUNT_ID_PATTERN.test(id)) {
+    const error = new Error(`${field} is invalid`);
+    error.status = 400;
+    throw error;
+  }
+  return id;
+}
+
+function getErrorHeaders(error) {
+  if (!error?.retryAfter) return undefined;
+  const seconds = Math.max(
+    1,
+    Math.ceil((new Date(error.retryAfter).getTime() - Date.now()) / 1000)
+  );
+  return { "Retry-After": String(seconds) };
+}
 
 function safeNum(v) { const n = Number(v||0); return Number.isFinite(n) ? n : 0; }
 function safeDivide(a,b) { const x=safeNum(a),y=safeNum(b); return y ? x/y : 0; }
@@ -145,8 +177,46 @@ ${signals.map((s,i) => `${i+1}. [${s.type.toUpperCase()}] ${s.platform} — ${s.
 
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const { metaAccountId, snapAccountId, datePreset = "last_7d", metaCurrency = "USD", snapCurrency = "USD" } = body;
+    assertTrustedMutation(request);
+    const { user, workspace } = await getActiveWorkspace(request);
+
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (contentLength > MAX_BODY_BYTES) {
+      const error = new Error("Request body is too large");
+      error.status = 413;
+      throw error;
+    }
+
+    const rateLimit = await consumeRateLimit({
+      scope: "intelligence_analysis",
+      identity: `${workspace.id}:${user.id}`,
+      limit: 20,
+      windowSeconds: 60 * 60
+    });
+    assertRateLimit(rateLimit);
+
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+      const error = new Error("Request body is too large");
+      error.status = 413;
+      throw error;
+    }
+
+    let body;
+    try {
+      body = JSON.parse(rawBody || "{}");
+    } catch {
+      const error = new Error("Request body must be valid JSON");
+      error.status = 400;
+      throw error;
+    }
+    const metaAccountId = validateAccountId(body?.metaAccountId, "metaAccountId");
+    const snapAccountId = validateAccountId(body?.snapAccountId, "snapAccountId");
+    const datePreset = ALLOWED_DATE_PRESETS.has(body?.datePreset)
+      ? body.datePreset
+      : "last_7d";
+    const metaCurrency = String(body?.metaCurrency || "USD").slice(0, 8);
+    const snapCurrency = String(body?.snapCurrency || "USD").slice(0, 8);
     const baseUrl     = `${new URL(request.url).protocol}//${new URL(request.url).host}`;
     const cookieHeader = request.headers.get("cookie") || "";
 
@@ -155,7 +225,7 @@ export async function POST(request) {
         ? fetch(`${baseUrl}/api/meta/insights?account_id=${encodeURIComponent(metaAccountId)}&level=campaign&date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({ summary:{} }))
         : Promise.resolve({ summary:{} }),
       snapAccountId
-        ? fetch(`${baseUrl}/api/snapchat/insights?account_id=${encodeURIComponent(snapAccountId)}&level=campaign&date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({ summary:{} }))
+        ? fetch(`${baseUrl}/api/snapchat/data?account_id=${encodeURIComponent(snapAccountId)}&level=account&date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({ summary:{} }))
         : Promise.resolve({ summary:{} }),
       fetch(`${baseUrl}/api/salla/summary?date_preset=${encodeURIComponent(datePreset)}`, { cache:"no-store", headers:{ Cookie: cookieHeader } }).then(r=>r.json()).catch(()=>({})),
     ]);
@@ -209,8 +279,12 @@ export async function POST(request) {
       meta:  { spend_sar: toSAR(metaSummary.spend||0,metaCurrency),  roas: metaSummary.roas,  purchases: metaSummary.purchases },
       snap:  { spend_sar: toSAR(snapSummary.spend||0,snapCurrency),    roas: snapSummary.roas,  purchases: snapSummary.purchases },
       salla: { revenue: sallaSummary.total_revenue||sallaSummary.total_sales||0, orders: sallaSummary.total_orders||0 },
+      rate_limit: { remaining: rateLimit.remaining, reset_at: rateLimit.resetAt }
     });
   } catch (err) {
-    return NextResponse.json({ success:false, error:err.message }, { status:500 });
+    return NextResponse.json(
+      { success:false, error:err.message || "Internal server error" },
+      { status:err.status || 500, headers:getErrorHeaders(err) }
+    );
   }
 }

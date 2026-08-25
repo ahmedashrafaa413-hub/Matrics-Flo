@@ -8,10 +8,12 @@ import {
   getRequiredEnv,
   verifyOAuthState
 } from "../../../../lib/oauthFoundation.mjs";
+import {
+  buildMetaGraphUrl,
+  fetchMetaCollection
+} from "../../../../lib/metaApi.mjs";
 
 export const dynamic = "force-dynamic";
-
-const GRAPH_VERSION = "v19.0";
 
 export async function GET(request) {
   const url = new URL(request.url);
@@ -52,7 +54,7 @@ export async function GET(request) {
     const redirectUri = `${appUrl}/api/meta/callback`;
 
     // Exchange code for a short-lived token
-    const tokenUrl = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
+    const tokenUrl = buildMetaGraphUrl("oauth/access_token");
     const tokenRes = await fetch(tokenUrl, {
       method: "POST",
       cache: "no-store",
@@ -73,7 +75,7 @@ export async function GET(request) {
     }
 
     // Convert to a long-lived token (~60 days)
-    const longTokenUrl = `https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`;
+    const longTokenUrl = buildMetaGraphUrl("oauth/access_token");
     const longRes = await fetch(longTokenUrl, {
       method: "POST",
       cache: "no-store",
@@ -112,18 +114,15 @@ export async function GET(request) {
     // Discover ad accounts under this token and register each one against
     // the same workspace so /api/meta/accounts can list them per-workspace.
     try {
-      const accountsRes = await fetch(
-        `https://graph.facebook.com/${GRAPH_VERSION}/me/adaccounts` +
-          `?fields=id,name,account_status,currency`,
-        {
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${finalToken}` }
-        }
-      );
+      const accountsResult = await fetchMetaCollection({
+        url: buildMetaGraphUrl("me/adaccounts", {
+          fields: "id,name,account_status,currency",
+          limit: 500
+        }),
+        token: finalToken
+      });
 
-      const accountsData = await accountsRes.json();
-
-      for (const account of accountsData?.data || []) {
+      for (const account of accountsResult.data) {
         await upsertPlatformConnection({
           request,
           provider: "meta",

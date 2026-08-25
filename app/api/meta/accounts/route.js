@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { getMetaToken } from "../../../../lib/metaToken";
+import { buildMetaGraphUrl, fetchMetaCollection } from "../../../../lib/metaApi.mjs";
 
 export const dynamic = "force-dynamic";
-
-const GRAPH_VERSION = "v19.0";
 
 export async function GET(request) {
   try {
@@ -16,27 +15,17 @@ export async function GET(request) {
       );
     }
 
-    const url =
-      `https://graph.facebook.com/${GRAPH_VERSION}/me/adaccounts` +
-      "?fields=id,name,account_status,currency";
-
-    const response = await fetch(url, {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` }
+    const url = buildMetaGraphUrl("me/adaccounts", {
+      fields: "id,name,account_status,currency",
+      limit: 500
     });
-    const data = await response.json();
-
-    if (data.error) {
-      return NextResponse.json(
-        { success: false, error: data.error },
-        { status: 400 }
-      );
-    }
+    const result = await fetchMetaCollection({ url, token });
 
     return NextResponse.json({
       success: true,
       provider: "Meta Ads",
-      data: data.data || []
+      data: result.data,
+      pages_loaded: result.pages
     });
   } catch (error) {
     return NextResponse.json(

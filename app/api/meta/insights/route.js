@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMetaToken } from "../../../../lib/metaToken";
+import { buildMetaGraphUrl, fetchMetaCollection } from "../../../../lib/metaApi.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -97,25 +98,9 @@ export async function GET(request) {
       params.append("date_preset", datePreset);
     }
 
-    const url = `https://graph.facebook.com/v19.0/${accountId}/insights?${params.toString()}`;
-
-    const response = await fetch(url, {
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const data = await response.json();
-
-    if (data.error) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: data.error
-        },
-        { status: 400 }
-      );
-    }
-
-    const rows = data.data || [];
+    const url = buildMetaGraphUrl(`${accountId}/insights`, params);
+    const result = await fetchMetaCollection({ url, token });
+    const rows = result.data;
     const enriched = rows.map((row) => {
       const purchases = getActionValue(
         row.actions || [],
@@ -275,15 +260,15 @@ export async function GET(request) {
       date_range:   sinceParam && untilParam ? { since: sinceParam, until: untilParam } : null,
       data: enriched,
       summary,
-      paging: data.paging || null
+      pages_loaded: result.pages
     });
   } catch (error) {
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || "Internal server error"
+        error: error?.metaError || error?.message || "Internal server error"
       },
-      { status: 500 }
+      { status: error?.status || 500 }
     );
   }
 }

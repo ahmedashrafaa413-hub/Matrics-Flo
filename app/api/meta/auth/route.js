@@ -6,6 +6,7 @@ import {
   getRequiredEnv,
   setOAuthStateCookie
 } from "../../../../lib/oauthFoundation.mjs";
+import { getMetaGraphVersion } from "../../../../lib/metaApi.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export async function GET(request) {
   const scope = ["ads_read", "ads_management", "business_management"].join(",");
 
   const authUrl =
-    "https://www.facebook.com/v19.0/dialog/oauth" +
+    `https://www.facebook.com/${getMetaGraphVersion()}/dialog/oauth` +
     `?client_id=${encodeURIComponent(config.META_APP_ID)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&scope=${encodeURIComponent(scope)}` +
