@@ -1,6 +1,7 @@
 import "./globals.css";
 import AppShell from "../components/layout/AppShell";
 import { DateRangeProvider } from "./context/DateRangeContext";
+import { LanguageProvider } from "./context/LanguageContext";
 
 export const metadata = {
   title: "Metrics Flo — Ad Intelligence Platform",
@@ -10,7 +11,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="ar" dir="rtl">
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
@@ -20,10 +21,12 @@ export default function RootLayout({ children }) {
         />
       </head>
 
-      <body>
-        <DateRangeProvider>
-          <AppShell>{children}</AppShell>
-        </DateRangeProvider>
+      <body suppressHydrationWarning>
+        <LanguageProvider>
+          <DateRangeProvider>
+            <AppShell>{children}</AppShell>
+          </DateRangeProvider>
+        </LanguageProvider>
       </body>
     </html>
   );
