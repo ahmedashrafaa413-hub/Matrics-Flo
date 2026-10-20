@@ -266,7 +266,8 @@ export default function MetaPage() {
   const [error,        setError]        = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
 
-  useEffect(() => { loadAccounts(); loadSalla(); }, []);
+  useEffect(() => { loadAccounts(); }, []);
+  useEffect(() => { loadSalla(); }, [datePreset, customSince, customUntil]);
   useEffect(() => { if (accountId) { resetData(); loadCampaigns(); } }, [accountId, datePreset]);
   useEffect(() => {
     if (accountId && (activeTab==="adsets") && !adsetLoaded) loadAdsets();
@@ -294,7 +295,9 @@ export default function MetaPage() {
 
   async function loadSalla() {
     try {
-      const d = await apiGet("/api/salla/summary");
+      // Same period as the Meta numbers on this page, so "real ROAS" divides
+      // matching days.
+      const d = await apiGet(`/api/salla/summary?${buildDateParam()}`);
       setSallaSummary(d);
     } catch {}
   }

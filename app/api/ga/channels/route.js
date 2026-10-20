@@ -1,23 +1,13 @@
 import { NextResponse } from "next/server";
+import { getGaDateRange } from "../../../../lib/gaDateRange.mjs";
 import { requireUser } from "../../../../lib/serverAuth";
 import { getGaConnection } from "../../../../lib/gaToken";
 
 export const dynamic = "force-dynamic";
 
 function getDateRange(range) {
-  if (range === "today")
-    return { startDate: "today", endDate: "today" };
-
-  if (range === "yesterday")
-    return { startDate: "yesterday", endDate: "yesterday" };
-
-  if (range === "7daysAgo")
-    return { startDate: "7daysAgo", endDate: "today" };
-
-  if (range === "90daysAgo")
-    return { startDate: "90daysAgo", endDate: "today" };
-
-  return { startDate: "30daysAgo", endDate: "today" };
+  const { startDate, endDate } = getGaDateRange(range);
+  return { startDate, endDate };
 }
 
 export async function GET(request) {

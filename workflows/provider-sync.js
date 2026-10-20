@@ -1,87 +1,89 @@
+import { FatalError, getStepMetadata } from "workflow";
 import { getSyncJobById, updateSyncJob } from "../lib/syncJobs";
 import { syncSnapchatWorkspace } from "../lib/snapchatSyncService";
 import { syncSallaWorkspace } from "../lib/sallaSyncService";
 
-const MAX_ATTEMPTS = 3;
+// The Workflow runtime retries a step that throws. Retrying is done there
+// only (no loop inside the step), so a sync runs at most MAX_ATTEMPTS times.
+const MAX_RETRIES = 2;
+const MAX_ATTEMPTS = MAX_RETRIES + 1;
 
 function isRetryable(error) {
   const status = Number(error?.status || 0);
   return status === 429 || status >= 500 || status === 0;
 }
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function executeProviderSync(jobId) {
   "use step";
 
-  console.log(`[providerSync] START job=${jobId}`);
+  const { attempt } = getStepMetadata();
+  console.log(`[providerSync] START job=${jobId} attempt=${attempt}`);
   const job = await getSyncJobById(jobId);
 
   await updateSyncJob(jobId, {
     status: "running",
-    progress: 10,
+    progress: Math.min(10 + (attempt - 1) * 30, 90),
     started_at: job.started_at || new Date().toISOString(),
     error: null
   });
 
-  let lastError;
+  try {
+    let result;
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    try {
-      let result;
-
-      if (job.provider === "snapchat") {
-        result = await syncSnapchatWorkspace({
-          workspaceId: job.workspace_id,
-          accountId: job.account_id,
-          ...job.request_params
-        });
-      } else if (job.provider === "salla") {
-        result = await syncSallaWorkspace({
-          workspaceId: job.workspace_id,
-          userId: job.user_id
-        });
-      } else {
-        const error = new Error(`Unsupported sync provider: ${job.provider}`);
-        error.status = 400;
-        throw error;
-      }
-
-      await updateSyncJob(jobId, {
-        status: "succeeded",
-        progress: 100,
-        result,
-        error: null,
-        completed_at: new Date().toISOString()
+    if (job.provider === "snapchat") {
+      result = await syncSnapchatWorkspace({
+        workspaceId: job.workspace_id,
+        accountId: job.account_id,
+        ...job.request_params
       });
-
-      console.log(`[providerSync] DONE job=${jobId} attempt=${attempt}`);
-      return result;
-    } catch (error) {
-      lastError = error;
-      console.error(
-        `[providerSync] ATTEMPT_FAILED job=${jobId} attempt=${attempt} status=${error?.status || 0}`
-      );
-
-      if (!isRetryable(error) || attempt === MAX_ATTEMPTS) break;
-      await updateSyncJob(jobId, { progress: 10 + attempt * 20 });
-      await delay(1000 * 2 ** (attempt - 1));
+    } else if (job.provider === "salla") {
+      result = await syncSallaWorkspace({
+        workspaceId: job.workspace_id,
+        userId: job.user_id
+      });
+    } else {
+      const error = new Error(`Unsupported sync provider: ${job.provider}`);
+      error.status = 400;
+      throw error;
     }
+
+    await updateSyncJob(jobId, {
+      status: "succeeded",
+      progress: 100,
+      result,
+      error: null,
+      completed_at: new Date().toISOString()
+    });
+
+    console.log(`[providerSync] DONE job=${jobId} attempt=${attempt}`);
+    return result;
+  } catch (error) {
+    const willRetry = isRetryable(error) && attempt < MAX_ATTEMPTS;
+    console.error(
+      `[providerSync] ATTEMPT_FAILED job=${jobId} attempt=${attempt} status=${error?.status || 0} retry=${willRetry}`
+    );
+
+    if (willRetry) {
+      // Leave the job "running" and let the runtime schedule the retry.
+      throw error;
+    }
+
+    await updateSyncJob(jobId, {
+      status: "failed",
+      progress: 100,
+      error: error?.message || "Provider synchronization failed",
+      result: error?.details ? { errors: error.details } : null,
+      completed_at: new Date().toISOString()
+    });
+
+    console.error(`[providerSync] FAIL job=${jobId}`);
+    // FatalError stops the runtime from retrying a job already marked failed
+    // (expired tokens, bad input, or the last allowed attempt).
+    throw new FatalError(error?.message || "Provider synchronization failed");
   }
-
-  await updateSyncJob(jobId, {
-    status: "failed",
-    progress: 100,
-    error: lastError?.message || "Provider synchronization failed",
-    result: lastError?.details ? { errors: lastError.details } : null,
-    completed_at: new Date().toISOString()
-  });
-
-  console.error(`[providerSync] FAIL job=${jobId}`);
-  throw lastError;
 }
+
+executeProviderSync.maxRetries = MAX_RETRIES;
 
 export async function providerSyncWorkflow(jobId) {
   "use workflow";

@@ -4,17 +4,21 @@ import { buildMetaGraphUrl, fetchMetaCollection } from "../../../../lib/metaApi.
 
 export const dynamic = "force-dynamic";
 
+// Meta reports the same conversion under several overlapping action types.
+// Take the first name in `names` that is present (priority order), not
+// whichever overlapping type happens to come first in the response.
+function pickAction(items = [], names = []) {
+  for (const name of names) {
+    const found = items.find((item) => item.action_type === name);
+    if (found) return Number(found.value || 0);
+  }
+  return 0;
+}
 function getActionValue(actions = [], names = []) {
-  const found = actions.find((item) =>
-    names.includes(item.action_type)
-  );
-  return Number(found?.value || 0);
+  return pickAction(actions, names);
 }
 function getActionValueAmount(actionValues = [], names = []) {
-  const found = actionValues.find((item) =>
-    names.includes(item.action_type)
-  );
-  return Number(found?.value || 0);
+  return pickAction(actionValues, names);
 }
 function safeDivide(a, b) {
   const x = Number(a || 0);
@@ -105,32 +109,32 @@ export async function GET(request) {
       const purchases = getActionValue(
         row.actions || [],
         [
-          "purchase",
           "omni_purchase",
+          "purchase",
           "offsite_conversion.fb_pixel_purchase"
         ]
       );
       const addToCart = getActionValue(
         row.actions || [],
         [
-          "add_to_cart",
           "omni_add_to_cart",
+          "add_to_cart",
           "offsite_conversion.fb_pixel_add_to_cart"
         ]
       );
       const initiateCheckout = getActionValue(
         row.actions || [],
         [
-          "initiate_checkout",
           "omni_initiated_checkout",
+          "initiate_checkout",
           "offsite_conversion.fb_pixel_initiate_checkout"
         ]
       );
       const viewContent = getActionValue(
         row.actions || [],
         [
-          "view_content",
           "omni_view_content",
+          "view_content",
           "offsite_conversion.fb_pixel_view_content"
         ]
       );
@@ -141,8 +145,8 @@ export async function GET(request) {
       const purchaseValue = getActionValueAmount(
         row.action_values || [],
         [
-          "purchase",
           "omni_purchase",
+          "purchase",
           "offsite_conversion.fb_pixel_purchase"
         ]
       );
