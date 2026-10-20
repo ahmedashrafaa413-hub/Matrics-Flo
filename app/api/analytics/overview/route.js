@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspace } from "../../../../lib/workspace";
-import { buildAnalyticsSnapshot, normalizeCampaign } from "../../../../lib/analyticsEngine.mjs";
+import { buildAnalyticsSnapshot, buildPlatformOverview, normalizeCampaign } from "../../../../lib/analyticsEngine.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -28,11 +28,13 @@ export async function GET(request) {
     const previousPreset = PREVIOUS_PRESET[datePreset] || null;
     const metaAccountId = url.searchParams.get("meta_account_id") || "";
     const snapchatAccountId = url.searchParams.get("snapchat_account_id") || "";
+    const tiktokAccountId = url.searchParams.get("tiktok_account_id") || "";
 
     const performanceUrl = (preset) => {
       const params = new URLSearchParams({ date_preset: preset, salla_currency: "SAR" });
       if (metaAccountId) params.set("meta_account_id", metaAccountId);
       if (snapchatAccountId) params.set("snapchat_account_id", snapchatAccountId);
+      if (tiktokAccountId) params.set("tiktok_account_id", tiktokAccountId);
       return `${baseUrl}/api/performance/overview?${params}`;
     };
 
@@ -47,18 +49,24 @@ export async function GET(request) {
       snapchatAccountId
         ? readJson(`${baseUrl}/api/snapchat/data?account_id=${encodeURIComponent(snapchatAccountId)}&level=campaign&date_preset=${encodeURIComponent(datePreset)}&page_size=200`, cookie)
         : Promise.resolve({ success: false, data: null }),
-      readJson(`${baseUrl}/api/ga/overview?range=${datePreset === "today" ? "today" : datePreset === "yesterday" ? "yesterday" : datePreset === "last_7d" ? "7daysAgo" : "30daysAgo"}`, cookie),
+      tiktokAccountId
+        ? readJson(`${baseUrl}/api/tiktok/data?account_id=${encodeURIComponent(tiktokAccountId)}&level=campaign&date_preset=${encodeURIComponent(datePreset)}`, cookie)
+        : Promise.resolve({ success:false, data:null }),
+      // GA4 takes the same preset names, so every source covers the same days.
+      readJson(`${baseUrl}/api/ga/overview?range=${encodeURIComponent(datePreset)}`, cookie),
       readJson(`${baseUrl}/api/ga/realtime`, cookie)
     ];
-    const [current, previous, meta, snapchat, ga, realtime] = await Promise.all(requests);
+    const [current, previous, meta, snapchat, tiktok, ga, realtime] = await Promise.all(requests);
     const campaigns = [
       ...(meta.data?.data || []).map((row) => normalizeCampaign(row, "Meta Ads")),
-      ...(snapchat.data?.rows || []).map((row) => normalizeCampaign(row, "Snapchat Ads"))
+      ...(snapchat.data?.rows || []).map((row) => normalizeCampaign(row, "Snapchat Ads")),
+      ...(tiktok.data?.rows || []).map((row) => normalizeCampaign(row, "TikTok Ads"))
     ].filter((row) => row.id || row.name);
     const sources = [
       { source: "Meta Ads", connected: Boolean(metaAccountId), success: meta.success },
       { source: "Snapchat Ads", connected: Boolean(snapchatAccountId), success: snapchat.success },
-      { source: "Salla", connected: true, success: current.success },
+      { source: "TikTok Ads", connected: Boolean(tiktokAccountId), success: tiktok.success },
+      { source: "Salla", connected: true, success: current.success && !current.data?.debug?.some((entry) => entry.source === "Salla" && !entry.success) },
       { source: "GA4", connected: true, success: ga.success }
     ];
     const freshness = {
@@ -72,15 +80,24 @@ export async function GET(request) {
       sources,
       freshness
     });
+    const platformOverview = buildPlatformOverview(
+      current.success ? current.data?.sources || [] : [],
+      previous.success ? previous.data?.sources || [] : []
+    );
 
+    const unavailableSources = sources.filter((source) => source.connected && !source.success);
+    const partialData = !current.success || Boolean(current.data?.partial_data) || unavailableSources.length > 0;
     return NextResponse.json({
-      success: true,
+      success: current.success,
+      partial_data: partialData,
+      unavailable_sources: unavailableSources.map((source) => source.source),
       workspace: { id: workspace.id, name: workspace.name },
       date_preset: datePreset,
       comparison_preset: previousPreset,
-      current: current.data?.summary || null,
+      current: current.success ? current.data?.summary || null : null,
       previous: previous.data?.summary || null,
-      platforms: current.data?.sources || [],
+      platforms: current.success ? current.data?.sources || [] : [],
+      platform_overview: platformOverview,
       campaigns,
       ga4: ga.success ? ga.data?.metrics || null : null,
       realtime: realtime.success ? realtime.data?.realtime || null : null,

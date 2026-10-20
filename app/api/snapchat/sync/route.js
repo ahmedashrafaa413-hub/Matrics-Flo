@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspace } from "../../../../lib/workspace";
+import { requireWorkspaceRole } from "../../../../lib/tenantFoundation.mjs";
 import { assertTrustedMutation } from "../../../../lib/requestSecurity.mjs";
 import { assertRateLimit, consumeRateLimit } from "../../../../lib/rateLimit.mjs";
 import { startProviderSync } from "../../../../lib/startProviderSync";
@@ -34,6 +35,7 @@ export async function POST(request) {
   try {
     assertTrustedMutation(request);
     const { workspace, user } = await getActiveWorkspace(request);
+    requireWorkspaceRole(workspace, "member");
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get("account_id") || "";
 

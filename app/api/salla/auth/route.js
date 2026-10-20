@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "../../../../lib/serverAuth";
+import { getActiveWorkspace } from "../../../../lib/workspace";
+import { requireWorkspaceRole } from "../../../../lib/tenantFoundation.mjs";
 import {
   createOAuthState,
   getRequiredEnv,
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request) {
   try {
-    await requireUser(request);
+    const { workspace } = await getActiveWorkspace(request);
+    requireWorkspaceRole(workspace, "admin");
   } catch (authError) {
     return NextResponse.json(
       { success: false, error: authError.message || "Unauthorized" },

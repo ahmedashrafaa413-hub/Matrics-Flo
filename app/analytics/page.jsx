@@ -23,6 +23,38 @@ function Change({ metric, fallback }) {
   return <span className={`analytics-change ${tone}`}>{arrow} {Math.abs(metric.percent).toFixed(1)}%</span>;
 }
 
+const PLATFORM_STYLE = {
+  "Meta Ads": { short: "∞", className: "meta" },
+  "Snapchat Ads": { short: "◉", className: "snapchat" },
+  "TikTok Ads": { short: "♪", className: "tiktok" },
+  "Google Ads": { short: "G", className: "google" }
+};
+
+function PlatformOverview({ rows, t }) {
+  const metrics = [
+    ["spend", t("analytics.spend"), formatSAR],
+    ["purchases", t("analytics.conversions"), formatNumber],
+    ["cpa", t("analytics.cpa"), formatSAR],
+    ["roas", t("analytics.roas"), formatROAS],
+    ["revenue", t("analytics.revenue"), formatSAR]
+  ];
+
+  return <section className="analytics-platform-panel">
+    <h2>{t("analytics.overview")}</h2>
+    {!rows?.length ? <p className="analytics-empty">{t("analytics.noPlatforms")}</p> :
+      <div className="analytics-platform-rows">{rows.map((row) => {
+        const brand = PLATFORM_STYLE[row.source] || { short: row.source?.slice(0, 1) || "•", className: "default" };
+        return <div className="analytics-platform-row" key={row.source}>
+          <div className={`analytics-platform-brand ${brand.className}`}><b>{brand.short}</b><span>{row.source}</span></div>
+          <div className="analytics-platform-metrics">{metrics.map(([key, label, formatter]) => {
+            const metric = row.metrics?.[key];
+            return <article key={key}><span>{label}</span><strong>{present(metric?.current, formatter, t("analytics.unavailable"))}</strong><Change metric={metric} fallback={t("analytics.unavailable")} /></article>;
+          })}</div>
+        </div>;
+      })}</div>}
+  </section>;
+}
+
 export default function AnalyticsPage() {
   const { locale, t } = useLanguage();
   const [preset, setPreset] = useState("last_30d");
@@ -38,6 +70,8 @@ export default function AnalyticsPage() {
       const snap = getSetting("primary_snapchat_account", "");
       if (meta) params.set("meta_account_id", meta);
       if (snap) params.set("snapchat_account_id", snap);
+      const tiktok = getSetting("primary_tiktok_account", "");
+      if (tiktok) params.set("tiktok_account_id", tiktok);
       setData(await apiGet(`/api/analytics/overview?${params}`));
     } catch (requestError) { setError(requestError.message || t("analytics.error")); }
     finally { setLoading(false); }
@@ -56,6 +90,7 @@ export default function AnalyticsPage() {
     {loading && <div className="analytics-loading">{t("analytics.loading")}</div>}
     {data && !loading && <>
       <section className="analytics-kpis">{cards.map(([key,label,formatter]) => { const metric=data.comparisons?.[key]; return <article key={key}><span>{label}</span><strong>{present(metric?.current, formatter, t("analytics.unavailable"))}</strong><Change metric={metric} fallback={t("analytics.unavailable")} /><small>{t("analytics.previous")}: {present(metric?.previous, formatter, t("analytics.unavailable"))}</small></article>; })}</section>
+      <PlatformOverview rows={data.platform_overview} t={t} />
       <section className="analytics-panel"><div className="analytics-panel-head"><div><h2>{t("analytics.dataQuality")}</h2><small>{data.workspace?.name}</small></div><span>{data.data_quality?.length || 0}</span></div>{!data.data_quality?.length ? <p className="analytics-empty">{t("analytics.noIssues")}</p> : <div className="analytics-issues">{data.data_quality.map((issue,index) => <div key={`${issue.code}-${index}`} className={`analytics-issue ${issue.severity}`}><strong>{issue.code.replaceAll("_", " ")}</strong><span>{issue.source}{issue.entity ? ` · ${issue.entity}` : ""}</span><small>{issue.confidence}</small></div>)}</div>}</section>
       <section className="analytics-panel"><div className="analytics-panel-head"><h2>{t("analytics.campaigns")}</h2><span>{data.campaigns?.length || 0}</span></div>{!data.campaigns?.length ? <p className="analytics-empty">{t("analytics.noCampaigns")}</p> : <div className="analytics-table-wrap"><table><thead><tr><th>{t("analytics.platform")}</th><th>{t("analytics.campaign")}</th><th>{t("analytics.spend")}</th><th>{t("analytics.revenue")}</th><th>{t("analytics.purchases")}</th><th>ROAS</th><th>CPA</th><th>CTR</th></tr></thead><tbody>{data.campaigns.map((row) => <tr key={`${row.platform}-${row.id}`}><td>{row.platform}</td><td><strong>{row.name || row.id}</strong><small>{row.status || "—"}</small></td><td>{present(row.spend, formatSAR)}</td><td>{present(row.revenue, formatSAR)}</td><td>{present(row.purchases, formatNumber)}</td><td>{present(row.roas, formatROAS)}</td><td>{present(row.cpa, formatSAR)}</td><td>{row.ctr === null ? "—" : `${row.ctr.toFixed(2)}%`}</td></tr>)}</tbody></table></div>}</section>
       <footer className="analytics-generated">{t("analytics.lastGenerated")}: {new Intl.DateTimeFormat(locale === "ar" ? "ar-SA" : "en-US", { dateStyle:"medium", timeStyle:"short", timeZone:"Asia/Riyadh" }).format(new Date(data.generated_at))}</footer>

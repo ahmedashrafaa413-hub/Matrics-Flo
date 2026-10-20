@@ -6,7 +6,6 @@ import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
 const COMING_SOON = [
   { name: "Google Ads", icon: "G", iconBg: "#4285F4", desc: "Search, Performance Max, YouTube" },
-  { name: "TikTok Ads", icon: "T", iconBg: "#010101", desc: "Campaigns, ad groups, creatives"  },
   { name: "Shopify",    icon: "S", iconBg: "#96BF48", desc: "Revenue, orders, products"         },
 ];
 
@@ -24,6 +23,9 @@ export default function ConnectionsPage() {
   const [sallaConnected,  setSallaConnected]  = useState(false);
   const [snapConnected,   setSnapConnected]   = useState(false);
   const [snapAccount,     setSnapAccount]     = useState("");
+  const [tiktokConnected, setTikTokConnected] = useState(false);
+  const [tiktokAccounts, setTikTokAccounts] = useState([]);
+  const [tiktokAccount, setTikTokAccount] = useState("");
 
   useEffect(() => {
     loadConnectionStatus();
@@ -41,20 +43,34 @@ export default function ConnectionsPage() {
       const def = (savedExists && saved) || list?.[0]?.id || "";
       setSelectedAccount(def);
       if (def) saveSetting("primary_meta_account", def);
-      setMetaConnected(Boolean(providers.meta?.connected));
-      setMetaStatus(
-        providers.meta?.connected ? "Connected successfully" : "Not connected"
-      );
+      // A connection whose token refresh failed is shown as disconnected so
+      // the Connect button appears and the user can re-authorize it.
+      const isLive = (provider) =>
+        Boolean(provider?.connected) && !provider?.needs_reconnect;
+      const statusText = (provider) =>
+        provider?.needs_reconnect
+          ? "Connection expired — reconnect"
+          : provider?.connected
+            ? "Connected successfully"
+            : "Not connected";
 
-      setGaConnected(Boolean(providers.ga4?.connected));
+      setMetaConnected(isLive(providers.meta));
+      setMetaStatus(statusText(providers.meta));
+
+      setGaConnected(isLive(providers.ga4));
       setGaProperty(providers.ga4?.property_name || "");
-      setGaStatus(
-        providers.ga4?.connected ? "Connected successfully" : "Not connected"
-      );
+      setGaStatus(statusText(providers.ga4));
 
-      setSallaConnected(Boolean(providers.salla?.connected));
-      setSnapConnected(Boolean(providers.snapchat?.connected));
+      setSallaConnected(isLive(providers.salla));
+      setSnapConnected(isLive(providers.snapchat));
       setSnapAccount(providers.snapchat?.account_name || "");
+      const tiktokList = providers.tiktok?.accounts || [];
+      setTikTokAccounts(tiktokList);
+      setTikTokConnected(isLive(providers.tiktok));
+      const savedTikTok = getSetting("primary_tiktok_account", "");
+      const selectedTikTok = tiktokList.some((account) => account.id === savedTikTok) ? savedTikTok : tiktokList[0]?.id || "";
+      setTikTokAccount(selectedTikTok);
+      if (selectedTikTok) saveSetting("primary_tiktok_account", selectedTikTok);
     } catch (e) {
       setMetaConnected(false);
       setMetaStatus(e.message || "Not connected");
@@ -63,6 +79,9 @@ export default function ConnectionsPage() {
       setSallaConnected(false);
       setSnapConnected(false);
       setSnapAccount("");
+      setTikTokConnected(false);
+      setTikTokAccounts([]);
+      setTikTokAccount("");
     } finally {
       setMetaLoading(false);
     }
@@ -388,6 +407,39 @@ export default function ConnectionsPage() {
               </a>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ── Coming Soon ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{
+          background: "var(--card)", backdropFilter: "blur(16px)",
+          border: tiktokConnected ? "1px solid rgba(37,244,238,0.3)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"22px 24px", gap:16, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+              <div style={{ width:44, height:44, borderRadius:12, background:"#080808", color:"white", display:"grid", placeItems:"center", fontSize:22, fontWeight:900, boxShadow:"5px 3px 0 #fe2c55,-4px -2px 0 #25f4ee" }}>♪</div>
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                  <h2 style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize:17, fontWeight:700, color:"var(--text)" }}>TikTok Ads</h2>
+                  <span style={{ fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:999, background:tiktokConnected?"rgba(6,214,160,.1)":"rgba(99,102,241,.1)", color:tiktokConnected?"var(--accent)":"#a5b4fc" }}>
+                    {tiktokConnected ? "● Connected" : "○ Ready to Connect"}
+                  </span>
+                </div>
+                <p style={{ color:"var(--muted)", fontSize:13, marginTop:2 }}>Campaigns, spend, conversions, attributed revenue and ROAS</p>
+              </div>
+            </div>
+            <a href="/api/tiktok/auth" style={{ background:"linear-gradient(135deg,#111,#333)", color:"white", padding:"10px 18px", borderRadius:"var(--radius-md)", fontWeight:700, fontSize:13, textDecoration:"none", whiteSpace:"nowrap" }}>
+              {tiktokConnected ? "Reconnect" : "Connect TikTok"}
+            </a>
+          </div>
+          {tiktokConnected && <div style={{ padding:"0 24px 20px" }}>
+            <label htmlFor="tiktok-account" style={{ display:"block", fontSize:11, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", letterSpacing:1, marginBottom:8 }}>Primary Ad Account</label>
+            <select id="tiktok-account" value={tiktokAccount} onChange={(event) => { setTikTokAccount(event.target.value); saveSetting("primary_tiktok_account", event.target.value); }} style={{ width:"100%", maxWidth:520, background:"rgba(255,255,255,.04)", color:"var(--text)", border:"1px solid var(--border-2)", borderRadius:"var(--radius-md)", padding:"11px 14px", fontFamily:"inherit" }}>
+              {tiktokAccounts.map((account) => <option key={account.id} value={account.id}>{account.name} — {account.currency}</option>)}
+            </select>
+          </div>}
         </div>
       </div>
 
