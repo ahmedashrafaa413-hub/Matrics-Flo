@@ -27,7 +27,21 @@ const TOOL = {
 
 function rpc(id, result) { return NextResponse.json({ jsonrpc: "2.0", id, result }, { headers: { "Cache-Control": "no-store", "MCP-Protocol-Version": "2025-03-26" } }); }
 function fail(id, code, message, status = 400) {
-  return NextResponse.json({ jsonrpc: "2.0", id, error: { code, message } }, { status, headers: { "Cache-Control": "no-store" } });
+  const headers = { "Cache-Control": "no-store" };
+  if (status === 401) {
+    // RFC 9728: advertise protected-resource metadata to OAuth-capable MCP clients.
+    const origin = process.env.METRICSFLO_PUBLIC_ORIGIN;
+    try {
+      const url = new URL(origin);
+      if (url.protocol === "https:" && !url.username && !url.password &&
+          url.pathname === "/" && !url.search && !url.hash) {
+        headers["WWW-Authenticate"] = `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", url)}"`;
+      } else {
+        headers["WWW-Authenticate"] = "Bearer";
+      }
+    } catch { headers["WWW-Authenticate"] = "Bearer"; }
+  }
+  return NextResponse.json({ jsonrpc: "2.0", id, error: { code, message } }, { status, headers });
 }
 
 export async function GET() {
