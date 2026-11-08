@@ -23,7 +23,7 @@ const TOOL = {
   }
 };
 
-function rpc(id, result) { return NextResponse.json({ jsonrpc: "2.0", id, result }, { headers: { "Cache-Control": "no-store" } }); }
+function rpc(id, result) { return NextResponse.json({ jsonrpc: "2.0", id, result }, { headers: { "Cache-Control": "no-store", "MCP-Protocol-Version": "2025-03-26" } }); }
 function fail(id, code, message, status = 400) {
   return NextResponse.json({ jsonrpc: "2.0", id, error: { code, message } }, { status, headers: { "Cache-Control": "no-store" } });
 }
@@ -66,12 +66,15 @@ export async function POST(request) {
     if (!quota.allowed) return fail(id, -32029, "Rate limit exceeded", 429);
   } catch { return fail(id, -32000, "Rate limit storage unavailable", 503); }
 
-  if (body.method === "initialize") return rpc(id, {
+  if (body.method === "initialize") {
+    if (!body.params || typeof body.params.protocolVersion !== "string") return fail(id, -32602, "Missing MCP protocol version");
+    return rpc(id, {
     protocolVersion: "2025-03-26",
     capabilities: { tools: {} },
     serverInfo: { name: "metricsflo-private", version: "0.1.0" }
   });
-  if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+  }
+  if (body.method === "notifications/initialized") return new Response(null, { status: 202, headers: { "Cache-Control": "no-store" } });
   if (body.method === "ping") return rpc(id, {});
   if (body.method === "tools/list") return rpc(id, { tools: [WORKSPACES_TOOL, TOOL] });
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
