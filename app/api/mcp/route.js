@@ -3,11 +3,13 @@ import { requireUser } from "../../../lib/serverAuth";
 import { getServerAccessToken } from "../../../lib/supabaseServer";
 import { userHasWorkspaceAccess, getUserWorkspaces } from "../../../lib/workspace";
 import { consumeRateLimit } from "../../../lib/rateLimit.mjs";
+import { listCanonicalFields } from "../../../lib/mcpFieldDictionary.mjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const PRESETS = ["today", "yesterday", "last_7d", "last_30d", "maximum"];
+const FIELDS_TOOL = { name: "list_fields", description: "Discover canonical marketing metrics and platform mappings. Mappings do not assert live availability.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["snapchat", "meta", "tiktok", "google"] } }, additionalProperties: false } };
 const ACCOUNTS_TOOL = { name: "list_accounts", description: "Discover accessible MetricsFlo accounts. Account IDs are workspace UUIDs; missing integration status is null, never invented.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
 const WORKSPACES_TOOL = { name: "list_workspaces", description: "List workspaces available to the authenticated MetricsFlo owner.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
 const TOOL = {
@@ -77,11 +79,16 @@ export async function POST(request) {
   }
   if (body.method === "notifications/initialized") return new Response(null, { status: 202, headers: { "Cache-Control": "no-store" } });
   if (body.method === "ping") return rpc(id, {});
-  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, WORKSPACES_TOOL, TOOL] });
+  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, FIELDS_TOOL, WORKSPACES_TOOL, TOOL] });
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
   const { name, arguments: args = {} } = body.params || {};
   if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Invalid tool arguments");
+  if (name === FIELDS_TOOL.name) {
+    if (Object.keys(args).some((key) => key !== "platform")) return fail(id, -32602, "Unexpected arguments");
+    try { return rpc(id, { content: [{ type: "text", text: JSON.stringify({ fields: listCanonicalFields(args.platform) }) }] }); }
+    catch { return fail(id, -32602, "Unsupported platform"); }
+  }
   if (name === ACCOUNTS_TOOL.name || name === WORKSPACES_TOOL.name) {
     if (Object.keys(args).length) return fail(id, -32602, "Unexpected arguments");
     try {
