@@ -27,3 +27,14 @@ test("MCP only advertises read-only overview", () => {
   assert.match(source, /get_performance_overview/);
   assert.doesNotMatch(source, /delete_campaign|update_budget|pause_ad/);
 });
+
+test("MCP rejects oversized request bodies before parsing", () => {
+  assert.match(source, /request\.headers\.get\("content-length"\)/);
+  assert.match(source, /raw\.length > 8192/);
+});
+
+test("MCP validates internal HTTPS origin using URL parser", () => {
+  assert.match(source, /new URL\(origin\)/);
+  assert.match(source, /validatedOrigin\.protocol !== "https:"/);
+  assert.match(source, /validatedOrigin\.username/);
+});
