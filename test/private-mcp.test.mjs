@@ -38,3 +38,9 @@ test("MCP validates internal HTTPS origin using URL parser", () => {
   assert.match(source, /validatedOrigin\.protocol !== "https:"/);
   assert.match(source, /validatedOrigin\.username/);
 });
+
+test("MCP initialization requires protocol version and declares capabilities", () => {
+  assert.match(source, /body\.params\.protocolVersion/);
+  assert.match(source, /protocolVersion: "2025-03-26"/);
+  assert.match(source, /capabilities: \{ tools: \{\} \}/);
+});
