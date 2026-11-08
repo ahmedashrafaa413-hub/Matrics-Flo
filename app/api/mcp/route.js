@@ -33,11 +33,18 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  // Bound the request before parsing untrusted JSON.
+  const declaredLength = Number(request.headers.get("content-length") || 0);
+  if (declaredLength > 8192) return fail(null, -32600, "Request too large", 413);
   let body;
-  try { body = await request.json(); } catch { return fail(null, -32700, "Invalid JSON"); }
+  try {
+    const raw = await request.text();
+    if (raw.length > 8192) return fail(null, -32600, "Request too large", 413);
+    body = JSON.parse(raw);
+  } catch { return fail(null, -32700, "Invalid JSON"); }
   const id = body?.id ?? null;
   if (body?.jsonrpc !== "2.0" || typeof body.method !== "string") return fail(id, -32600, "Invalid JSON-RPC request");
-  if (JSON.stringify(body).length > 8192) return fail(id, -32600, "Request too large", 413);
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return fail(id, -32600, "Invalid JSON-RPC request");
 
   // Fail closed until the owner UUID is configured server-side.
   const ownerId = process.env.METRICSFLO_AI_OWNER_USER_ID;
@@ -89,8 +96,15 @@ export async function POST(request) {
   // Never forward the service-role key or external caller cookies.
   const token = getServerAccessToken(request);
   const origin = process.env.METRICSFLO_INTERNAL_ORIGIN;
-  if (!origin || !origin.startsWith("https://") || origin.includes("/", 8)) return fail(id, -32000, "Internal origin is not configured", 503);
-  const url = new URL("/api/analytics/overview", origin);
+  let validatedOrigin;
+  try {
+    validatedOrigin = new URL(origin);
+    if (validatedOrigin.protocol !== "https:" || validatedOrigin.username || validatedOrigin.password ||
+        validatedOrigin.pathname !== "/" || validatedOrigin.search || validatedOrigin.hash) {
+      return fail(id, -32000, "Invalid internal origin", 503);
+    }
+  } catch { return fail(id, -32000, "Internal origin is not configured", 503); }
+  const url = new URL("/api/analytics/overview", validatedOrigin);
   url.searchParams.set("date_preset", preset);
   try {
     const response = await fetch(url, {
