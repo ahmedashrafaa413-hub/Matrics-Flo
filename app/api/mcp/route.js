@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "../../../lib/serverAuth";
+import { createSupabaseAdminClient } from "../../../lib/supabaseServer";
 import { userHasWorkspaceAccess, getUserWorkspaces } from "../../../lib/workspace";
 import { consumeRateLimit } from "../../../lib/rateLimit.mjs";
 import { listCanonicalFields } from "../../../lib/mcpFieldDictionary.mjs";
@@ -51,10 +51,16 @@ export async function POST(request) {
   const ownerId = process.env.METRICSFLO_AI_OWNER_USER_ID;
   if (!ownerId) return fail(id, -32003, "AI integration is disabled", 403);
   const authorization = request.headers.get("authorization") || "";
-  if (!/^Bearer [^\\s]+$/.test(authorization)) return fail(id, -32001, "Bearer authentication required", 401);
+  if (!/^Bearer [^\s]+$/.test(authorization)) return fail(id, -32001, "Bearer authentication required", 401);
 
+  // MCP accepts only the explicitly supplied bearer token; never fall back to browser cookies or refresh sessions.
+  const token = authorization.slice("Bearer ".length);
   let user;
-  try { user = await requireUser(request); } catch { return fail(id, -32001, "Invalid or expired access token", 401); }
+  try {
+    const { data, error } = await createSupabaseAdminClient().auth.getUser(token);
+    if (error || !data?.user) return fail(id, -32001, "Invalid or expired access token", 401);
+    user = data.user;
+  } catch { return fail(id, -32001, "Invalid or expired access token", 401); }
   if (user.id !== ownerId) return fail(id, -32003, "AI integration is not enabled for this account", 403);
 
   // Shared database-backed limit, fail closed if storage is unavailable.
@@ -106,7 +112,6 @@ export async function POST(request) {
 
   // Reuse existing analytics pipeline under the authenticated user session.
   // Never forward the service-role key or external caller cookies.
-  const token = authorization.slice("Bearer ".length);
   const origin = process.env.METRICSFLO_INTERNAL_ORIGIN;
   let validatedOrigin;
   try {
