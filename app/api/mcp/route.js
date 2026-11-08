@@ -83,7 +83,7 @@ export async function POST(request) {
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
   const { name, arguments: args = {} } = body.params || {};
-  if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Invalid tool arguments");
+  if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !["workspace_id", "date_preset", "platform"].includes(key))) return fail(id, -32602, "Invalid tool arguments");
   if (name === FIELDS_TOOL.name) {
     if (Object.keys(args).some((key) => key !== "platform")) return fail(id, -32602, "Unexpected arguments");
     try { return rpc(id, { content: [{ type: "text", text: JSON.stringify({ fields: listCanonicalFields(args.platform) }) }] }); }
@@ -98,6 +98,7 @@ export async function POST(request) {
     } catch { return fail(id, -32000, "Workspaces unavailable", 502); }
   }
   if (name !== TOOL.name) return fail(id, -32602, "Unknown tool");
+  if (Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Unexpected arguments");
   const preset = args.date_preset || "last_30d";
   const workspaceId = args.workspace_id;
   if (!PRESETS.includes(preset) || typeof workspaceId !== "string" ||
