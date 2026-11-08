@@ -69,7 +69,7 @@ export async function POST(request) {
   // Never forward the service-role key or external caller cookies.
   const token = getServerAccessToken(request);
   const origin = process.env.METRICSFLO_INTERNAL_ORIGIN;
-  if (!origin || !/^https:\\/\\/[^/]+$/.test(origin)) return fail(id, -32000, "Internal origin is not configured", 503);
+  if (!origin || !origin.startsWith("https://") || origin.includes("/", 8)) return fail(id, -32000, "Internal origin is not configured", 503);
   const url = new URL("/api/analytics/overview", origin);
   url.searchParams.set("date_preset", preset);
   try {
