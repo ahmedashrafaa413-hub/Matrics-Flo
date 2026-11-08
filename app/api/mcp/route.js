@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../lib/serverAuth";
-import { getServerAccessToken } from "../../../lib/supabaseServer";
 import { userHasWorkspaceAccess, getUserWorkspaces } from "../../../lib/workspace";
 import { consumeRateLimit } from "../../../lib/rateLimit.mjs";
 import { listCanonicalFields } from "../../../lib/mcpFieldDictionary.mjs";
@@ -45,14 +44,14 @@ export async function POST(request) {
     if (raw.length > 8192) return fail(null, -32600, "Request too large", 413);
     body = JSON.parse(raw);
   } catch { return fail(null, -32700, "Invalid JSON"); }
-  const id = body?.id ?? null;
-  if (body?.jsonrpc !== "2.0" || typeof body.method !== "string") return fail(id, -32600, "Invalid JSON-RPC request");
-  if (body === null || typeof body !== "object" || Array.isArray(body)) return fail(id, -32600, "Invalid JSON-RPC request");
+  const id = body && typeof body === "object" && !Array.isArray(body) ? (body.id ?? null) : null;
+  if (body === null || typeof body !== "object" || Array.isArray(body) || body.jsonrpc !== "2.0" || typeof body.method !== "string") return fail(id, -32600, "Invalid JSON-RPC request");
 
   // Fail closed until the owner UUID is configured server-side.
   const ownerId = process.env.METRICSFLO_AI_OWNER_USER_ID;
   if (!ownerId) return fail(id, -32003, "AI integration is disabled", 403);
-  if (!request.headers.get("authorization")?.startsWith("Bearer ")) return fail(id, -32001, "Bearer authentication required", 401);
+  const authorization = request.headers.get("authorization") || "";
+  if (!/^Bearer [^\\s]+$/.test(authorization)) return fail(id, -32001, "Bearer authentication required", 401);
 
   let user;
   try { user = await requireUser(request); } catch { return fail(id, -32001, "Invalid or expired access token", 401); }
@@ -107,7 +106,7 @@ export async function POST(request) {
 
   // Reuse existing analytics pipeline under the authenticated user session.
   // Never forward the service-role key or external caller cookies.
-  const token = getServerAccessToken(request);
+  const token = authorization.slice("Bearer ".length);
   const origin = process.env.METRICSFLO_INTERNAL_ORIGIN;
   let validatedOrigin;
   try {
@@ -124,6 +123,7 @@ export async function POST(request) {
       headers: {
         Cookie: `sb-access-token=${encodeURIComponent(token)}; metricsflo_active_workspace=${encodeURIComponent(workspaceId)}`
       },
+      redirect: "error",
       cache: "no-store",
       signal: AbortSignal.timeout(25000)
     });
@@ -131,7 +131,7 @@ export async function POST(request) {
     const responseText = await response.text();
     if (responseText.length > 512000) return fail(id, -32000, "Analytics response too large; narrow your request", 413);
     const data = JSON.parse(responseText);
-    if (data?.success === false || data?.workspace?.id !== workspaceId) return fail(id, -32000, "Analytics workspace validation failed", 502);
+    if (data?.success !== true || data?.workspace?.id !== workspaceId) return fail(id, -32000, "Analytics workspace validation failed", 502);
     return rpc(id, { content: [{ type: "text", text: JSON.stringify(data) }] });
   } catch {
     return fail(id, -32000, "Analytics request failed", 502);
