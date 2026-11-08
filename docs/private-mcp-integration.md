@@ -17,5 +17,10 @@ This branch adds a **read-only prototype** at `POST /api/mcp` (JSON-RPC over HTT
 5. Run tests for unauthorized access, wrong owner, wrong workspace, expired token, malformed JSON-RPC, and successful authorized reads. Compare outputs to MetricsFlo dashboard.
 6. Deploy to preview first, then configure owner UUID securely in Vercel after review. Do not enable on production before tests.
 
-## Current status
-Code committed to an isolated feature branch for review. No OAuth registration, live login test, deployment, or end-to-end validation has been performed.
+## Current status (2026-11-08)
+- Owner UUID is configured as an encrypted **branch-scoped Preview** Vercel environment variable. It is not configured for production.
+- The MCP route now validates only the explicit bearer token and does not fall back to browser cookies.
+- OAuth protected-resource metadata is implemented at `/.well-known/oauth-protected-resource/mcp`, but remains disabled until `METRICSFLO_PUBLIC_ORIGIN` is configured. The metadata delegates to Supabase Auth at `NEXT_PUBLIC_SUPABASE_URL/auth/v1`.
+- **Still required:** enable Supabase OAuth 2.1 Server and consent UI, validate discovery with Claude, implement daily entity-level queries, complete security/end-to-end tests, and pass CI before production.
+- `METRICSFLO_INTERNAL_ORIGIN` must point to a trusted HTTPS deployment of the same application; do not supply a user-controlled URL.
+- Do not merge the MCP feature branch or claim a live integration until all requirements above are verified.
