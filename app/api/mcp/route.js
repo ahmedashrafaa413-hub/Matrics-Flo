@@ -56,7 +56,8 @@ export async function POST(request) {
   if (body.method === "tools/list") return rpc(id, { tools: [TOOL] });
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
-  const { name, arguments: args = {} } = body.params || {};\n  if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Invalid tool arguments");
+  const { name, arguments: args = {} } = body.params || {};
+  if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Invalid tool arguments");
   if (name !== TOOL.name) return fail(id, -32602, "Unknown tool");
   const preset = args.date_preset || "last_30d";
   const workspaceId = args.workspace_id;
@@ -67,7 +68,8 @@ export async function POST(request) {
   // Reuse existing analytics pipeline under the authenticated user session.
   // Never forward the service-role key or external caller cookies.
   const token = getServerAccessToken(request);
-  const origin = process.env.METRICSFLO_INTERNAL_ORIGIN;\n  if (!origin || !/^https:\\/\\/[^/]+$/.test(origin)) return fail(id, -32000, "Internal origin is not configured", 503);
+  const origin = process.env.METRICSFLO_INTERNAL_ORIGIN;
+  if (!origin || !/^https:\\/\\/[^/]+$/.test(origin)) return fail(id, -32000, "Internal origin is not configured", 503);
   const url = new URL("/api/analytics/overview", origin);
   url.searchParams.set("date_preset", preset);
   try {
