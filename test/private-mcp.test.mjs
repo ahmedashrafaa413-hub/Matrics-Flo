@@ -44,3 +44,10 @@ test("MCP initialization requires protocol version and declares capabilities", (
   assert.match(source, /protocolVersion: "2025-03-26"/);
   assert.match(source, /capabilities: \{ tools: \{\} \}/);
 });
+
+
+test("MCP bearer authentication cannot fall back to browser sessions", () => {
+  assert.match(source, /createSupabaseAdminClient\(\)\.auth\.getUser\(token\)/);
+  assert.doesNotMatch(source, /requireUser\(request\)/);
+  assert.match(source, /WWW-Authenticate/);
+});
