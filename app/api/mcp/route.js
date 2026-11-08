@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../lib/serverAuth";
 import { getServerAccessToken } from "../../../lib/supabaseServer";
-import { userHasWorkspaceAccess } from "../../../lib/workspace";
+import { userHasWorkspaceAccess, getUserWorkspaces } from "../../../lib/workspace";
 import { consumeRateLimit } from "../../../lib/rateLimit.mjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const PRESETS = ["today", "yesterday", "last_7d", "last_30d", "maximum"];
+const WORKSPACES_TOOL = { name: "list_workspaces", description: "List workspaces available to the authenticated MetricsFlo owner.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
 const TOOL = {
   name: "get_performance_overview",
   description: "Read MetricsFlo analytics for an explicitly authorized workspace. Returns reported data and source freshness; never infer missing metrics.",
@@ -65,11 +66,18 @@ export async function POST(request) {
   });
   if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
   if (body.method === "ping") return rpc(id, {});
-  if (body.method === "tools/list") return rpc(id, { tools: [TOOL] });
+  if (body.method === "tools/list") return rpc(id, { tools: [WORKSPACES_TOOL, TOOL] });
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
   const { name, arguments: args = {} } = body.params || {};
   if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Invalid tool arguments");
+  if (name === WORKSPACES_TOOL.name) {
+    if (Object.keys(args).length) return fail(id, -32602, "Unexpected arguments");
+    try {
+      const workspaces = await getUserWorkspaces(user.id);
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify(workspaces.map(({ id, name, role }) => ({ id, name, role }))) }] });
+    } catch { return fail(id, -32000, "Workspaces unavailable", 502); }
+  }
   if (name !== TOOL.name) return fail(id, -32602, "Unknown tool");
   const preset = args.date_preset || "last_30d";
   const workspaceId = args.workspace_id;
