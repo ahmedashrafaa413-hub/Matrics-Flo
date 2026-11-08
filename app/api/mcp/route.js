@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "../../../lib/serverAuth";
 import { getServerAccessToken } from "../../../lib/supabaseServer";
 import { userHasWorkspaceAccess } from "../../../lib/workspace";
+import { consumeRateLimit } from "../../../lib/rateLimit.mjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -46,6 +47,17 @@ export async function POST(request) {
   try { user = await requireUser(request); } catch { return fail(id, -32001, "Invalid or expired access token", 401); }
   if (user.id !== ownerId) return fail(id, -32003, "AI integration is not enabled for this account", 403);
 
+  // Shared database-backed limit, fail closed if storage is unavailable.
+  try {
+    const quota = await consumeRateLimit({
+      scope: "private_mcp",
+      identity: user.id,
+      limit: 60,
+      windowSeconds: 60
+    });
+    if (!quota.allowed) return fail(id, -32029, "Rate limit exceeded", 429);
+  } catch { return fail(id, -32000, "Rate limit storage unavailable", 503); }
+
   if (body.method === "initialize") return rpc(id, {
     protocolVersion: "2025-03-26",
     capabilities: { tools: {} },
@@ -81,7 +93,9 @@ export async function POST(request) {
       signal: AbortSignal.timeout(25000)
     });
     if (!response.ok) return fail(id, -32000, "Analytics source unavailable", 502);
-    const data = await response.json();
+    const responseText = await response.text();
+    if (responseText.length > 512000) return fail(id, -32000, "Analytics response too large; narrow your request", 413);
+    const data = JSON.parse(responseText);
     if (data?.success === false || data?.workspace?.id !== workspaceId) return fail(id, -32000, "Analytics workspace validation failed", 502);
     return rpc(id, { content: [{ type: "text", text: JSON.stringify(data) }] });
   } catch {
