@@ -13,8 +13,8 @@ test("query enforces allowed platforms, date range, and arguments", () => {
 
 test("daily contract excludes aggregate rows, preserves null and currency, flags today", () => {
   const rows = canonicalDailyRows([
-    { date: "2026-11-08", platform: "snapchat", id: "1", name: "A", currency: "USD", spend: 10, purchases: null },
-    { date: "2026-11-08", platform: "snapchat", id: "total", name: "Total of 49 results", currency: "USD", spend: 10 }
+    { date: "2026-11-08", platform: "snapchat", id: "1", name: "A", currency: "USD", spend: 10, purchases: null, reporting_granularity: "daily" },
+    { date: "2026-11-08", platform: "snapchat", id: "total", name: "Total of 49 results", currency: "USD", spend: 10, reporting_granularity: "daily" }
   ], { today: "2026-11-08" });
   assert.equal(rows.length, 1);
   assert.deepEqual(rows[0].spend, { amount: 10, currency: "USD" });
@@ -23,13 +23,13 @@ test("daily contract excludes aggregate rows, preserves null and currency, flags
 });
 
 test("daily contract rejects duplicated entity-day records", () => {
-  const row = { date: "2026-11-07", platform: "meta", id: "1", name: "Campaign", currency: "SAR" };
+  const row = { date: "2026-11-07", platform: "meta", id: "1", name: "Campaign", currency: "SAR", reporting_granularity: "daily" };
   assert.throws(() => canonicalDailyRows([row, row], { today: "2026-11-08" }), /duplicate_entity_day/);
 });
 
 
 test("period snapshots cannot masquerade as daily records", () => {
   const row = { date: "2026-11-08", platform: "snapchat", id: "a", name: "Campaign", currency: "USD", raw: { date_preset: "last_30d" } };
-  assert.throws(() => canonicalDailyRows([row], { today: "2026-11-08" }), /period_snapshot_not_daily/);
+  assert.throws(() => canonicalDailyRows([row], { today: "2026-11-08" }), /unverified_snapshot_granularity/);
   assert.throws(() => canonicalDailyRows([{ ...row, raw: {}, reporting_granularity: "period" }], { today: "2026-11-08" }), /unverified_daily_granularity/);
 });
