@@ -26,3 +26,10 @@ test("daily contract rejects duplicated entity-day records", () => {
   const row = { date: "2026-11-07", platform: "meta", id: "1", name: "Campaign", currency: "SAR" };
   assert.throws(() => canonicalDailyRows([row, row], { today: "2026-11-08" }), /duplicate_entity_day/);
 });
+
+
+test("period snapshots cannot masquerade as daily records", () => {
+  const row = { date: "2026-11-08", platform: "snapchat", id: "a", name: "Campaign", currency: "USD", raw: { date_preset: "last_30d" } };
+  assert.throws(() => canonicalDailyRows([row], { today: "2026-11-08" }), /period_snapshot_not_daily/);
+  assert.throws(() => canonicalDailyRows([{ ...row, raw: {}, reporting_granularity: "period" }], { today: "2026-11-08" }), /unverified_daily_granularity/);
+});
