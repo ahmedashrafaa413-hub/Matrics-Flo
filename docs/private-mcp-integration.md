@@ -24,3 +24,6 @@ This branch adds a **read-only prototype** at `POST /api/mcp` (JSON-RPC over HTT
 - **Still required:** enable Supabase OAuth 2.1 Server and consent UI, validate discovery with Claude, implement daily entity-level queries, complete security/end-to-end tests, and pass CI before production.
 - `METRICSFLO_INTERNAL_ORIGIN` must point to a trusted HTTPS deployment of the same application; do not supply a user-controlled URL.
 - Do not merge the MCP feature branch or claim a live integration until all requirements above are verified.
+
+## Data integrity blocker discovered (2026-11-12)
+The existing `platform_daily_metrics` table has Snapchat records with `raw.date_preset` on every sampled row. The `metric_date` column is used as a snapshot/cache date for preset totals, not proven daily performance granularity. **Do not implement a daily trend tool by grouping or summing these rows.** First create a verified date-by-entity ingestion pipeline, ensure source-defined account currency, and test daily sums against the provider. Until then, expose only explicitly labelled period snapshots or the existing overview.
