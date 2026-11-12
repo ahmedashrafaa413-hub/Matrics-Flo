@@ -15,15 +15,19 @@ export default function OAuthConsentPage() {
     async function load() {
       try {
         if (!authorizationId || authorizationId.length > 256) throw new Error("Missing or invalid authorization request.");
-        const check = await fetch("/api/oauth/owner-check", { cache: "no-store", credentials: "same-origin" });
+        const supabase = getSupabaseBrowserClient();
+        const { data: session } = await supabase.auth.getSession();
+        const accessToken = session?.session?.access_token;
+        const check = await fetch("/api/oauth/owner-check", {
+          cache: "no-store", credentials: "same-origin",
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
+        });
         if (check.status === 401) {
           window.location.assign("/login?next=" + encodeURIComponent("/oauth/consent?authorization_id=" + encodeURIComponent(authorizationId)));
           return;
         }
         if (!check.ok) throw new Error("This account is not authorized to connect AI clients.");
-        const supabase = getSupabaseBrowserClient();
-        const { data: session } = await supabase.auth.getSession();
-        if (!session?.session?.access_token) throw new Error("Sign in to MetricsFlo before approving this connection.");
+        if (!accessToken) throw new Error("Sign in to MetricsFlo before approving this connection.");
         if (!supabase.auth.oauth?.getAuthorizationDetails) throw new Error("OAuth authorization is not available in the installed Supabase SDK.");
         const { data, error: authError } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
         if (authError) throw authError;
