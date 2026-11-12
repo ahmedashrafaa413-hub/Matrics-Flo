@@ -2,25 +2,30 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-// OAuth 2.0 Protected Resource Metadata (RFC 9728).
-// Authorization is delegated to Supabase Auth's OAuth 2.1 server.
+function isApprovedOrigin(url) {
+  if (url.protocol !== "https:" || url.username || url.password || url.port) return false;
+  const host = url.hostname.toLowerCase();
+  return host === "metricsflo.com" ||
+    host === "www.metricsflo.com" ||
+    /^ad-intelligence-platform-[a-z0-9-]+-ahmed-ashraf-projects\.vercel\.app$/.test(host);
+}
+
+// RFC 9728 protected resource metadata. Never trust arbitrary Host headers.
 export async function GET(request) {
-  const origin = process.env.METRICSFLO_PUBLIC_ORIGIN;
-  const issuer = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  let resource;
-  let authorizationServer;
   try {
-    resource = new URL("/api/mcp", origin);
-    authorizationServer = new URL("/auth/v1", issuer);
-    if (resource.protocol !== "https:" || authorizationServer.protocol !== "https:" ||
-        resource.username || resource.password || authorizationServer.username || authorizationServer.password ||
-        resource.origin !== new URL(request.url).origin) throw new Error("Invalid configuration");
+    const requestOrigin = new URL(request.url);
+    const issuer = new URL("/auth/v1", process.env.NEXT_PUBLIC_SUPABASE_URL);
+    if (!isApprovedOrigin(requestOrigin) ||
+        issuer.protocol !== "https:" || issuer.username || issuer.password ||
+        issuer.hostname !== "wegbjbrhygqqtczmqvoy.supabase.co") {
+      throw new Error("Invalid OAuth discovery configuration");
+    }
+    return NextResponse.json({
+      resource: new URL("/api/mcp", requestOrigin.origin).toString(),
+      authorization_servers: [issuer.toString()],
+      bearer_methods_supported: ["header"]
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch {
     return NextResponse.json({ error: "OAuth discovery is not configured" }, { status: 503 });
   }
-  return NextResponse.json({
-    resource: resource.toString(),
-    authorization_servers: [authorizationServer.toString()],
-    bearer_methods_supported: ["header"]
-  }, { headers: { "Cache-Control": "no-store" } });
 }
