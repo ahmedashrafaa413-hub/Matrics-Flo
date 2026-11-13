@@ -45,8 +45,10 @@ function fail(id, code, message, status = 400, requestUrl = null) {
   return NextResponse.json({ jsonrpc: "2.0", id, error: { code, message } }, { status, headers });
 }
 
-export async function GET() {
-  return NextResponse.json({ error: "Use MCP JSON-RPC POST with an authorized bearer token." }, { status: 405 });
+export async function GET(request) {
+  // Unauthenticated discovery probes must receive the same OAuth challenge as POST.
+  // Do not expose MCP tools or user data on GET.
+  return fail(null, -32001, "Bearer authentication required", 401, request.url);
 }
 
 export async function POST(request) {
@@ -62,11 +64,12 @@ export async function POST(request) {
   const id = body && typeof body === "object" && !Array.isArray(body) ? (body.id ?? null) : null;
   if (body === null || typeof body !== "object" || Array.isArray(body) || body.jsonrpc !== "2.0" || typeof body.method !== "string") return fail(id, -32600, "Invalid JSON-RPC request");
 
-  // Fail closed until the owner UUID is configured server-side.
-  const ownerId = process.env.METRICSFLO_AI_OWNER_USER_ID;
-  if (!ownerId) return fail(id, -32003, "AI integration is disabled", 403);
+  // Always advertise OAuth to unauthenticated clients before checking deployment policy.
+  // The owner policy still fails closed for every authenticated request.
   const authorization = request.headers.get("authorization") || "";
   if (!/^Bearer [^\s]+$/.test(authorization)) return fail(id, -32001, "Bearer authentication required", 401, request.url);
+  const ownerId = process.env.METRICSFLO_AI_OWNER_USER_ID;
+  if (!ownerId) return fail(id, -32003, "AI integration is disabled", 403);
 
   // MCP accepts only the explicitly supplied bearer token; never fall back to browser cookies or refresh sessions.
   const token = authorization.slice("Bearer ".length);
