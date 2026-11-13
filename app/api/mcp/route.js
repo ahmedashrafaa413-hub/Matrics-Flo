@@ -35,7 +35,7 @@ function fail(id, code, message, status = 400, requestUrl = null) {
       const url = new URL(origin);
       if (url.protocol === "https:" && !url.username && !url.password && !url.port &&
           (url.hostname === "metricsflo.com" || url.hostname === "www.metricsflo.com" ||
-           /^ad-intelligence-platform-[a-z0-9-]+-ahmed-ashraf-projects\\.vercel\\.app$/.test(url.hostname))) {
+           /^ad-intelligence-platform-[a-z0-9-]+-ahmed-ashraf-projects\.vercel\.app$/.test(url.hostname))) {
         headers["WWW-Authenticate"] = `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", url)}"`;
       } else {
         headers["WWW-Authenticate"] = "Bearer";
