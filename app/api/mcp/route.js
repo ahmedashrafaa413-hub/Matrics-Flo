@@ -26,15 +26,16 @@ const TOOL = {
 };
 
 function rpc(id, result) { return NextResponse.json({ jsonrpc: "2.0", id, result }, { headers: { "Cache-Control": "no-store", "MCP-Protocol-Version": "2025-03-26" } }); }
-function fail(id, code, message, status = 400) {
+function fail(id, code, message, status = 400, requestUrl = null) {
   const headers = { "Cache-Control": "no-store" };
   if (status === 401) {
     // RFC 9728: advertise protected-resource metadata to OAuth-capable MCP clients.
-    const origin = process.env.METRICSFLO_PUBLIC_ORIGIN;
+    const origin = requestUrl;
     try {
       const url = new URL(origin);
-      if (url.protocol === "https:" && !url.username && !url.password &&
-          url.pathname === "/" && !url.search && !url.hash) {
+      if (url.protocol === "https:" && !url.username && !url.password && !url.port &&
+          (url.hostname === "metricsflo.com" || url.hostname === "www.metricsflo.com" ||
+           /^ad-intelligence-platform-[a-z0-9-]+-ahmed-ashraf-projects\\.vercel\\.app$/.test(url.hostname))) {
         headers["WWW-Authenticate"] = `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", url)}"`;
       } else {
         headers["WWW-Authenticate"] = "Bearer";
@@ -65,14 +66,14 @@ export async function POST(request) {
   const ownerId = process.env.METRICSFLO_AI_OWNER_USER_ID;
   if (!ownerId) return fail(id, -32003, "AI integration is disabled", 403);
   const authorization = request.headers.get("authorization") || "";
-  if (!/^Bearer [^\s]+$/.test(authorization)) return fail(id, -32001, "Bearer authentication required", 401);
+  if (!/^Bearer [^\s]+$/.test(authorization)) return fail(id, -32001, "Bearer authentication required", 401, request.url);
 
   // MCP accepts only the explicitly supplied bearer token; never fall back to browser cookies or refresh sessions.
   const token = authorization.slice("Bearer ".length);
   let user;
   try {
     const { data, error } = await createSupabaseAdminClient().auth.getUser(token);
-    if (error || !data?.user) return fail(id, -32001, "Invalid or expired access token", 401);
+    if (error || !data?.user) return fail(id, -32001, "Invalid or expired access token", 401, request.url);
     user = data.user;
   } catch { return fail(id, -32001, "Invalid or expired access token", 401); }
   if (user.id !== ownerId) return fail(id, -32003, "AI integration is not enabled for this account", 403);
