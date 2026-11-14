@@ -58,6 +58,11 @@ const accountLinks = [
     icon: "◇"
   },
   {
+    labelKey: "navigation.pricing",
+    href: "/pricing",
+    icon: "✦"
+  },
+  {
     labelKey: "navigation.settings",
     href: "/settings",
     icon: "⚙️"

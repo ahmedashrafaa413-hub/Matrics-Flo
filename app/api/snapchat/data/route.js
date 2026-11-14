@@ -115,7 +115,7 @@ export async function GET(request) {
     const datePreset = searchParams.get("date_preset") || "last_30d";
     const requestedLevel = searchParams.get("level") || "campaign";
     const entityLevel = normalizeLevel(requestedLevel);
-    const metricDate = searchParams.get("metric_date") || todayDate();
+    const requestedMetricDate = searchParams.get("metric_date") || "";
 
     const page = Math.max(Number(searchParams.get("page") || 1), 1);
     const pageSize = Math.min(
@@ -138,6 +138,34 @@ export async function GET(request) {
 
     const { workspace } = await getActiveWorkspace(request);
     const admin = createSupabaseAdminClient();
+
+    // The cache is written per sync day. When today's sync has not run yet,
+    // serve the most recent earlier snapshot of the same preset (flagged as
+    // stale) instead of an empty dashboard. "today" is never back-filled:
+    // an older snapshot of "today" is a different day.
+    let metricDate = requestedMetricDate || todayDate();
+    let isStale = false;
+
+    if (!requestedMetricDate && datePreset !== "today") {
+      const { data: latest, error: latestError } = await admin
+        .from("platform_daily_metrics")
+        .select("metric_date")
+        .eq("workspace_id", workspace.id)
+        .eq("provider", "snapchat")
+        .eq("account_id", accountId)
+        .lte("metric_date", metricDate)
+        .filter("raw->>date_preset", "eq", datePreset)
+        .order("metric_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestError) throw new Error(latestError.message);
+
+      if (latest?.metric_date && latest.metric_date !== metricDate) {
+        metricDate = latest.metric_date;
+        isStale = true;
+      }
+    }
 
     const baseQuery = admin
       .from("platform_daily_metrics")
@@ -257,6 +285,7 @@ export async function GET(request) {
       entity_level: entityLevel,
       date_preset: datePreset,
       metric_date: metricDate,
+      is_stale: isStale,
       page,
       page_size: pageSize,
       total_rows: count || rows.length,

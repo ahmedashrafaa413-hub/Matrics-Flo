@@ -17,7 +17,7 @@ export async function GET(request) {
       )
       .eq("workspace_id", workspace.id)
       .eq("is_active", true)
-      .in("provider", ["meta", "ga4", "salla", "snapchat"])
+      .in("provider", ["meta", "ga4", "salla", "snapchat", "tiktok"])
       .order("updated_at", { ascending: false });
 
     if (error) throw new Error(error.message);

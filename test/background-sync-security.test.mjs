@@ -105,11 +105,17 @@ test("Snapchat reports match Ads Manager attribution and account spend", () => {
   );
 });
 
-test("Snapchat date ranges end on an exact hour boundary", () => {
-  const snapchatApi = read("lib/snapchatApi.js");
+test("Snapchat date ranges end on an exact hour boundary", async () => {
+  const { getDateRange } = await import("../lib/snapchatApi.js");
 
-  assert.match(snapchatApi, /T\$\{pad\(h\)\}:00:00\.000\+03:00/);
-  assert.doesNotMatch(snapchatApi, /getUTCMinutes|nowMin|endMinute/);
+  for (const timeZone of ["Asia/Riyadh", "Africa/Cairo", "UTC"]) {
+    for (const preset of ["today", "yesterday", "last_7d", "last_30d", "this_month", "last_month", "maximum"]) {
+      const { startTime, endTime } = getDateRange(preset, timeZone);
+      assert.match(startTime, /T00:00:00\.000[+-]\d{2}:\d{2}$/, `${preset} ${timeZone}`);
+      assert.match(endTime, /T00:00:00\.000[+-]\d{2}:\d{2}$/, `${preset} ${timeZone}`);
+      assert.ok(new Date(endTime) > new Date(startTime));
+    }
+  }
 });
 
 test("rate limit and job tables are server-only and tenant-scoped", () => {

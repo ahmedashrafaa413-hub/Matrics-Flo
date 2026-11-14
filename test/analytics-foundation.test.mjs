@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { buildAnalyticsSnapshot, compareMetric, normalizeCampaign, safeRatio } from "../lib/analyticsEngine.mjs";
+import { buildAnalyticsSnapshot, buildPlatformOverview, compareMetric, normalizeCampaign, safeRatio } from "../lib/analyticsEngine.mjs";
 
 test("analytics comparisons respect metric direction without inventing missing values", () => {
   assert.equal(safeRatio(null, 5), null);
@@ -41,4 +41,19 @@ test("analytics route is workspace isolated and loads sources in parallel", asyn
 test("legacy Intelligence route redirects safely to Analytics", async () => {
   const source = await readFile(new URL("../app/intelligence/page.jsx", import.meta.url), "utf8");
   assert.match(source, /redirect\("\/analytics"\)/);
+});
+
+test("platform overview compares only real connected ad sources", () => {
+  const rows = buildPlatformOverview(
+    [
+      { source:"Meta Ads", type:"ads", available:true, spend:100, purchases:4, cost_per_purchase:25, roas:3, sales:300 },
+      { source:"Snapchat Ads", type:"ads", available:false, spend:null },
+      { source:"Salla Store Revenue", type:"store", available:true, sales:500 }
+    ],
+    [{ source:"Meta Ads", type:"ads", available:true, spend:80, purchases:2, cost_per_purchase:40, roas:2, sales:160 }]
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source, "Meta Ads");
+  assert.equal(rows[0].metrics.spend.percent, 25);
+  assert.equal(rows[0].metrics.cpa.improved, true);
 });

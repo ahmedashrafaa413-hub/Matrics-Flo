@@ -86,7 +86,8 @@ function normalizeSource({
   purchases = 0,
   sales = 0,
   salesCurrency = "SAR",
-  impressions = 0
+  impressions = 0,
+  available = true
 }) {
   const spendOriginal = safeNumber(spend);
   const salesOriginal = safeNumber(sales);
@@ -100,23 +101,25 @@ function normalizeSource({
   return {
     source,
     type,
+    available,
+    status: available ? "available" : "unavailable",
     currency: "SAR",
 
-    spend: spendSAR,
-    spend_original: spendOriginal,
+    spend: available ? spendSAR : null,
+    spend_original: available ? spendOriginal : null,
     spend_currency: spendCurrency,
 
-    clicks: normalizedClicks,
-    impressions: safeNumber(impressions),
-    purchases: normalizedPurchases,
+    clicks: available ? normalizedClicks : null,
+    impressions: available ? safeNumber(impressions) : null,
+    purchases: available ? normalizedPurchases : null,
 
-    cost_per_purchase: safeDivide(spendSAR, normalizedPurchases),
+    cost_per_purchase: available ? safeDivide(spendSAR, normalizedPurchases) : null,
 
-    sales: salesSAR,
-    sales_original: salesOriginal,
+    sales: available ? salesSAR : null,
+    sales_original: available ? salesOriginal : null,
     sales_currency: salesCurrency,
 
-    roas: safeDivide(salesSAR, spendSAR)
+    roas: available ? safeDivide(salesSAR, spendSAR) : null
   };
 }
 
@@ -146,17 +149,20 @@ export async function GET(request) {
 
   const metaAccountId = searchParams.get("meta_account_id") || "";
   const snapchatAccountId = searchParams.get("snapchat_account_id") || "";
+  const tiktokAccountId = searchParams.get("tiktok_account_id") || "";
 
   let metaCurrency = searchParams.get("meta_currency") || "USD";
   let snapchatCurrency = searchParams.get("snapchat_currency") || "USD";
+  let tiktokCurrency = searchParams.get("tiktok_currency") || "SAR";
   const sallaCurrency = searchParams.get("salla_currency") || "SAR";
 
   const sources = [];
   const debug = [];
 
-  const [metaAccountsResult, snapAccountsResult] = await Promise.all([
+  const [metaAccountsResult, snapAccountsResult, tiktokAccountsResult] = await Promise.all([
     fetchJson(`${baseUrl}/api/meta/accounts`, request),
-    fetchJson(`${baseUrl}/api/snapchat/accounts`, request)
+    fetchJson(`${baseUrl}/api/snapchat/accounts`, request),
+    fetchJson(`${baseUrl}/api/connections/status`, request)
   ]);
 
   const metaAccounts = Array.isArray(metaAccountsResult.data?.data)
@@ -183,6 +189,9 @@ export async function GET(request) {
     );
   }
 
+  const tiktokAccounts = tiktokAccountsResult.data?.providers?.tiktok?.accounts || [];
+  if (tiktokAccountId) tiktokCurrency = getSelectedAccountCurrency(tiktokAccountId, tiktokAccounts, tiktokCurrency);
+
   const metaPromise = metaAccountId
     ? fetchJson(
         `${baseUrl}/api/meta/insights` +
@@ -207,11 +216,15 @@ export async function GET(request) {
     `${baseUrl}/api/salla/summary?date_preset=${encodeURIComponent(datePreset)}`,
     request
   );
+  const tiktokPromise = tiktokAccountId
+    ? fetchJson(`${baseUrl}/api/tiktok/data?account_id=${encodeURIComponent(tiktokAccountId)}&level=account&date_preset=${encodeURIComponent(datePreset)}`, request)
+    : Promise.resolve({ success:false, error:"No TikTok account selected", data:null });
 
-  const [metaResult, snapResult, sallaResult] = await Promise.all([
+  const [metaResult, snapResult, sallaResult, tiktokResult] = await Promise.all([
     metaPromise,
     snapPromise,
-    sallaPromise
+    sallaPromise,
+    tiktokPromise
   ]);
 
   if (metaAccountId) {
@@ -229,6 +242,7 @@ export async function GET(request) {
       normalizeSource({
         source: "Meta Ads",
         type: "ads",
+        available: metaResult.success,
         spend: summary.spend,
         spendCurrency:
           summary.currency || summary.account_currency || metaCurrency,
@@ -252,10 +266,22 @@ export async function GET(request) {
       normalizeSource({
         source: "Meta Ads",
         type: "ads",
+        available: false,
         spendCurrency: metaCurrency,
         salesCurrency: metaCurrency
       })
     );
+  }
+
+  if (tiktokAccountId) {
+    const summary = tiktokResult.data?.summary || {};
+    debug.push({ source:"TikTok Ads", success:tiktokResult.success, error:tiktokResult.error || null, assumed_currency:tiktokCurrency });
+    sources.push(normalizeSource({ source:"TikTok Ads", type:"ads", available:tiktokResult.success,
+      spend:summary.spend, spendCurrency:summary.currency || tiktokCurrency, clicks:summary.clicks,
+      impressions:summary.impressions, purchases:summary.purchases, sales:summary.purchase_value,
+      salesCurrency:summary.currency || tiktokCurrency }));
+  } else {
+    sources.push(normalizeSource({ source:"TikTok Ads", type:"ads", available:false, spendCurrency:tiktokCurrency, salesCurrency:tiktokCurrency }));
   }
 
   if (snapchatAccountId) {
@@ -274,6 +300,7 @@ export async function GET(request) {
       normalizeSource({
         source: "Snapchat Ads",
         type: "ads",
+        available: snapResult.success && !snapResult.data?.partial_data,
         spend: summary.spend,
         spendCurrency:
           summary.currency || summary.account_currency || snapchatCurrency,
@@ -297,6 +324,7 @@ export async function GET(request) {
       normalizeSource({
         source: "Snapchat Ads",
         type: "ads",
+        available: false,
         spendCurrency: snapchatCurrency,
         salesCurrency: snapchatCurrency
       })
@@ -312,7 +340,10 @@ export async function GET(request) {
 
   const sallaSummary = getSallaSummary(sallaResult);
 
+  // /api/salla/summary returns total_revenue; the older names are kept as
+  // fallbacks so a cached or legacy response still reads.
   const sallaTotalSales =
+    safeNumber(sallaSummary.total_revenue) ||
     safeNumber(sallaSummary.total_sales) ||
     safeNumber(sallaSummary.sales) ||
     safeNumber(sallaSummary.revenue);
@@ -324,27 +355,16 @@ export async function GET(request) {
 
   const sallaSalesSAR = toSAR(sallaTotalSales, sallaCurrency);
 
-  const adsSalesSAR = sources
-    .filter((row) => row.type === "ads")
-    .reduce((sum, row) => sum + safeNumber(row.sales), 0);
-
-  const adsPurchases = sources
-    .filter((row) => row.type === "ads")
-    .reduce((sum, row) => sum + safeNumber(row.purchases), 0);
-
-  const organicSalesSAR = Math.max(sallaSalesSAR - adsSalesSAR, 0);
-  const organicOrders = Math.max(sallaOrders - adsPurchases, 0);
-
+  // Store revenue and ad-platform attributed revenue are distinct measures.
+  // Never infer organic sales by subtracting attribution totals from store sales.
   sources.push(
     normalizeSource({
-      source: "Salla Organic / Other",
-      type: "organic",
-      spend: 0,
-      spendCurrency: "SAR",
-      clicks: 0,
-      purchases: organicOrders,
-      sales: organicSalesSAR,
-      salesCurrency: "SAR"
+      source: "Salla Store Revenue",
+      type: "store",
+      available: sallaResult.success,
+      purchases: sallaOrders,
+      sales: sallaTotalSales,
+      salesCurrency: sallaCurrency
     })
   );
 
@@ -352,46 +372,49 @@ export async function GET(request) {
     .filter((row) => row.type === "ads")
     .reduce((sum, row) => sum + safeNumber(row.spend), 0);
 
-  const totalClicks = sources.reduce(
+  const totalClicks = sources.filter((row) => row.type === "ads").reduce(
     (sum, row) => sum + safeNumber(row.clicks),
     0
   );
 
-  const totalPurchases = sources.reduce(
+  const totalPurchases = sources.filter((row) => row.type === "ads").reduce(
     (sum, row) => sum + safeNumber(row.purchases),
     0
   );
 
-  const totalSalesSAR =
-    sallaSalesSAR ||
-    sources.reduce((sum, row) => sum + safeNumber(row.sales), 0);
-
+  const adsRevenueSAR = sources.filter((row) => row.type === "ads")
+    .reduce((sum, row) => sum + safeNumber(row.sales), 0);
   const totalRow = normalizeSource({
     source: "Total",
     type: "total",
+    available: sallaResult.success && (!metaAccountId || metaResult.success) &&
+      (!snapchatAccountId || (snapResult.success && !snapResult.data?.partial_data)) &&
+      (!tiktokAccountId || tiktokResult.success),
     spend: totalAdsSpendSAR,
     spendCurrency: "SAR",
     clicks: totalClicks,
-    purchases: totalPurchases,
-    sales: totalSalesSAR,
-    salesCurrency: "SAR"
+    purchases: sallaOrders,
+    sales: sallaTotalSales,
+    salesCurrency: sallaCurrency
   });
 
   const rows = [...sources, totalRow];
 
   return NextResponse.json({
     success: true,
+    partial_data: !sallaResult.success || (Boolean(metaAccountId) && !metaResult.success) || (Boolean(snapchatAccountId) && (!snapResult.success || Boolean(snapResult.data?.partial_data))) || (Boolean(tiktokAccountId) && !tiktokResult.success),
+    revenue_breakdown: { store_revenue: sallaResult.success ? sallaSalesSAR : null, platform_attributed_revenue_sum: (metaAccountId && !metaResult.success) || (snapchatAccountId && !snapResult.success) || (tiktokAccountId && !tiktokResult.success) ? null : adsRevenueSAR, organic_revenue: null, attribution_note: "Platform attribution cannot be subtracted from store sales to calculate organic revenue." },
     version: "performance-overview-v3-cookie-forwarding-sar",
     base_currency: "SAR",
     date_preset: datePreset,
     exchange_rates: {
       USD_SAR: 3.75
     },
-    summary: buildPerformanceSummary(rows, {
+    summary: { ...buildPerformanceSummary(rows, {
       actualSalesAvailable: sallaResult.success,
       actualSales: sallaSalesSAR,
       actualPurchases: sallaOrders
-    }),
+    }), ...(sallaResult.success ? {} : { total_sales: null, total_purchases: null, actual_roas: null, cost_per_purchase: null }), data_status: !sallaResult.success ? "unavailable" : "available" },
     sources: rows,
     debug,
     note: null

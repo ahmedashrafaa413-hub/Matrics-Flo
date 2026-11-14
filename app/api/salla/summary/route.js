@@ -3,6 +3,12 @@ import { createSupabaseAdminClient } from "../../../../lib/supabaseServer";
 import { requireUser } from "../../../../lib/serverAuth";
 import { getSallaConnection } from "../../../../lib/sallaToken";
 import { getRiyadhDateRange } from "../../../../lib/riyadhDateRange.mjs";
+import { fetchAllRows, summarizeOrders } from "../../../../lib/sallaOrders.mjs";
+import {
+  DEFAULT_TIME_ZONE,
+  shiftDate,
+  zonedMidnight
+} from "../../../../lib/reportingPeriod.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -30,41 +36,66 @@ export async function GET(request) {
 
   const admin = createSupabaseAdminClient();
 
-  // Build date-filtered query
-  const { from, to, fromTimestamp, toExclusiveTimestamp } =
-    getRiyadhDateRange(datePreset);
+  // Same calendar days as Meta, Snapchat and GA4, in the workspace timezone.
+  const preset = getRiyadhDateRange(datePreset, new Date(), workspace.timezone);
+  let { from, to, fromTimestamp, toExclusiveTimestamp } = preset;
 
-  let query = admin
-    .from("salla_orders")
-    .select("order_id,total_amount,currency,order_status,order_date")
-    .eq("workspace_id", workspace.id);
+  // A custom range (since/until, inclusive) as used by the Meta page.
+  const since = searchParams.get("since") || "";
+  const until = searchParams.get("until") || "";
+  const isCustom =
+    /^\d{4}-\d{2}-\d{2}$/.test(since) && /^\d{4}-\d{2}-\d{2}$/.test(until) && since <= until;
 
-  if (datePreset !== "maximum") {
-    query = query
-      .gte("order_date", fromTimestamp)
-      .lt("order_date", toExclusiveTimestamp);
+  if (isCustom) {
+    const zone = workspace.timezone || DEFAULT_TIME_ZONE;
+    from = since;
+    to = until;
+    fromTimestamp = zonedMidnight(since, zone);
+    toExclusiveTimestamp = zonedMidnight(shiftDate(until, 1), zone);
   }
 
-  const { data: orders, error } = await query;
+  const buildQuery = () => {
+    let query = admin
+      .from("salla_orders")
+      .select("order_id,total_amount,currency,order_status,order_date,status_slug:raw_data->status->>slug")
+      .eq("workspace_id", workspace.id)
+      .order("order_date", { ascending: false })
+      .order("order_id", { ascending: true });
 
-  if (error) {
-    return NextResponse.json({ success: false, error }, { status: 500 });
+    if (isCustom || datePreset !== "maximum") {
+      query = query
+        .gte("order_date", fromTimestamp)
+        .lt("order_date", toExclusiveTimestamp);
+    }
+
+    return query;
+  };
+
+  let orders;
+  try {
+    orders = await fetchAllRows(buildQuery);
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 
-  const totalOrders   = orders?.length || 0;
-  const totalRevenue  = (orders || []).reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const averageOrderValue = totalOrders ? totalRevenue / totalOrders : 0;
+  // Cancelled, refunded and returned orders are listed but not counted.
+  const {
+    total_orders: totalOrders,
+    total_revenue: totalRevenue,
+    average_order_value: averageOrderValue,
+    excluded_orders: excludedOrders
+  } = summarizeOrders(orders);
 
   return NextResponse.json({
     success: true,
     store_name: connection?.account_name || "Salla Store",
     merchant_id: connection?.metadata?.merchant_id || null,
-    date_preset: datePreset,
+    date_preset: isCustom ? "custom" : preset.preset,
     date_range: { from, to },
     total_orders: totalOrders,
     total_revenue: totalRevenue,
     average_order_value: averageOrderValue,
-    currency: orders?.[0]?.currency || "SAR",
-    orders: orders || []
+    excluded_orders: excludedOrders,
+    currency: orders?.[0]?.currency || "SAR"
   });
 }

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspace } from "../../../../lib/workspace";
+import { requireWorkspaceRole } from "../../../../lib/tenantFoundation.mjs";
 import { assertTrustedMutation } from "../../../../lib/requestSecurity.mjs";
 import { assertRateLimit, consumeRateLimit } from "../../../../lib/rateLimit.mjs";
+import { toSAR as toSARShared } from "../../../../lib/currency";
+
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+const ANTHROPIC_TIMEOUT_MS = 60_000;
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +41,9 @@ function getErrorHeaders(error) {
 
 function safeNum(v) { const n = Number(v||0); return Number.isFinite(n) ? n : 0; }
 function safeDivide(a,b) { const x=safeNum(a),y=safeNum(b); return y ? x/y : 0; }
-function toSAR(v, cur="USD") {
-  const rates = { SAR:1, USD:3.75, AED:1.02, EGP:0.078, EUR:4.05, GBP:4.8 };
-  return safeNum(v) * (rates[String(cur).toUpperCase()] || 1);
+// One exchange-rate table for the whole app (lib/currency.js).
+function toSAR(v, cur = "USD") {
+  return toSARShared(safeNum(v), cur);
 }
 
 function generateSignals({ metaSummary, snapSummary, sallaSummary, metaCurrency, snapCurrency, datePreset }) {
@@ -179,6 +184,7 @@ export async function POST(request) {
   try {
     assertTrustedMutation(request);
     const { user, workspace } = await getActiveWorkspace(request);
+    requireWorkspaceRole(workspace, "member");
 
     const contentLength = Number(request.headers.get("content-length") || 0);
     if (contentLength > MAX_BODY_BYTES) {
@@ -268,8 +274,9 @@ export async function POST(request) {
             "x-api-key": apiKey,
             "anthropic-version": "2023-06-01",
           },
+          signal: AbortSignal.timeout(ANTHROPIC_TIMEOUT_MS),
           body: JSON.stringify({
-            model: "claude-sonnet-4-6",
+            model: ANTHROPIC_MODEL,
             max_tokens: 1500,
             messages: [{ role: "user", content: prompt }],
           }),
@@ -283,7 +290,10 @@ export async function POST(request) {
           aiText = aiData?.content?.[0]?.text || "تعذّر توليد التحليل.";
         }
       } catch (err) {
-        aiError = err.message || "فشل الاتصال بـ Claude API";
+        aiError =
+          err?.name === "TimeoutError"
+            ? "انتهت مهلة الاتصال بـ Claude API"
+            : err.message || "فشل الاتصال بـ Claude API";
       }
     }
 

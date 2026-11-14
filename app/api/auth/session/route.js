@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabasePublicClient } from "../../../../lib/serverAuth";
+import { assertTrustedMutation } from "../../../../lib/requestSecurity.mjs";
 import {
   AUTH_COOKIE_NAMES,
   normalizeSessionMaxAge
@@ -25,6 +26,7 @@ function clearAuthCookies(response) {
 
 export async function POST(request) {
   try {
+    assertTrustedMutation(request);
     const body = await request.json().catch(() => ({}));
 
     const accessToken = body.access_token || body.accessToken || "";
@@ -91,13 +93,19 @@ export async function POST(request) {
         error: error.message || "Failed to save session"
       },
       {
-        status: 500
+        status: error.status || 500
       }
     );
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request) {
+  try {
+    assertTrustedMutation(request);
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 403 });
+  }
+
   const response = NextResponse.json({
     success: true,
     message: "Session cleared successfully"

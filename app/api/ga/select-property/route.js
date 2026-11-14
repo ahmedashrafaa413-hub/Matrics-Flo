@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "../../../../lib/serverAuth";
+import { assertTrustedMutation } from "../../../../lib/requestSecurity.mjs";
 import { updateGaSelectedProperty } from "../../../../lib/gaToken";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request) {
   try {
+    assertTrustedMutation(request);
     await requireUser(request);
   } catch (authError) {
     return NextResponse.json(
