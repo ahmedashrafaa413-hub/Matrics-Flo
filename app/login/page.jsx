@@ -96,12 +96,12 @@ export default function LoginPage() {
       const supabase = getSupabaseBrowserClient();
 
       const siteUrl =
-        process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+        window.location.origin;
 
       const { error: googleError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${siteUrl}/auth/callback?next=/dashboard`
+          redirectTo: `${siteUrl}/auth/callback?next=${encodeURIComponent(getSafeInternalPath(new URLSearchParams(window.location.search).get("next")))}`
         }
       });
 

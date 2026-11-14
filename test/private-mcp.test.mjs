@@ -1,0 +1,53 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const source = readFileSync(new URL("../app/api/mcp/route.js", import.meta.url), "utf8");
+
+test("private MCP remains disabled unless owner ID is configured", () => {
+  assert.match(source, /METRICSFLO_AI_OWNER_USER_ID/);
+  assert.match(source, /if \(!ownerId\)/);
+  assert.match(source, /user\.id !== ownerId/);
+});
+
+test("MCP requires bearer auth and checks workspace membership", () => {
+  assert.match(source, /authorization/);
+  assert.match(source, /Bearer /);
+  assert.match(source, /userHasWorkspaceAccess\(user\.id, workspaceId\)/);
+});
+
+test("MCP uses a configured internal origin and bounded reads", () => {
+  assert.match(source, /METRICSFLO_INTERNAL_ORIGIN/);
+  assert.match(source, /consumeRateLimit/);
+  assert.match(source, /responseText\.length > 512000/);
+  assert.match(source, /AbortSignal\.timeout\(25000\)/);
+});
+
+test("MCP only advertises read-only overview", () => {
+  assert.match(source, /get_performance_overview/);
+  assert.doesNotMatch(source, /delete_campaign|update_budget|pause_ad/);
+});
+
+test("MCP rejects oversized request bodies before parsing", () => {
+  assert.match(source, /request\.headers\.get\("content-length"\)/);
+  assert.match(source, /raw\.length > 8192/);
+});
+
+test("MCP validates internal HTTPS origin using URL parser", () => {
+  assert.match(source, /new URL\(origin\)/);
+  assert.match(source, /validatedOrigin\.protocol !== "https:"/);
+  assert.match(source, /validatedOrigin\.username/);
+});
+
+test("MCP initialization requires protocol version and declares capabilities", () => {
+  assert.match(source, /body\.params\.protocolVersion/);
+  assert.match(source, /protocolVersion: "2025-03-26"/);
+  assert.match(source, /capabilities: \{ tools: \{\} \}/);
+});
+
+
+test("MCP bearer authentication cannot fall back to browser sessions", () => {
+  assert.match(source, /createSupabaseAdminClient\(\)\.auth\.getUser\(token\)/);
+  assert.doesNotMatch(source, /requireUser\(request\)/);
+  assert.match(source, /WWW-Authenticate/);
+});
