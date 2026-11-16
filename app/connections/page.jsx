@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
@@ -11,7 +11,7 @@ const COMING_SOON = [
   { name: "Shopify",    icon: "S", iconBg: "#96BF48", desc: "Revenue, orders, products"         },
 ];
 
-export default function ConnectionsPage() {
+function ConnectionsPageInner() {
   const searchParams = useSearchParams();
 
   const [accounts,        setAccounts]        = useState([]);
@@ -458,5 +458,13 @@ export default function ConnectionsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ConnectionsPage() {
+  return (
+    <Suspense>
+      <ConnectionsPageInner />
+    </Suspense>
   );
 }
