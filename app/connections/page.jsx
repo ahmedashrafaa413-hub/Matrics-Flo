@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
@@ -11,6 +12,8 @@ const COMING_SOON = [
 ];
 
 export default function ConnectionsPage() {
+  const searchParams = useSearchParams();
+
   const [accounts,        setAccounts]        = useState([]);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [metaStatus,      setMetaStatus]      = useState("");
@@ -24,8 +27,17 @@ export default function ConnectionsPage() {
   const [sallaConnected,  setSallaConnected]  = useState(false);
   const [snapConnected,   setSnapConnected]   = useState(false);
   const [snapAccount,     setSnapAccount]     = useState("");
+  const [snapStatus,      setSnapStatus]      = useState("");
 
   useEffect(() => {
+    // Show success/error from OAuth callback URL params
+    const snapError   = searchParams.get("snapchat_error");
+    const snapSuccess = searchParams.get("snapchat");
+    if (snapError) {
+      setSnapStatus("error:" + snapError);
+    } else if (snapSuccess === "connected") {
+      setSnapStatus("success:Connected successfully");
+    }
     loadConnectionStatus();
   }, []);
 
@@ -389,6 +401,23 @@ export default function ConnectionsPage() {
             </div>
           </div>
         </div>
+
+        {/* OAuth callback status */}
+        {snapStatus && (
+          <div style={{
+            marginTop: 10, padding: "10px 16px", borderRadius: "var(--radius-md)",
+            fontSize: 13, fontWeight: 500,
+            background: snapStatus.startsWith("error:")
+              ? "rgba(239,68,68,0.08)" : "rgba(6,214,160,0.08)",
+            border: snapStatus.startsWith("error:")
+              ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(6,214,160,0.3)",
+            color: snapStatus.startsWith("error:") ? "#f87171" : "#06d6a0"
+          }}>
+            {snapStatus.startsWith("error:")
+              ? `⚠ ${snapStatus.slice(6)}`
+              : `✓ ${snapStatus.slice(8)}`}
+          </div>
+        )}
       </div>
 
       {/* ── Coming Soon ── */}

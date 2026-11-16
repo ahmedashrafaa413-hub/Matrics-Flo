@@ -4,6 +4,7 @@ import {
   saveSnapchatConnectionFromOAuth
 } from "../../../../lib/snapchatToken";
 import { requireUser } from "../../../../lib/serverAuth";
+import { ensureDefaultWorkspace } from "../../../../lib/workspace";
 import {
   clearOAuthStateCookie,
   getAppUrl,
@@ -45,6 +46,18 @@ export async function GET(request) {
     return NextResponse.redirect(
       `${appUrl}/connections?snapchat_error=${encodeURIComponent(
         "Missing code"
+      )}`
+    );
+  }
+
+  // Ensure the user has a workspace before we try to save the token.
+  // If none exists it will be created here (and the workspace cookie set).
+  try {
+    await ensureDefaultWorkspace(request);
+  } catch (err) {
+    return NextResponse.redirect(
+      `${appUrl}/connections?snapchat_error=${encodeURIComponent(
+        "Could not resolve workspace: " + (err.message || "unknown error")
       )}`
     );
   }
