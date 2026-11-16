@@ -19,7 +19,8 @@ export async function GET(request) {
     }
     return NextResponse.json({
       resource: new URL("/api/mcp", url.origin).toString(),
-      authorization_servers: [new URL("/auth/v1", supabase.origin).toString()],
+      // Point to metricsflo.com as authorization server (see /mcp variant for details).
+      authorization_servers: [url.origin],
       bearer_methods_supported: ["header"]
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {

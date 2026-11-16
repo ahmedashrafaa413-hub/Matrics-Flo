@@ -22,7 +22,12 @@ export async function GET(request) {
     }
     return NextResponse.json({
       resource: new URL("/api/mcp", requestOrigin.origin).toString(),
-      authorization_servers: [issuer.toString()],
+      // Point to metricsflo.com as the authorization server so Claude.ai fetches
+      // our /.well-known/oauth-authorization-server discovery document.
+      // That document advertises /api/oauth/token (which proxies to Supabase's
+      // /auth/v1/oauth/token) instead of the regular /auth/v1/token endpoint,
+      // which only handles session logins — not OAuth authorization_code exchange.
+      authorization_servers: [requestOrigin.origin],
       bearer_methods_supported: ["header"]
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
