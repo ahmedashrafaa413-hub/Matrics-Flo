@@ -68,9 +68,9 @@ export async function GET(request) {
     return json({ error: "authentication_unavailable" }, 503);
   }
 
-  // Call Supabase Auth REST API directly — the supabase-js SDK does not expose
-  // the OAuth server endpoints (auth.oauth is not part of the public SDK).
-  const authApiUrl = `${supabaseUrl}/auth/v1/oauth/authorize-details?authorization_id=${encodeURIComponent(authorizationId)}`;
+  // Call Supabase Auth REST API directly.
+  // Endpoint: GET /auth/v1/oauth/authorizations/{id}
+  const authApiUrl = `${supabaseUrl}/auth/v1/oauth/authorizations/${encodeURIComponent(authorizationId)}`;
 
   let authRes;
   try {
@@ -86,15 +86,21 @@ export async function GET(request) {
     return json({ error: "Failed to reach Supabase Auth API" }, 503);
   }
 
+  // Parse response — Supabase may return text/plain on some errors
+  const contentType = authRes.headers.get("content-type") || "";
   let authData;
-  try {
-    authData = await authRes.json();
-  } catch {
-    return json({ error: "Invalid response from Supabase Auth API" }, 502);
+  if (contentType.includes("application/json")) {
+    try { authData = await authRes.json(); } catch { authData = {}; }
+  } else {
+    const text = await authRes.text().catch(() => "");
+    if (!authRes.ok) {
+      return json({ error: text || `Supabase Auth API error (${authRes.status})` }, authRes.status >= 500 ? 502 : 400);
+    }
+    authData = {};
   }
 
   if (!authRes.ok) {
-    const errMsg = authData?.msg || authData?.error || authData?.message || "authorization_lookup_failed";
+    const errMsg = authData?.msg || authData?.error_description || authData?.error || authData?.message || "authorization_lookup_failed";
     return json({ error: errMsg }, authRes.status >= 500 ? 502 : 400);
   }
 

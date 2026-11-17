@@ -70,9 +70,9 @@ export async function POST(request) {
     return json({ error: "authentication_unavailable" }, 503);
   }
 
-  // Call Supabase Auth REST API directly — the supabase-js SDK does not expose
-  // the OAuth server endpoints (auth.oauth is not part of the public SDK).
-  const authApiUrl = `${supabaseUrl}/auth/v1/oauth/authorize`;
+  // Call Supabase Auth REST API directly.
+  // Endpoint: POST /auth/v1/oauth/authorizations/{id}/consent  { action: "approve"|"deny" }
+  const authApiUrl = `${supabaseUrl}/auth/v1/oauth/authorizations/${encodeURIComponent(authorizationId)}/consent`;
 
   let authRes;
   try {
@@ -83,10 +83,7 @@ export async function POST(request) {
         "apikey": supabaseAnonKey,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        authorization_id: authorizationId,
-        decision: approve ? "approve" : "deny"
-      })
+      body: JSON.stringify({ action: approve ? "approve" : "deny" })
     });
   } catch (fetchErr) {
     return json({ error: "Failed to reach Supabase Auth API" }, 503);
