@@ -2,18 +2,40 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// Get Supabase access token from the browser session (works regardless of cookie domain)
-async function getBrowserAccessToken() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnonKey) return null;
+// Get Supabase access token from localStorage (works regardless of cookie domain).
+// Supabase stores the session in localStorage under a key derived from the project URL.
+// Since login happens on www.metricsflo.com and consent runs on metricsflo.com,
+// cookies don't cross but localStorage ALSO doesn't cross subdomains.
+// Solution: redirect user to www for token pickup, or read cookie directly from document.
+function getBrowserAccessToken() {
+  if (typeof window === "undefined") return null;
 
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true }
-  });
+  // Try reading sb-access-token cookie directly from document.cookie
+  // (browsers send same-site cookies to both www and bare domain when reading client-side)
+  const cookies = document.cookie.split(";");
+  for (const cookie of cookies) {
+    const [name, ...rest] = cookie.trim().split("=");
+    const val = rest.join("=");
+    if (name === "sb-access-token" || name === "supabase-access-token") {
+      return decodeURIComponent(val) || null;
+    }
+  }
 
-  const { data } = await client.auth.getSession();
-  return data?.session?.access_token || null;
+  // Fallback: try localStorage keys that Supabase uses
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return parsed?.access_token || null;
+        }
+      }
+    }
+  } catch {}
+
+  return null;
 }
 
 export default function OAuthConsentPage() {
@@ -36,8 +58,8 @@ export default function OAuthConsentPage() {
           throw new Error("Missing or invalid authorization request.");
         }
 
-        // Get the token from the browser Supabase session (bypasses cookie domain issues)
-        const accessToken = await getBrowserAccessToken();
+        // Get the token from the browser (cookies or localStorage)
+        const accessToken = getBrowserAccessToken();
 
         if (!accessToken) {
           window.location.assign(
@@ -113,7 +135,7 @@ export default function OAuthConsentPage() {
     setError("");
 
     try {
-      const accessToken = details?._accessToken || await getBrowserAccessToken();
+      const accessToken = details?._accessToken || getBrowserAccessToken();
 
       const res = await fetch("/api/oauth/authorize-decide", {
         method: "POST",
