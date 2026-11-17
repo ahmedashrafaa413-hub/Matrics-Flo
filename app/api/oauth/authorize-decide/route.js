@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../../lib/serverAuth";
-import { getServerAccessToken } from "../../../../lib/supabaseServer";
+import { getServerAccessToken, getServerRefreshToken } from "../../../../lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +44,7 @@ export async function POST(request) {
   // 3. Get the user's access token to call auth.oauth (user-facing, needs JWT)
   const accessToken = getServerAccessToken(request);
   if (!accessToken) return json({ error: "login_required" }, 401);
+  const refreshToken = getServerRefreshToken();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -58,7 +59,7 @@ export async function POST(request) {
 
   await client.auth.setSession({
     access_token: accessToken,
-    refresh_token: ""
+    refresh_token: refreshToken
   });
 
   if (!client.auth.oauth?.approveAuthorization || !client.auth.oauth?.denyAuthorization) {
