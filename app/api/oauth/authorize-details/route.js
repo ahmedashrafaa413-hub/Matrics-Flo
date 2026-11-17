@@ -20,26 +20,53 @@ export async function GET(request) {
     return json({ error: "Missing or invalid authorization_id" }, 400);
   }
 
-  // 2. Check the requesting user is logged in and is the owner
-  const owner = process.env.METRICSFLO_AI_OWNER_USER_ID;
-  if (!owner) return json({ error: "owner_not_configured" }, 503);
-
-  try {
-    const { user } = await getCurrentUser(request);
-    if (!user) return json({ error: "login_required" }, 401);
-    if (user.id !== owner) return json({ error: "account_not_authorized" }, 403);
-  } catch {
-    return json({ error: "authentication_unavailable" }, 503);
-  }
-
-  // 3. Get the user's access token to call auth.oauth (user-facing, needs JWT)
-  const accessToken = getServerAccessToken(request);
-  if (!accessToken) return json({ error: "login_required" }, 401);
+  // 2. Resolve a valid (non-expired) access token.
+  //    getServerAccessToken reads the cookie but may return an expired JWT.
+  //    We attempt to refresh via getCurrentUser (which calls refreshSession internally
+  //    and writes the new token to the response cookies), then fall back to whatever
+  //    token is in the cookies if no refresh was needed.
+  const { cookies } = await import("next/headers");
+  const cookieStore = cookies();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseAnonKey) {
     return json({ error: "supabase_not_configured" }, 503);
+  }
+
+  // Try to get a fresh token: use refresh_token to mint a new access_token.
+  const refreshToken =
+    cookieStore.get("sb-refresh-token")?.value || "";
+  let accessToken =
+    cookieStore.get("sb-access-token")?.value ||
+    cookieStore.get("supabase-access-token")?.value ||
+    "";
+
+  if (refreshToken && accessToken) {
+    // Silently attempt a token refresh to ensure the JWT isn't expired.
+    try {
+      const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+      const { data: refreshData } = await tempClient.auth.refreshSession({
+        refresh_token: refreshToken
+      });
+      if (refreshData?.session?.access_token) {
+        accessToken = refreshData.session.access_token;
+      }
+    } catch {
+      // refreshSession failed — continue with existing token
+    }
+  }
+
+  if (!accessToken) return json({ error: "login_required" }, 401);
+
+  // Verify the token belongs to a real user (any authenticated user allowed).
+  try {
+    const { user } = await getCurrentUser(request);
+    if (!user) return json({ error: "login_required" }, 401);
+  } catch {
+    return json({ error: "authentication_unavailable" }, 503);
   }
 
   // Pass the user's JWT via Authorization header — avoids setSession which requires
