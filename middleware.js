@@ -36,6 +36,18 @@ function hasAuthCookie(request) {
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
+  const hostname = request.headers.get("host") || "";
+
+  // Redirect bare domain to www for OAuth consent so httpOnly session cookies are available.
+  // Vercel domain redirect strips query params; this middleware preserves them.
+  if (
+    pathname.startsWith("/oauth/consent") &&
+    (hostname === "metricsflo.com" || hostname === "metricsflo.com:443")
+  ) {
+    const wwwUrl = new URL(request.url);
+    wwwUrl.hostname = "www.metricsflo.com";
+    return NextResponse.redirect(wwwUrl.toString(), { status: 308 });
+  }
 
   if (
     process.env.NODE_ENV === "production" &&
@@ -76,6 +88,7 @@ export function middleware(request) {
 
 export const config = {
   matcher: [
+    "/oauth/consent",
     "/dashboard/:path*",
     "/performance-overview/:path*",
     "/intelligence/:path*",
@@ -85,7 +98,7 @@ export const config = {
     "/ga/:path*",
     "/connections/:path*",
     "/settings/:path*",
-    "/agency/:path*"
-    ,"/api/snapchat/:path*"
+    "/agency/:path*",
+    "/api/snapchat/:path*"
   ]
 };
