@@ -17,19 +17,20 @@ export default function OAuthConsentPage() {
 
     async function load() {
       try {
-        if (!authorizationId || authorizationId.length > 256) {
-          throw new Error("Missing or invalid authorization request.");
+        // Bare-domain redirect MUST come first — before any authorizationId check.
+        // Vercel's domain-level redirect has redirectStatusCode:null so it serves
+        // the app directly on metricsflo.com instead of 308-redirecting to www.
+        // The Next.js middleware redirect also can't fire on bare-domain requests
+        // because Vercel infrastructure intercepts them. JS redirect is the only
+        // reliable escape hatch.
+        if (typeof window !== "undefined" && window.location.hostname === "metricsflo.com") {
+          const params = window.location.search; // preserve all query params as-is
+          window.location.replace("https://www.metricsflo.com/oauth/consent" + params);
+          return;
         }
 
-        // If we're on the bare domain (metricsflo.com), redirect to www where the session lives.
-        // Cookies are httpOnly and scoped to www.metricsflo.com — they can't be read by JS
-        // and don't cross to the bare domain. Redirecting to www solves this permanently.
-        if (typeof window !== "undefined" && window.location.hostname === "metricsflo.com") {
-          window.location.replace(
-            "https://www.metricsflo.com/oauth/consent?authorization_id=" +
-              encodeURIComponent(authorizationId)
-          );
-          return;
+        if (!authorizationId || authorizationId.length > 256) {
+          throw new Error("Missing or invalid authorization request.");
         }
 
         // Check login / owner via server-side route — cookies will be sent automatically
