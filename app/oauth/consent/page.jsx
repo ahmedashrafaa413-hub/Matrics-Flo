@@ -40,13 +40,16 @@ export default function OAuthConsentPage() {
         });
 
         if (check.status === 401) {
-          window.location.assign(
-            "/login?next=" +
-              encodeURIComponent(
-                "/oauth/consent?authorization_id=" +
-                  encodeURIComponent(authorizationId)
-              )
-          );
+          // Always redirect to www for login so session cookies are set on www.
+          // After login, the `next` param must also point at www so the full
+          // consent flow completes on the same subdomain as the session.
+          const consentUrl =
+            "https://www.metricsflo.com/oauth/consent?authorization_id=" +
+            encodeURIComponent(authorizationId);
+          const loginUrl =
+            "https://www.metricsflo.com/login?next=" +
+            encodeURIComponent(consentUrl);
+          window.location.replace(loginUrl);
           return;
         }
 

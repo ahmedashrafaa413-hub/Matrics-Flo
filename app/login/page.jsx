@@ -80,7 +80,14 @@ export default function LoginPage() {
 
       setSuccess(true);
       const params = new URLSearchParams(window.location.search);
-      window.location.href = getSafeInternalPath(params.get("next"));
+      const nextParam = params.get("next") || "";
+      // Allow absolute redirects back to www.metricsflo.com (e.g. from /oauth/consent flow)
+      const isSafeAbsolute =
+        nextParam.startsWith("https://www.metricsflo.com/") ||
+        nextParam.startsWith("https://metricsflo.com/");
+      window.location.href = isSafeAbsolute
+        ? nextParam
+        : getSafeInternalPath(nextParam);
     } catch (err) {
       setError(err.message || "Unexpected login error.");
       setLoading(false);
