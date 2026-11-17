@@ -19,7 +19,10 @@ function getCookieOptions(maxAge) {
 
 function clearAuthCookies(response) {
   Object.values(AUTH_COOKIE_NAMES).forEach((name) => {
-    response.cookies.delete(name);
+    response.cookies.set(name, "", { path: "/", maxAge: 0, httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" });
+    if (process.env.NODE_ENV === "production") {
+      response.cookies.set(name, "", { path: "/", domain: ".metricsflo.com", maxAge: 0, httpOnly: true, secure: true, sameSite: "lax" });
+    }
   });
 }
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import LanguageSwitcher from "../LanguageSwitcher";
+import AccountMenu from "./AccountMenu";
 import { useLanguage } from "../../app/context/LanguageContext";
 
 const channels = [
@@ -357,6 +358,7 @@ export default function Sidebar() {
 
       <div className="sidebar-footer" style={{ marginTop: "auto", display: "grid", gap: 10 }}>
         <LanguageSwitcher />
+        <AccountMenu />
         <div
           style={{
             border: "1px solid rgba(6,214,160,0.25)",
