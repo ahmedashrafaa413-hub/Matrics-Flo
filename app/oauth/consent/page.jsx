@@ -1,42 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-// Get Supabase access token from localStorage (works regardless of cookie domain).
-// Supabase stores the session in localStorage under a key derived from the project URL.
-// Since login happens on www.metricsflo.com and consent runs on metricsflo.com,
-// cookies don't cross but localStorage ALSO doesn't cross subdomains.
-// Solution: redirect user to www for token pickup, or read cookie directly from document.
-function getBrowserAccessToken() {
-  if (typeof window === "undefined") return null;
-
-  // Try reading sb-access-token cookie directly from document.cookie
-  // (browsers send same-site cookies to both www and bare domain when reading client-side)
-  const cookies = document.cookie.split(";");
-  for (const cookie of cookies) {
-    const [name, ...rest] = cookie.trim().split("=");
-    const val = rest.join("=");
-    if (name === "sb-access-token" || name === "supabase-access-token") {
-      return decodeURIComponent(val) || null;
-    }
-  }
-
-  // Fallback: try localStorage keys that Supabase uses
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith("sb-") && key.endsWith("-auth-token")) {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          return parsed?.access_token || null;
-        }
-      }
-    }
-  } catch {}
-
-  return null;
-}
 
 export default function OAuthConsentPage() {
   const [details, setDetails] = useState(null);
@@ -58,29 +21,22 @@ export default function OAuthConsentPage() {
           throw new Error("Missing or invalid authorization request.");
         }
 
-        // Get the token from the browser (cookies or localStorage)
-        const accessToken = getBrowserAccessToken();
-
-        if (!accessToken) {
-          window.location.assign(
-            "/login?next=" +
-              encodeURIComponent(
-                "/oauth/consent?authorization_id=" +
-                  encodeURIComponent(authorizationId)
-              )
+        // If we're on the bare domain (metricsflo.com), redirect to www where the session lives.
+        // Cookies are httpOnly and scoped to www.metricsflo.com — they can't be read by JS
+        // and don't cross to the bare domain. Redirecting to www solves this permanently.
+        if (typeof window !== "undefined" && window.location.hostname === "metricsflo.com") {
+          window.location.replace(
+            "https://www.metricsflo.com/oauth/consent?authorization_id=" +
+              encodeURIComponent(authorizationId)
           );
           return;
         }
 
-        const authHeaders = {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json"
-        };
-
-        // Check login / owner via server-side route — pass token in header
+        // Check login / owner via server-side route — cookies will be sent automatically
+        // since we're now on www.metricsflo.com where the session cookies live.
         const check = await fetch("/api/oauth/owner-check", {
           cache: "no-store",
-          headers: authHeaders
+          credentials: "include"
         });
 
         if (check.status === 401) {
@@ -102,11 +58,11 @@ export default function OAuthConsentPage() {
           throw new Error("Could not verify account authorization.");
         }
 
-        // Fetch authorization details — pass token in header
+        // Fetch authorization details — cookies sent automatically
         const res = await fetch(
           "/api/oauth/authorize-details?authorization_id=" +
             encodeURIComponent(authorizationId),
-          { cache: "no-store", headers: authHeaders }
+          { cache: "no-store", credentials: "include" }
         );
 
         const payload = await res.json();
@@ -115,7 +71,7 @@ export default function OAuthConsentPage() {
           throw new Error(payload?.error || "Could not load authorization details.");
         }
 
-        if (active) setDetails({ ...payload.data, _accessToken: accessToken });
+        if (active) setDetails(payload.data);
       } catch (e) {
         if (active) setError(e?.message || "Could not load authorization details.");
       } finally {
@@ -135,14 +91,10 @@ export default function OAuthConsentPage() {
     setError("");
 
     try {
-      const accessToken = details?._accessToken || getBrowserAccessToken();
-
       const res = await fetch("/api/oauth/authorize-decide", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {})
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ authorization_id: authorizationId, approve })
       });
 
@@ -163,7 +115,7 @@ export default function OAuthConsentPage() {
     }
   }
 
-  const client = details?.client || details?.client_info || {};
+  const client = (details?.client || details?.client_info) ?? {};
   const name = client.client_name || client.name || "External AI application";
   const redirect = client.redirect_uris?.[0] || details?.redirect_uri || "Not provided";
   const scopes = details?.scopes || details?.scope || [];
