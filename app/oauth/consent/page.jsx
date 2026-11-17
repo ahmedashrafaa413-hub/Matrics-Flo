@@ -1,5 +1,20 @@
 "use client";
 import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// Get Supabase access token from the browser session (works regardless of cookie domain)
+async function getBrowserAccessToken() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: true, autoRefreshToken: true }
+  });
+
+  const { data } = await client.auth.getSession();
+  return data?.session?.access_token || null;
+}
 
 export default function OAuthConsentPage() {
   const [details, setDetails] = useState(null);
@@ -21,10 +36,29 @@ export default function OAuthConsentPage() {
           throw new Error("Missing or invalid authorization request.");
         }
 
-        // Check login / owner via server-side route
+        // Get the token from the browser Supabase session (bypasses cookie domain issues)
+        const accessToken = await getBrowserAccessToken();
+
+        if (!accessToken) {
+          window.location.assign(
+            "/login?next=" +
+              encodeURIComponent(
+                "/oauth/consent?authorization_id=" +
+                  encodeURIComponent(authorizationId)
+              )
+          );
+          return;
+        }
+
+        const authHeaders = {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        };
+
+        // Check login / owner via server-side route — pass token in header
         const check = await fetch("/api/oauth/owner-check", {
           cache: "no-store",
-          credentials: "same-origin"
+          headers: authHeaders
         });
 
         if (check.status === 401) {
@@ -46,11 +80,11 @@ export default function OAuthConsentPage() {
           throw new Error("Could not verify account authorization.");
         }
 
-        // Fetch authorization details via server-side route (uses user JWT server-side)
+        // Fetch authorization details — pass token in header
         const res = await fetch(
           "/api/oauth/authorize-details?authorization_id=" +
             encodeURIComponent(authorizationId),
-          { cache: "no-store", credentials: "same-origin" }
+          { cache: "no-store", headers: authHeaders }
         );
 
         const payload = await res.json();
@@ -59,7 +93,7 @@ export default function OAuthConsentPage() {
           throw new Error(payload?.error || "Could not load authorization details.");
         }
 
-        if (active) setDetails(payload.data);
+        if (active) setDetails({ ...payload.data, _accessToken: accessToken });
       } catch (e) {
         if (active) setError(e?.message || "Could not load authorization details.");
       } finally {
@@ -79,10 +113,14 @@ export default function OAuthConsentPage() {
     setError("");
 
     try {
+      const accessToken = details?._accessToken || await getBrowserAccessToken();
+
       const res = await fetch("/api/oauth/authorize-decide", {
         method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {})
+        },
         body: JSON.stringify({ authorization_id: authorizationId, approve })
       });
 
