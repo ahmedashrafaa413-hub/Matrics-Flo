@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../../lib/serverAuth";
-import { getServerAccessToken } from "../../../../lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -69,21 +68,35 @@ export async function GET(request) {
     return json({ error: "authentication_unavailable" }, 503);
   }
 
-  // Pass the user's JWT via Authorization header — avoids setSession which requires
-  // a valid refresh_token (which may not be available server-side across subdomains).
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+  // Call Supabase Auth REST API directly — the supabase-js SDK does not expose
+  // the OAuth server endpoints (auth.oauth is not part of the public SDK).
+  const authApiUrl = `${supabaseUrl}/auth/v1/oauth/authorize-details?authorization_id=${encodeURIComponent(authorizationId)}`;
 
-  if (!client.auth.oauth?.getAuthorizationDetails) {
-    return json({ error: "OAuth server feature is not available in this Supabase SDK version" }, 503);
+  let authRes;
+  try {
+    authRes = await fetch(authApiUrl, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "apikey": supabaseAnonKey,
+        "Content-Type": "application/json"
+      }
+    });
+  } catch (fetchErr) {
+    return json({ error: "Failed to reach Supabase Auth API" }, 503);
   }
 
-  const { data, error } = await client.auth.oauth.getAuthorizationDetails(authorizationId);
-  if (error) {
-    return json({ error: error.message || "authorization_lookup_failed" }, 400);
+  let authData;
+  try {
+    authData = await authRes.json();
+  } catch {
+    return json({ error: "Invalid response from Supabase Auth API" }, 502);
   }
 
-  return json({ data });
+  if (!authRes.ok) {
+    const errMsg = authData?.msg || authData?.error || authData?.message || "authorization_lookup_failed";
+    return json({ error: errMsg }, authRes.status >= 500 ? 502 : 400);
+  }
+
+  return json({ data: authData });
 }

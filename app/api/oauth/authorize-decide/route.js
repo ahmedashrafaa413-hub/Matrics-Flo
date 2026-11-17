@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../../lib/serverAuth";
-import { getServerAccessToken } from "../../../../lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -71,26 +70,41 @@ export async function POST(request) {
     return json({ error: "authentication_unavailable" }, 503);
   }
 
-  // Pass the user's JWT via Authorization header — avoids setSession which requires
-  // a valid refresh_token (which may not be available server-side across subdomains).
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+  // Call Supabase Auth REST API directly — the supabase-js SDK does not expose
+  // the OAuth server endpoints (auth.oauth is not part of the public SDK).
+  const authApiUrl = `${supabaseUrl}/auth/v1/oauth/authorize`;
 
-  if (!client.auth.oauth?.approveAuthorization || !client.auth.oauth?.denyAuthorization) {
-    return json({ error: "OAuth server feature is not available in this Supabase SDK version" }, 503);
+  let authRes;
+  try {
+    authRes = await fetch(authApiUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "apikey": supabaseAnonKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        authorization_id: authorizationId,
+        decision: approve ? "approve" : "deny"
+      })
+    });
+  } catch (fetchErr) {
+    return json({ error: "Failed to reach Supabase Auth API" }, 503);
   }
 
-  const { data, error } = approve
-    ? await client.auth.oauth.approveAuthorization(authorizationId, { skipBrowserRedirect: true })
-    : await client.auth.oauth.denyAuthorization(authorizationId, { skipBrowserRedirect: true });
-
-  if (error) {
-    return json({ error: error.message || "authorization_decision_failed" }, 400);
+  let authData;
+  try {
+    authData = await authRes.json();
+  } catch {
+    return json({ error: "Invalid response from Supabase Auth API" }, 502);
   }
 
-  const redirectUrl = data?.redirect_url || data?.url || data?.redirectUrl;
+  if (!authRes.ok) {
+    const errMsg = authData?.msg || authData?.error || authData?.message || "authorization_decision_failed";
+    return json({ error: errMsg }, authRes.status >= 500 ? 502 : 400);
+  }
+
+  const redirectUrl = authData?.redirect_url || authData?.url || authData?.redirectUrl;
   if (!redirectUrl) {
     return json({ error: "Authorization response did not include a redirect URL" }, 500);
   }

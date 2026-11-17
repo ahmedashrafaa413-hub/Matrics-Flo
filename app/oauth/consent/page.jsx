@@ -151,8 +151,7 @@ export default function OAuthConsentPage() {
           Connect to MetricsFlo
         </h1>
         <p style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-          Only the authorized MetricsFlo owner can grant read access to connected AI
-          clients.
+          Review the permissions below before granting access to this AI client.
         </p>
 
         {loading && (
