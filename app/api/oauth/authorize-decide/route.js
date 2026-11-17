@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../../lib/serverAuth";
-import { getServerAccessToken, getServerRefreshToken } from "../../../../lib/supabaseServer";
+import { getServerAccessToken } from "../../../../lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +44,6 @@ export async function POST(request) {
   // 3. Get the user's access token to call auth.oauth (user-facing, needs JWT)
   const accessToken = getServerAccessToken(request);
   if (!accessToken) return json({ error: "login_required" }, 401);
-  const refreshToken = getServerRefreshToken();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -52,14 +51,11 @@ export async function POST(request) {
     return json({ error: "supabase_not_configured" }, 503);
   }
 
-  // Create a server-side client and inject the user's session
+  // Pass the user's JWT via Authorization header — avoids setSession which requires
+  // a valid refresh_token (which may not be available server-side across subdomains).
   const client = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false }
-  });
-
-  await client.auth.setSession({
-    access_token: accessToken,
-    refresh_token: refreshToken
   });
 
   if (!client.auth.oauth?.approveAuthorization || !client.auth.oauth?.denyAuthorization) {
