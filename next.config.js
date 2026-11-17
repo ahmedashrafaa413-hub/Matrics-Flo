@@ -11,6 +11,18 @@ const nextConfig = {
     }
     return config;
   },
+  async redirects() {
+    return [
+      // Redirect bare domain to www for OAuth consent so session cookies are available.
+      // Cookies are httpOnly and scoped to www.metricsflo.com; the bare domain has no session.
+      {
+        source: "/oauth/consent",
+        has: [{ type: "host", value: "metricsflo.com" }],
+        destination: "https://www.metricsflo.com/oauth/consent",
+        permanent: false
+      }
+    ];
+  },
   async headers() {
     return [
       {
