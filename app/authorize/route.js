@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 // OAuth Authorization Endpoint (RFC 6749 / RFC 7636)
 //
@@ -95,16 +96,34 @@ export async function GET(request) {
   const target = new URL("/auth/v1/oauth/authorize", SUPABASE_URL);
   target.search = url.searchParams.toString();
 
+  // Use Node.js https module directly to avoid any proxy/fetch layer stripping
+  // the Authorization header before it reaches Supabase.
+  const https = await import("node:https");
+  const targetUrl = target.toString();
+  const authHeader = `Bearer ${accessToken}`;
+  const apikeyHeader = supabaseAnonKey || "";
+
   let supabaseRes;
   try {
-    supabaseRes = await fetch(target.toString(), {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        apikey: supabaseAnonKey || "",
-        "Cache-Control": "no-store"
-      },
-      redirect: "manual" // We need to intercept the redirect, not follow it
+    supabaseRes = await new Promise((resolve, reject) => {
+      const req = https.default.get(
+        targetUrl,
+        {
+          headers: {
+            Authorization: authHeader,
+            apikey: apikeyHeader,
+            "Cache-Control": "no-store",
+            "User-Agent": "MetricsFlo-OAuth/1.0"
+          }
+        },
+        (res) => {
+          // Drain response body to free socket
+          res.resume();
+          resolve(res);
+        }
+      );
+      req.on("error", reject);
+      req.setTimeout(10000, () => { req.destroy(new Error("timeout")); });
     });
   } catch {
     return NextResponse.json(
@@ -115,8 +134,11 @@ export async function GET(request) {
 
   // Supabase should respond with 302 → /oauth/consent?authorization_id=...
   // We relay that redirect back to the client.
-  if (supabaseRes.status === 302 || supabaseRes.status === 301 || supabaseRes.status === 303) {
-    const location = supabaseRes.headers.get("location");
+  // Note: https.get response uses .statusCode and .headers[name] (lowercase, array or string).
+  const resStatus = supabaseRes.statusCode ?? supabaseRes.status;
+  if (resStatus === 302 || resStatus === 301 || resStatus === 303) {
+    const rawLocation = supabaseRes.headers?.location;
+    const location = Array.isArray(rawLocation) ? rawLocation[0] : rawLocation;
     if (!location) {
       return NextResponse.json(
         { error: "invalid_authorization_response" },
@@ -158,7 +180,7 @@ export async function GET(request) {
 
   // Unexpected response from Supabase.
   return NextResponse.json(
-    { error: "authorization_failed", status: supabaseRes.status },
+    { error: "authorization_failed", status: resStatus },
     { status: 502, headers: { "Cache-Control": "no-store" } }
   );
 }
