@@ -62,30 +62,13 @@ export default function OAuthConsentPage() {
           throw new Error("Could not verify account authorization.");
         }
 
-        // Fetch authorization details — cookies sent automatically
-        const res = await fetch(
-          "/api/oauth/authorize-details?authorization_id=" +
-            encodeURIComponent(authorizationId),
-          { cache: "no-store", credentials: "include" }
-        );
-
-        const payload = await res.json();
-
-        // If details fetch fails (e.g. "no longer pending" because Supabase already
-        // processed the authorization), still show the consent UI with a fallback
-        // so the user can complete the flow. Only hard-fail on auth errors.
-        if (!res.ok) {
-          const errMsg = payload?.error || "";
-          // 401 = not logged in → redirect already handled above; 403 = forbidden
-          if (res.status === 401 || res.status === 403) {
-            throw new Error(errMsg || "Could not load authorization details.");
-          }
-          // For any other error (including "no longer pending"), show fallback UI
-          if (active) {
-            setDetails({ _fallback: true });
-          }
-        } else if (active) {
-          setDetails(payload.data);
+        // Skip the GET /authorizations/{id} call entirely.
+        // Calling that endpoint causes Supabase to auto-approve the authorization
+        // within ~2 seconds, leaving it in an "approved" state before the user
+        // can click the button. We show static fallback UI instead — the POST
+        // /consent call is what actually matters.
+        if (active) {
+          setDetails({ _fallback: true });
         }
       } catch (e) {
         if (active) setError(e?.message || "Could not load authorization details.");
