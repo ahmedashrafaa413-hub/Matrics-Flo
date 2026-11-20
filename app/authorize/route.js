@@ -196,22 +196,29 @@ export async function GET(request) {
   }
 
   // Step 2: Use the SERVICE ROLE key to set user_id on the authorization record.
-  // This is the reliable fix for Vercel stripping the Authorization header on
-  // outbound requests — we bypass the HTTP layer entirely and go direct to DB.
+  // PostgREST exposes non-public schemas via Content-Profile / Accept-Profile headers.
+  // We call the REST API directly with these headers to reach auth.oauth_authorizations.
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (serviceRoleKey) {
     try {
-      const adminClient = createClient(SUPABASE_URL, serviceRoleKey, {
-        auth: { persistSession: false, autoRefreshToken: false }
+      const patchUrl =
+        `${SUPABASE_URL}/rest/v1/oauth_authorizations` +
+        `?authorization_id=eq.${encodeURIComponent(authorizationId)}` +
+        `&user_id=is.null`;
+      await fetch(patchUrl, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Profile": "auth",
+          "Accept-Profile": "auth",
+          "apikey": serviceRoleKey,
+          "Authorization": `Bearer ${serviceRoleKey}`,
+          "Prefer": "return=minimal"
+        },
+        body: JSON.stringify({ user_id: userId })
       });
-      await adminClient
-        .from("oauth_authorizations")
-        .update({ user_id: userId })
-        .eq("authorization_id", authorizationId)
-        .is("user_id", null)
-        .schema("auth");
     } catch {
-      // Non-fatal: consent may still work if Supabase accepted the token.
+      // Non-fatal
     }
   }
 
