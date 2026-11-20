@@ -71,11 +71,22 @@ export default function OAuthConsentPage() {
 
         const payload = await res.json();
 
+        // If details fetch fails (e.g. "no longer pending" because Supabase already
+        // processed the authorization), still show the consent UI with a fallback
+        // so the user can complete the flow. Only hard-fail on auth errors.
         if (!res.ok) {
-          throw new Error(payload?.error || "Could not load authorization details.");
+          const errMsg = payload?.error || "";
+          // 401 = not logged in → redirect already handled above; 403 = forbidden
+          if (res.status === 401 || res.status === 403) {
+            throw new Error(errMsg || "Could not load authorization details.");
+          }
+          // For any other error (including "no longer pending"), show fallback UI
+          if (active) {
+            setDetails({ _fallback: true });
+          }
+        } else if (active) {
+          setDetails(payload.data);
         }
-
-        if (active) setDetails(payload.data);
       } catch (e) {
         if (active) setError(e?.message || "Could not load authorization details.");
       } finally {
