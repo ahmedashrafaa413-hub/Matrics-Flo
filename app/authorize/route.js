@@ -58,8 +58,10 @@ export async function GET(request) {
     "";
   const refreshToken = cookieStore.get("sb-refresh-token")?.value || "";
 
-  // Try refreshing if we have both tokens.
-  if (accessToken && refreshToken && supabaseAnonKey) {
+  // Try refreshing — if we have a refresh token, use it (even without an
+  // existing access token) to get a fresh token and confirm the user is
+  // logged in. If we have both, prefer the refresh to get a non-expired token.
+  if (refreshToken && supabaseAnonKey) {
     try {
       const tempClient = createClient(SUPABASE_URL, supabaseAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false }
@@ -71,7 +73,7 @@ export async function GET(request) {
         accessToken = refreshData.session.access_token;
       }
     } catch {
-      // refreshSession failed — continue with existing token
+      // refreshSession failed — continue with existing token (or empty)
     }
   }
 
@@ -122,24 +124,28 @@ export async function GET(request) {
       );
     }
 
-    // Rewrite Supabase's redirect to point at our www.metricsflo.com consent page
-    // (Supabase may have been configured with a different consent URL).
-    // If the location already points at metricsflo.com, relay it as-is.
-    // If it points at Supabase's own consent UI, rewrite to ours.
+    // Rewrite Supabase's redirect to always point at www.metricsflo.com consent page.
+    // Supabase may redirect to: its own host, bare metricsflo.com, or www.metricsflo.com.
+    // Session cookies are scoped to .metricsflo.com so both bare and www work for cookies,
+    // but bare metricsflo.com may not serve Next.js routes — always rewrite to www.
     let finalLocation = location;
     try {
       const loc = new URL(location, SUPABASE_URL);
-      // Supabase redirects to its own host for consent — rewrite to ours.
-      if (loc.hostname.includes("supabase.co") || loc.hostname.includes("supabase.com")) {
-        // Extract authorization_id and build our consent URL.
+      const h = loc.hostname;
+      if (h.includes("supabase.co") || h.includes("supabase.com")) {
+        // Supabase's own consent UI — extract authorization_id and build our consent URL.
         const authId = loc.searchParams.get("authorization_id") || loc.pathname.split("/").pop();
         if (authId) {
           finalLocation =
             "https://www.metricsflo.com/oauth/consent?authorization_id=" +
             encodeURIComponent(authId);
         }
+      } else if (h === "metricsflo.com") {
+        // Bare domain — rewrite to www so session cookies and Next.js routes work.
+        loc.hostname = "www.metricsflo.com";
+        finalLocation = loc.toString();
       }
-      // If it already points at metricsflo.com or www.metricsflo.com, leave it.
+      // www.metricsflo.com already — leave it as-is.
     } catch {
       // Not a parseable URL — relay as-is.
     }
