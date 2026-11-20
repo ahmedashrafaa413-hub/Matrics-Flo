@@ -8,12 +8,6 @@ import { useLanguage } from "../../app/context/LanguageContext";
 
 const channels = [
   {
-    labelKey: "navigation.analytics",
-    href: "/analytics",
-    icon: "🧠",
-    badge: "AI"
-  },
-  {
     labelKey: "navigation.performance",
     href: "/performance-overview",
     icon: "📊",
