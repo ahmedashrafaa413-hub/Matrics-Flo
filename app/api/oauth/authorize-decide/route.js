@@ -73,12 +73,41 @@ export async function POST(request) {
   // Call Supabase Auth REST API directly.
   // Endpoint: POST /auth/v1/oauth/authorizations/{id}/consent  { action: "approve"|"deny" }
   //
-  // We use the SERVICE ROLE key instead of the user token. Supabase's consent
-  // endpoint checks that user_id on the record matches the caller — but user_id
-  // is null because Vercel strips the Authorization header when we call /oauth/authorize.
-  // The service role bypasses this check entirely, allowing consent to proceed.
+  // Step 1: Use the Edge Function to ensure user_id is set on the record (the
+  // authorize route already called it, but we call it again here as a safety net).
+  // The consent endpoint requires user_id == calling user's sub claim.
+  //
+  // Step 2: Call consent with the USER's access token (which has a valid sub claim).
+  // The Edge Function already patched user_id = this user's ID, so the check passes.
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const consentToken = serviceRoleKey || accessToken;
+  if (serviceRoleKey) {
+    try {
+      // Decode userId from the access token
+      const parts = accessToken.split(".");
+      let userId = null;
+      if (parts.length === 3) {
+        const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const parsed = JSON.parse(Buffer.from(payload, "base64").toString("utf8"));
+        userId = parsed?.sub;
+      }
+      if (userId) {
+        await fetch(`${supabaseUrl}/functions/v1/set-oauth-user`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceRoleKey}`
+          },
+          body: JSON.stringify({ authorization_id: authorizationId, user_id: userId })
+        });
+      }
+    } catch {
+      // Non-fatal — proceed with consent attempt
+    }
+  }
+
+  // Use the user's own access token for the consent call.
+  // Supabase requires a JWT with a valid sub claim matching user_id on the record.
+  const consentToken = accessToken;
 
   const authApiUrl = `${supabaseUrl}/auth/v1/oauth/authorizations/${encodeURIComponent(authorizationId)}/consent`;
 
