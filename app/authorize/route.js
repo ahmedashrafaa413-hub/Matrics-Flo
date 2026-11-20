@@ -195,27 +195,19 @@ export async function GET(request) {
     );
   }
 
-  // Step 2: Use the SERVICE ROLE key to set user_id on the authorization record.
-  // PostgREST exposes non-public schemas via Content-Profile / Accept-Profile headers.
-  // We call the REST API directly with these headers to reach auth.oauth_authorizations.
+  // Step 2: Call a Supabase Edge Function to set user_id on the authorization record.
+  // The Edge Function runs server-side inside Supabase — no header stripping, and
+  // db.schema: 'auth' works correctly there. It authenticates via the service role key.
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (serviceRoleKey) {
     try {
-      const patchUrl =
-        `${SUPABASE_URL}/rest/v1/oauth_authorizations` +
-        `?authorization_id=eq.${encodeURIComponent(authorizationId)}` +
-        `&user_id=is.null`;
-      await fetch(patchUrl, {
-        method: "PATCH",
+      await fetch(`${SUPABASE_URL}/functions/v1/set-oauth-user`, {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Content-Profile": "auth",
-          "Accept-Profile": "auth",
-          "apikey": serviceRoleKey,
-          "Authorization": `Bearer ${serviceRoleKey}`,
-          "Prefer": "return=minimal"
+          "Authorization": `Bearer ${serviceRoleKey}`
         },
-        body: JSON.stringify({ user_id: userId })
+        body: JSON.stringify({ authorization_id: authorizationId, user_id: userId })
       });
     } catch {
       // Non-fatal
