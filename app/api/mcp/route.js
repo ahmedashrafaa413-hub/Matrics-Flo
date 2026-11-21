@@ -326,9 +326,16 @@ export async function POST(request) {
           rows: result.rows,
           total_rows: result.rows.length,
           complete: result.complete,
+          account_spend: result.account_spend,
+          spend_coverage_pct: result.spend_coverage_pct,
           entities_total: result.entities_total,
+          entities_skipped_out_of_range: result.entities_skipped_out_of_range,
           entities_checked: result.entities_checked,
+          entities_unchecked: result.entities_unchecked,
           failed_requests: result.failed_requests,
+          ...(result.complete
+            ? {}
+            : { note: "Not every entity could be checked in time. summary covers the checked entities only (spend_coverage_pct of account_spend); use a narrower level or date range for full coverage." }),
           attribution: result.attribution,
           start_time: result.start_time,
           end_time: result.end_time
