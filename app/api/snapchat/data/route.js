@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../../lib/supabaseServer";
-import { getActiveWorkspace } from "../../../../lib/workspace";
+import { getActiveWorkspace, userHasWorkspaceAccess, getUserWorkspaces } from "../../../../lib/workspace";
+import { requireUser } from "../../../../lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -136,7 +137,22 @@ export async function GET(request) {
       );
     }
 
-    const { workspace } = await getActiveWorkspace(request);
+    // Support explicit workspace_id query param (used by MCP internal fetch to bypass
+    // cookie-based workspace resolution, which does not work in server-to-server calls).
+    let workspace;
+    const explicitWorkspaceId = searchParams.get("workspace_id") || "";
+    if (explicitWorkspaceId) {
+      const user = await requireUser(request);
+      const hasAccess = await userHasWorkspaceAccess(user.id, explicitWorkspaceId);
+      if (!hasAccess) {
+        return NextResponse.json({ success: false, error: "Workspace access denied" }, { status: 403 });
+      }
+      const workspaces = await getUserWorkspaces(user.id);
+      workspace = workspaces.find(w => w.id === explicitWorkspaceId) || { id: explicitWorkspaceId };
+    } else {
+      const result = await getActiveWorkspace(request);
+      workspace = result.workspace;
+    }
     const admin = createSupabaseAdminClient();
 
     const baseQuery = admin

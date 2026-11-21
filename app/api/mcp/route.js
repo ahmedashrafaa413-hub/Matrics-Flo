@@ -276,7 +276,37 @@ export async function POST(request) {
           message: res.data?.error || "Meta Ads data unavailable or account not connected."
         }) }] });
       }
-      return rpc(id, { content: [{ type: "text", text: JSON.stringify({ success: true, platform: "meta", account_id, date_preset, level, ...res.data }) }] });
+      // Normalize Meta response into a unified shape the AI can reason over consistently
+      const metaData = res.data;
+      const normalized = {
+        success: true,
+        platform: "meta",
+        account_id,
+        date_preset,
+        level,
+        currency: "USD",
+        summary: metaData.summary || null,
+        rows: (metaData.data || []).map(r => ({
+          id: r.campaign_id || r.adset_id || r.ad_id,
+          name: r.campaign_name || r.adset_name || r.ad_name,
+          spend: Number(r.spend || 0),
+          impressions: Number(r.impressions || 0),
+          clicks: Number(r.clicks || 0),
+          purchases: r.purchases || 0,
+          revenue: r.purchase_value || 0,
+          roas: r.roas || 0,
+          cpa: r.cpa || 0,
+          ctr: Number(r.ctr || 0),
+          cpm: Number(r.cpm || 0),
+          add_to_cart: r.add_to_cart || 0,
+          hook_rate: r.hook_rate || 0,
+          hold_rate: r.hold_rate || 0,
+          date_start: r.date_start,
+          date_stop: r.date_stop
+        })),
+        pages_loaded: metaData.pages_loaded
+      };
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify(normalized) }] });
     } catch (e) { return fail(id, -32000, `Meta insights unavailable: ${e.message}`, 502); }
   }
 
@@ -293,6 +323,7 @@ export async function POST(request) {
       url.searchParams.set("account_id", account_id);
       url.searchParams.set("level", level);
       url.searchParams.set("date_preset", date_preset);
+      url.searchParams.set("workspace_id", wsId);
       url.searchParams.set("page_size", "200");
       const res = await internalFetch(url);
       if (!res.ok || res.data?.success === false) {
@@ -301,7 +332,35 @@ export async function POST(request) {
           message: res.data?.error || "Snapchat Ads data unavailable or account not connected."
         }) }] });
       }
-      return rpc(id, { content: [{ type: "text", text: JSON.stringify({ success: true, platform: "snapchat", account_id, date_preset, level, ...res.data }) }] });
+      // Normalize Snapchat response into the same unified shape as Meta
+      const snapData = res.data;
+      const normalized = {
+        success: true,
+        platform: "snapchat",
+        account_id,
+        date_preset,
+        level,
+        currency: snapData.summary?.currency || "USD",
+        summary: snapData.summary || null,
+        rows: (snapData.rows || snapData.data || []).map(r => ({
+          id: r.id || r.entity_id,
+          name: r.name || r.entity_name,
+          spend: r.spend || 0,
+          impressions: r.impressions || 0,
+          clicks: r.clicks || r.swipes || 0,
+          purchases: r.purchases || 0,
+          revenue: r.revenue || r.purchase_value || 0,
+          roas: r.roas || 0,
+          cpa: r.cpa || 0,
+          ctr: r.ctr || 0,
+          cpm: r.cpm || 0,
+          status: r.status || null
+        })),
+        last_synced_at: snapData.last_synced_at || null,
+        is_cached_data: true,
+        note: "Snapchat data is read from a synced cache (platform_daily_metrics). Run a sync from the Snapchat page to refresh."
+      };
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify(normalized) }] });
     } catch (e) { return fail(id, -32000, `Snapchat insights unavailable: ${e.message}`, 502); }
   }
 
