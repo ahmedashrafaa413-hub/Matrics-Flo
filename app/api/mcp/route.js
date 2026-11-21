@@ -175,18 +175,25 @@ export async function POST(request) {
     if (Object.keys(args).length) return fail(id, -32602, "Unexpected arguments");
     try {
       const workspaces = await getUserWorkspaces(user.id);
-      // Fetch platform connection status for each workspace from integrations table
+      // Fetch the current workspace-scoped platform connections. This is the
+      // canonical connection store used by the dashboard and sync pipelines.
       const admin = createSupabaseAdminClient();
       const workspaceIds = workspaces.map(w => w.id);
       let integrationsByWorkspace = {};
       if (workspaceIds.length > 0) {
-        const { data: integrations } = await admin
-          .from("integrations")
-          .select("workspace_id, platform, status")
-          .in("workspace_id", workspaceIds);
+        const { data: integrations, error: integrationsError } = await admin
+          .from("platform_connections")
+          .select("workspace_id, provider, is_active")
+          .in("workspace_id", workspaceIds)
+          .eq("is_active", true);
+        if (integrationsError) throw integrationsError;
+        const seen = new Set();
         for (const row of integrations || []) {
+          const key = `${row.workspace_id}:${row.provider}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
           if (!integrationsByWorkspace[row.workspace_id]) integrationsByWorkspace[row.workspace_id] = [];
-          integrationsByWorkspace[row.workspace_id].push({ platform: row.platform, status: row.status || "connected" });
+          integrationsByWorkspace[row.workspace_id].push({ platform: row.provider, status: "connected" });
         }
       }
       const accounts = workspaces.map(({ id, name, role, default_currency, timezone }) => ({
@@ -221,9 +228,12 @@ export async function POST(request) {
     return { validatedOrigin };
   }
 
-  async function internalFetch(url) {
+  async function internalFetch(url, workspaceId) {
+    const workspaceCookie = workspaceId
+      ? `; metricsflo_active_workspace=${encodeURIComponent(workspaceId)}`
+      : "";
     const response = await fetch(url, {
-      headers: { Cookie: `sb-access-token=${encodeURIComponent(token)}` },
+      headers: { Cookie: `sb-access-token=${encodeURIComponent(token)}${workspaceCookie}` },
       redirect: "error",
       cache: "no-store",
       signal: AbortSignal.timeout(25000)
@@ -239,21 +249,38 @@ export async function POST(request) {
     const { error: wsErr, validatedOrigin } = await validateWorkspaceAndOrigin(wsId);
     if (wsErr) return wsErr;
     try {
-      const [metaRes, snapRes] = await Promise.all([
-        internalFetch(new URL("/api/meta/accounts", validatedOrigin)),
-        internalFetch(new URL("/api/snapchat/accounts", validatedOrigin))
-      ].map(p => p.catch(e => ({ ok: false, data: null, error: e.message }))));
-      const metaAccounts = (metaRes?.data?.data || []).map(a => ({
-        id: a.id, name: a.name, currency: a.currency, platform: "meta",
-        status: a.account_status === 1 ? "active" : "inactive"
+      // List saved accounts from the same canonical store used by MetricsFlo.
+      // Avoid a live provider round trip here: a temporarily expired provider
+      // token must not make already connected accounts disappear from ChatGPT.
+      const admin = createSupabaseAdminClient();
+      const { data: connections, error: connectionsError } = await admin
+        .from("platform_connections")
+        .select("provider, account_id, account_name, account_currency, metadata")
+        .eq("workspace_id", wsId)
+        .eq("is_active", true)
+        .in("provider", ["meta", "snapchat"]);
+      if (connectionsError) throw connectionsError;
+      const usable = (connections || []).filter(row =>
+        row.account_id && !["meta_default", "snapchat_default"].includes(row.account_id)
+      );
+      const metaAccounts = usable.filter(row => row.provider === "meta").map(row => ({
+        id: row.account_id,
+        name: row.account_name || row.account_id,
+        currency: row.account_currency || null,
+        platform: "meta",
+        status: row.metadata?.status || "active"
       }));
-      const snapAccounts = (snapRes?.data?.organizations || snapRes?.data?.adaccounts || []).map(a => ({
-        id: a.id || a.ad_account_id, name: a.name, currency: a.currency, platform: "snapchat"
+      const snapAccounts = usable.filter(row => row.provider === "snapchat").map(row => ({
+        id: row.account_id,
+        name: row.account_name || row.account_id,
+        currency: row.account_currency || null,
+        platform: "snapchat",
+        status: row.metadata?.status || "active"
       }));
       return rpc(id, { content: [{ type: "text", text: JSON.stringify({
         workspace_id: wsId,
-        meta: { connected: metaRes?.ok && metaRes?.data?.success !== false, accounts: metaAccounts },
-        snapchat: { connected: snapRes?.ok && snapRes?.data?.success !== false, accounts: snapAccounts }
+        meta: { connected: metaAccounts.length > 0, accounts: metaAccounts },
+        snapchat: { connected: snapAccounts.length > 0, accounts: snapAccounts }
       }) }] });
     } catch (e) { return fail(id, -32000, `Ad accounts unavailable: ${e.message}`, 502); }
   }
@@ -271,7 +298,7 @@ export async function POST(request) {
       url.searchParams.set("account_id", account_id);
       url.searchParams.set("level", level);
       url.searchParams.set("date_preset", date_preset);
-      const res = await internalFetch(url);
+      const res = await internalFetch(url, wsId);
       if (!res.ok || res.data?.success === false) {
         return rpc(id, { content: [{ type: "text", text: JSON.stringify({
           success: false, platform: "meta", account_id, date_preset,
@@ -327,7 +354,7 @@ export async function POST(request) {
       url.searchParams.set("date_preset", date_preset);
       url.searchParams.set("workspace_id", wsId);
       url.searchParams.set("page_size", "200");
-      const res = await internalFetch(url);
+      const res = await internalFetch(url, wsId);
       if (!res.ok || res.data?.success === false) {
         return rpc(id, { content: [{ type: "text", text: JSON.stringify({
           success: false, platform: "snapchat", account_id, date_preset,
@@ -376,7 +403,7 @@ export async function POST(request) {
       const range = GA_RANGE_MAP[date_preset] || "30daysAgo";
       const url = new URL("/api/ga/overview", validatedOrigin);
       url.searchParams.set("range", range);
-      const res = await internalFetch(url);
+      const res = await internalFetch(url, wsId);
       if (!res.ok || res.data?.success === false) {
         return rpc(id, { content: [{ type: "text", text: JSON.stringify({
           success: false, platform: "ga4", date_preset,
