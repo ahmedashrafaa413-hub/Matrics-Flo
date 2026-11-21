@@ -4,6 +4,7 @@ import {
   isTokenRow,
   listAdAccountsFromRows,
   mapWithConcurrency,
+  mergeLiveMetaAccounts,
   summarizeIntegrations,
   withTimeout
 } from "../lib/mcpConnections.mjs";
@@ -157,4 +158,12 @@ test("GA4 overview rows are parsed into percentages", () => {
   assert.equal(metrics.conversionRate, 5);
   assert.equal(metrics.engagementRate, 50);
   assert.equal(metrics.averageSessionDuration, 61.23);
+});
+
+test("live Meta accounts are merged with persisted ones", () => {
+  const merged = mergeLiveMetaAccounts(
+    [{ id: "act_1", name: "Alpha", currency: "EGP", platform: "meta", status: null }],
+    [{ id: "act_1", name: "Alpha live", currency: "EGP", account_status: 1 }, { id: "act_9", name: "New", currency: "SAR", account_status: 2 }]
+  );
+  assert.deepEqual(merged.map((a) => [a.id, a.name, a.status]), [["act_1", "Alpha", "active"], ["act_9", "New", "inactive"]]);
 });
