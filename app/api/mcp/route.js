@@ -14,12 +14,14 @@ const ACCOUNTS_TOOL = { name: "list_accounts", description: "Discover accessible
 const WORKSPACES_TOOL = { name: "list_workspaces", description: "List workspaces available to the authenticated MetricsFlo owner.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
 const TOOL = {
   name: "get_performance_overview",
-  description: "Read MetricsFlo analytics for an explicitly authorized workspace. Returns reported data and source freshness; never infer missing metrics.",
+  description: "Read MetricsFlo analytics for an explicitly authorized workspace. Returns reported data and source freshness; never infer missing metrics. Use list_ad_accounts first to discover account IDs when the user wants a specific ad account.",
   inputSchema: {
     type: "object",
     properties: {
       date_preset: { type: "string", enum: PRESETS },
-      workspace_id: { type: "string", description: "Workspace UUID authorized for this user" }
+      workspace_id: { type: "string", description: "Workspace UUID authorized for this user" },
+      snapchat_account_id: { type: "string", description: "Snapchat ad account UUID. If omitted, the first active Snapchat account on the workspace is used." },
+      meta_account_id: { type: "string", description: "Meta ad account ID. If omitted, the first active Meta account on the workspace is used." }
     },
     required: ["workspace_id"],
     additionalProperties: false
@@ -386,9 +388,11 @@ export async function POST(request) {
   }
 
   if (name !== TOOL.name) return fail(id, -32602, "Unknown tool");
-  if (Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Unexpected arguments");
+  if (Object.keys(args).some((key) => !["workspace_id", "date_preset", "snapchat_account_id", "meta_account_id"].includes(key))) return fail(id, -32602, "Unexpected arguments");
   const preset = args.date_preset || "last_30d";
   const workspaceId = args.workspace_id;
+  const explicitSnapchatId = typeof args.snapchat_account_id === "string" ? args.snapchat_account_id.trim() : "";
+  const explicitMetaId = typeof args.meta_account_id === "string" ? args.meta_account_id.trim() : "";
   if (!PRESETS.includes(preset) || typeof workspaceId !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(workspaceId)) return fail(id, -32602, "Invalid tool arguments");
   if (!(await userHasWorkspaceAccess(user.id, workspaceId))) return fail(id, -32003, "Workspace access denied", 403);
@@ -405,25 +409,34 @@ export async function POST(request) {
     }
   } catch { return fail(id, -32000, "Internal origin is not configured", 503); }
 
-  // Fetch connected platform account IDs for this workspace so analytics/overview
-  // can pull real data instead of returning empty platforms.
-  let snapchatAccountId = "";
-  let metaAccountId = "";
-  try {
-    const supabase = createSupabaseAdminClient();
-    const { data: connections } = await supabase
-      .from("platform_connections")
-      .select("provider, account_id")
-      .eq("workspace_id", workspaceId)
-      .eq("is_active", true)
-      .in("provider", ["snapchat", "meta"]);
-    if (connections) {
-      const snap = connections.find(c => c.provider === "snapchat");
-      const meta = connections.find(c => c.provider === "meta");
-      if (snap) snapchatAccountId = snap.account_id;
-      if (meta) metaAccountId = meta.account_id;
-    }
-  } catch (_) { /* non-fatal — analytics still runs without account IDs */ }
+  // Resolve platform account IDs: use explicit params if provided, otherwise
+  // fall back to the first active account for each provider on this workspace.
+  let snapchatAccountId = explicitSnapchatId;
+  let metaAccountId = explicitMetaId;
+  if (!snapchatAccountId || !metaAccountId) {
+    try {
+      const supabase = createSupabaseAdminClient();
+      const providersNeeded = [];
+      if (!snapchatAccountId) providersNeeded.push("snapchat");
+      if (!metaAccountId) providersNeeded.push("meta");
+      const { data: connections } = await supabase
+        .from("platform_connections")
+        .select("provider, account_id")
+        .eq("workspace_id", workspaceId)
+        .eq("is_active", true)
+        .in("provider", providersNeeded);
+      if (connections) {
+        if (!snapchatAccountId) {
+          const snap = connections.find(c => c.provider === "snapchat");
+          if (snap) snapchatAccountId = snap.account_id;
+        }
+        if (!metaAccountId) {
+          const meta = connections.find(c => c.provider === "meta");
+          if (meta) metaAccountId = meta.account_id;
+        }
+      }
+    } catch (_) { /* non-fatal — analytics still runs without account IDs */ }
+  }
 
   const url = new URL("/api/analytics/overview", validatedOrigin);
   url.searchParams.set("date_preset", preset);
