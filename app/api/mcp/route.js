@@ -116,7 +116,29 @@ export async function POST(request) {
     if (Object.keys(args).length) return fail(id, -32602, "Unexpected arguments");
     try {
       const workspaces = await getUserWorkspaces(user.id);
-      const accounts = workspaces.map(({ id, name, role, default_currency, timezone }) => ({ account_id: id, name, role, currency: default_currency || null, timezone: timezone || null, contribution_margin: null, platforms: null }));
+      // Fetch platform connection status for each workspace from integrations table
+      const admin = createSupabaseAdminClient();
+      const workspaceIds = workspaces.map(w => w.id);
+      let integrationsByWorkspace = {};
+      if (workspaceIds.length > 0) {
+        const { data: integrations } = await admin
+          .from("integrations")
+          .select("workspace_id, platform, status")
+          .in("workspace_id", workspaceIds);
+        for (const row of integrations || []) {
+          if (!integrationsByWorkspace[row.workspace_id]) integrationsByWorkspace[row.workspace_id] = [];
+          integrationsByWorkspace[row.workspace_id].push({ platform: row.platform, status: row.status || "connected" });
+        }
+      }
+      const accounts = workspaces.map(({ id, name, role, default_currency, timezone }) => ({
+        account_id: id,
+        name,
+        role,
+        currency: default_currency || null,
+        timezone: timezone || null,
+        contribution_margin: null,
+        platforms: integrationsByWorkspace[id] || []
+      }));
       return rpc(id, { content: [{ type: "text", text: JSON.stringify(name === ACCOUNTS_TOOL.name ? { accounts } : workspaces.map(({ id, name, role }) => ({ id, name, role }))) }] });
     } catch { return fail(id, -32000, "Workspaces unavailable", 502); }
   }
@@ -141,6 +163,7 @@ export async function POST(request) {
   } catch { return fail(id, -32000, "Internal origin is not configured", 503); }
   const url = new URL("/api/analytics/overview", validatedOrigin);
   url.searchParams.set("date_preset", preset);
+  url.searchParams.set("workspace_id", workspaceId);
   try {
     const response = await fetch(url, {
       headers: {

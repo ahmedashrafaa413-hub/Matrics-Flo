@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getActiveWorkspace } from "../../../../lib/workspace";
+import { getActiveWorkspace, userHasWorkspaceAccess, getUserWorkspaces } from "../../../../lib/workspace";
 import { buildAnalyticsSnapshot, normalizeCampaign } from "../../../../lib/analyticsEngine.mjs";
+import { requireUser } from "../../../../lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +21,27 @@ async function readJson(url, cookie) {
 
 export async function GET(request) {
   try {
-    const { workspace } = await getActiveWorkspace(request);
     const url = new URL(request.url);
     const baseUrl = `${url.protocol}//${url.host}`;
     const cookie = request.headers.get("cookie") || "";
     const datePreset = url.searchParams.get("date_preset") || "last_30d";
+
+    // Support explicit workspace_id query param (used by MCP internal fetch to bypass
+    // cookie-based workspace resolution, which does not work in server-to-server calls).
+    let workspace;
+    const explicitWorkspaceId = url.searchParams.get("workspace_id") || "";
+    if (explicitWorkspaceId) {
+      const user = await requireUser(request);
+      const hasAccess = await userHasWorkspaceAccess(user.id, explicitWorkspaceId);
+      if (!hasAccess) {
+        return NextResponse.json({ success: false, error: "Workspace access denied" }, { status: 403 });
+      }
+      const workspaces = await getUserWorkspaces(user.id);
+      workspace = workspaces.find(w => w.id === explicitWorkspaceId) || { id: explicitWorkspaceId, name: "Workspace" };
+    } else {
+      const result = await getActiveWorkspace(request);
+      workspace = result.workspace;
+    }
     const previousPreset = PREVIOUS_PRESET[datePreset] || null;
     const metaAccountId = url.searchParams.get("meta_account_id") || "";
     const snapchatAccountId = url.searchParams.get("snapchat_account_id") || "";
