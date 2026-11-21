@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Wallet, TrendingUp, ShoppingCart, Target, BarChart2, ChevronUp, ChevronDown, DollarSign, Eye, MousePointerClick, MousePointer, Video } from "lucide-react";
 import { apiGet, apiPost } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 
@@ -228,12 +229,12 @@ function StatusBadge({ status }) {
   );
 }
 
-function KpiCard({ label, value, sub, icon, tone = "cyan" }) {
+function KpiCard({ label, value, sub, Icon, tone = "cyan" }) {
   return (
     <div className={`snap-card snap-card-${tone}`}>
       <div className="snap-card-head">
         <span>{label}</span>
-        <b>{icon}</b>
+        {Icon && <Icon size={14} style={{ opacity:0.7 }} />}
       </div>
 
       <strong>{value}</strong>
@@ -305,7 +306,7 @@ function DataTable({ title, rows, loading }) {
     return (
       <th onClick={() => sortBy(id)}>
         {children}
-        {sortKey === id ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+        {sortKey === id ? (sortDir === "asc" ? <ChevronUp size={10} style={{verticalAlign:"middle"}} /> : <ChevronDown size={10} style={{verticalAlign:"middle"}} />) : ""}
       </th>
     );
   }
@@ -1348,64 +1349,64 @@ export default function SnapchatPage() {
           label="Spend"
           value={moneyInCurrency(summary.spend, accountCurrency)}
           sub={secondaryMoney(summary.spend)}
-          icon="💰"
+          Icon={Wallet}
           tone="yellow"
         />
         <KpiCard
           label="Revenue"
           value={moneyInCurrency(summary.revenue, accountCurrency)}
           sub={secondaryMoney(summary.revenue)}
-          icon="💵"
+          Icon={DollarSign}
           tone="green"
         />
         <KpiCard
           label="ROAS"
           value={roas(summary.roas)}
-          icon="📈"
+          Icon={TrendingUp}
           tone="orange"
         />
         <KpiCard
           label="Purchases"
           value={number(summary.purchases)}
-          icon="🛒"
+          Icon={ShoppingCart}
           tone="purple"
         />
         <KpiCard
           label="CPA"
           value={moneyInCurrency(summary.cpa, accountCurrency)}
           sub={secondaryMoney(summary.cpa)}
-          icon="🎯"
+          Icon={Target}
           tone="pink"
         />
         <KpiCard
           label="Impressions"
           value={number(summary.impressions)}
-          icon="👁️"
+          Icon={Eye}
           tone="cyan"
         />
         <KpiCard
           label="Swipes"
           value={number(summary.swipes)}
-          icon="👆"
+          Icon={MousePointerClick}
           tone="purple"
         />
         <KpiCard
           label="CTR"
           value={percent(summary.ctr)}
-          icon="📊"
+          Icon={BarChart2}
           tone="orange"
         />
         <KpiCard
           label="CPC"
           value={moneyInCurrency(summary.cpc, accountCurrency)}
           sub={secondaryMoney(summary.cpc)}
-          icon="🖱️"
+          Icon={MousePointer}
           tone="cyan"
         />
         <KpiCard
           label="Video Views"
           value={number(summary.video_views)}
-          icon="🎥"
+          Icon={Video}
           tone="green"
         />
       </div>

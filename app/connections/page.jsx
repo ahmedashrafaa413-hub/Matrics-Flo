@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { CheckCircle2, XCircle, AlertTriangle, RefreshCw, Circle, Ghost } from "lucide-react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
@@ -117,7 +118,7 @@ function ConnectionsPageInner() {
 
         {/* META */}
         <div style={{
-          background: "var(--card)", backdropFilter: "blur(16px)",
+          background: "var(--card)", 
           border: metaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
           borderRadius: "var(--radius-xl)", overflow: "hidden"
         }}>
@@ -143,7 +144,9 @@ function ConnectionsPageInner() {
                     border: metaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid rgba(244,63,94,0.25)",
                     color: metaConnected ? "var(--accent)" : "var(--red)"
                   }}>
-                    {metaConnected ? "● Connected" : "○ Not Connected"}
+                    {metaConnected
+                      ? <><CheckCircle2 size={10} style={{ verticalAlign:"middle" }} /> Connected</>
+                      : <><Circle size={10} style={{ verticalAlign:"middle" }} /> Not Connected</>}
                   </span>
                 </div>
                 <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
@@ -195,7 +198,8 @@ function ConnectionsPageInner() {
                     borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 600,
                     cursor: "pointer", fontFamily: "inherit"
                   }}>
-                    {metaLoading ? "Loading..." : "↺ Refresh"}
+                    <RefreshCw size={13} style={{ marginInlineEnd: 5, verticalAlign:"middle" }} />
+                    {metaLoading ? "Loading..." : "Refresh"}
                   </button>
                   <button onClick={() => { removeSetting("primary_meta_account"); setSelectedAccount(""); }} style={{
                     background: "transparent", color: "var(--muted)",
@@ -208,8 +212,8 @@ function ConnectionsPageInner() {
                 </div>
               </div>
               {metaStatus && (
-                <p style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: metaConnected ? "var(--accent)" : "var(--red)" }}>
-                  {metaConnected ? "✓" : "✗"} {metaStatus}
+                <p style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: metaConnected ? "var(--accent)" : "var(--red)", display:"flex", alignItems:"center", gap:5 }}>
+                  {metaConnected ? <CheckCircle2 size={13} /> : <XCircle size={13} />} {metaStatus}
                 </p>
               )}
             </div>
@@ -218,7 +222,7 @@ function ConnectionsPageInner() {
 
         {/* GA4 */}
         <div style={{
-          background: "var(--card)", backdropFilter: "blur(16px)",
+          background: "var(--card)", 
           border: gaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
           borderRadius: "var(--radius-xl)", overflow: "hidden"
         }}>
@@ -244,7 +248,9 @@ function ConnectionsPageInner() {
                     border: gaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid rgba(244,63,94,0.25)",
                     color: gaConnected ? "var(--accent)" : "var(--red)"
                   }}>
-                    {gaConnected ? "● Connected" : "○ Not Connected"}
+                    {gaConnected
+                      ? <><CheckCircle2 size={10} style={{ verticalAlign:"middle" }} /> Connected</>
+                      : <><Circle size={10} style={{ verticalAlign:"middle" }} /> Not Connected</>}
                   </span>
                 </div>
                 <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
@@ -280,10 +286,13 @@ function ConnectionsPageInner() {
                 background: "var(--glass-2)", color: "var(--text)",
                 border: "1px solid var(--border-2)", padding: "9px 16px",
                 borderRadius: "var(--radius-md)", fontSize: 13, fontWeight: 600,
-                cursor: "pointer", fontFamily: "inherit"
-              }}>↺ Refresh Status</button>
-              <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>
-                ✓ {gaStatus}
+                cursor: "pointer", fontFamily: "inherit",
+                display:"flex", alignItems:"center", gap:6
+              }}>
+                <RefreshCw size={13} /> Refresh Status
+              </button>
+              <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 600, display:"flex", alignItems:"center", gap:5 }}>
+                <CheckCircle2 size={13} /> {gaStatus}
               </span>
             </div>
           )}
@@ -291,7 +300,7 @@ function ConnectionsPageInner() {
 
         {/* SALLA */}
         <div style={{
-          background: "var(--card)", backdropFilter: "blur(16px)",
+          background: "var(--card)", 
           border: sallaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
           borderRadius: "var(--radius-xl)", overflow: "hidden"
         }}>
@@ -318,7 +327,9 @@ function ConnectionsPageInner() {
                     border: sallaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid rgba(99,102,241,0.25)",
                     color: sallaConnected ? "var(--accent)" : "#a5b4fc"
                   }}>
-                    {sallaConnected ? "● Connected" : "○ Ready to Connect"}
+                    {sallaConnected
+                      ? <><CheckCircle2 size={10} style={{ verticalAlign:"middle" }} /> Connected</>
+                      : <><Circle size={10} style={{ verticalAlign:"middle" }} /> Ready to Connect</>}
                   </span>
                 </div>
                 <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
@@ -342,7 +353,7 @@ function ConnectionsPageInner() {
       {/* ── Snapchat Ads ── */}
       <div style={{ marginBottom: 24 }}>
         <div style={{
-          background: "var(--card)", backdropFilter: "blur(16px)",
+          background: "var(--card)", 
           border: snapConnected ? "1px solid rgba(255,252,0,0.25)" : "1px solid var(--border)",
           borderRadius: "var(--radius-xl)", overflow: "hidden"
         }}>
@@ -354,9 +365,9 @@ function ConnectionsPageInner() {
               <div style={{
                 width: 44, height: 44, borderRadius: 12, background: "#FFFC00",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 22, flexShrink: 0,
+                flexShrink: 0,
                 boxShadow: "0 0 16px rgba(255,252,0,0.25)"
-              }}>👻</div>
+              }}><Ghost size={22} color="#000" /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -368,7 +379,9 @@ function ConnectionsPageInner() {
                     border: snapConnected ? "1px solid rgba(255,252,0,0.3)" : "1px solid rgba(99,102,241,0.25)",
                     color: snapConnected ? "#E6E300" : "#a5b4fc"
                   }}>
-                    {snapConnected ? "● Connected" : "○ Ready to Connect"}
+                    {snapConnected
+                      ? <><CheckCircle2 size={10} style={{ verticalAlign:"middle" }} /> Connected</>
+                      : <><Circle size={10} style={{ verticalAlign:"middle" }} /> Ready to Connect</>}
                   </span>
                 </div>
                 <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
@@ -414,8 +427,8 @@ function ConnectionsPageInner() {
             color: snapStatus.startsWith("error:") ? "#f87171" : "#06d6a0"
           }}>
             {snapStatus.startsWith("error:")
-              ? `⚠ ${snapStatus.slice(6)}`
-              : `✓ ${snapStatus.slice(8)}`}
+              ? <><AlertTriangle size={13} style={{ verticalAlign:"middle" }} /> {snapStatus.slice(6)}</>
+              : <><CheckCircle2 size={13} style={{ verticalAlign:"middle" }} /> {snapStatus.slice(8)}</>}
           </div>
         )}
       </div>
@@ -433,7 +446,7 @@ function ConnectionsPageInner() {
         }}>
           {COMING_SOON.map((p) => (
             <div key={p.name} style={{
-              background: "var(--card)", backdropFilter: "blur(12px)",
+              background: "var(--card)", 
               border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
               padding: "20px", display: "flex", flexDirection: "column",
               gap: 10, opacity: 0.6

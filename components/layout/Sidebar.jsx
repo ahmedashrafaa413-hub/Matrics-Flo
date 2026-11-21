@@ -2,6 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  BrainCircuit,
+  BarChart3,
+  Facebook,
+  BarChart2,
+  ShoppingBag,
+  Ghost,
+  Layers,
+  Building2,
+  Plug,
+  Settings,
+  ChevronRight,
+  Wifi,
+} from "lucide-react";
 import LanguageSwitcher from "../LanguageSwitcher";
 import AccountMenu from "./AccountMenu";
 import { useLanguage } from "../../app/context/LanguageContext";
@@ -10,59 +24,59 @@ const channels = [
   {
     labelKey: "navigation.analytics",
     href: "/analytics",
-    icon: "🧠",
-    badge: "AI"
+    Icon: BrainCircuit,
+    badge: "AI",
   },
   {
     labelKey: "navigation.performance",
     href: "/performance-overview",
-    icon: "📊",
-    badgeKey: "common.new"
+    Icon: BarChart3,
+    badgeKey: "common.new",
   },
   {
     labelKey: "navigation.meta",
     href: "/meta",
-    icon: "f"
+    Icon: Facebook,
   },
   {
     labelKey: "navigation.googleAnalytics",
     href: "/ga",
-    icon: "G"
+    Icon: BarChart2,
   },
   {
     labelKey: "navigation.salla",
     href: "/salla",
-    icon: "س"
+    Icon: ShoppingBag,
   },
   {
     labelKey: "navigation.snapchat",
     href: "/snapchat",
-    icon: "👻"
+    Icon: Ghost,
   },
   {
     labelKey: "navigation.shopify",
     href: "/shopify",
-    icon: "S",
-    soon: true
-  }
+    Icon: Layers,
+    soon: true,
+  },
 ];
 
 const accountLinks = [
   {
     labelKey: "navigation.agency",
     href: "/agency",
-    icon: "🏢"
+    Icon: Building2,
   },
   {
     labelKey: "navigation.connections",
     href: "/connections",
-    icon: "◇"
+    Icon: Plug,
   },
   {
     labelKey: "navigation.settings",
     href: "/settings",
-    icon: "⚙️"
-  }
+    Icon: Settings,
+  },
 ];
 
 function isActive(pathname, href) {
@@ -70,73 +84,21 @@ function isActive(pathname, href) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function NavIcon({ children, active }) {
-  return (
-    <span
-      className="nav-item-icon"
-      style={{
-        width: 24,
-        height: 24,
-        borderRadius: 8,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: active ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
-        color: active ? "#ffffff" : "var(--muted)",
-        fontSize: 12,
-        fontWeight: 900,
-        flexShrink: 0
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
 function SidebarLink({ item }) {
   const pathname = usePathname();
   const { t } = useLanguage();
   const active = isActive(pathname, item.href);
   const label = t(item.labelKey);
+  const { Icon } = item;
 
   if (item.soon) {
     return (
-      <div
-        className="nav-item nav-item-soon"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "12px 14px",
-          borderRadius: 14,
-          color: "rgba(255,255,255,0.28)",
-          cursor: "not-allowed",
-          opacity: 0.65
-        }}
-      >
-        <NavIcon active={false}>{item.icon}</NavIcon>
-
-        <span
-          style={{
-            fontSize: 14,
-            fontWeight: 700,
-            flex: 1
-          }}
-        >
-          {label}
+      <div className="nav-item nav-item-soon">
+        <span className="nav-item-icon-wrap">
+          <Icon size={16} />
         </span>
-
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 900,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "rgba(255,255,255,0.25)"
-          }}
-        >
-          {t("common.soon")}
-        </span>
+        <span className="nav-item-label">{label}</span>
+        <span className="nav-badge nav-badge-soon">{t("common.soon")}</span>
       </div>
     );
   }
@@ -146,250 +108,95 @@ function SidebarLink({ item }) {
       className={`nav-item${active ? " active" : ""}`}
       href={item.href}
       prefetch={false}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 14px",
-        borderRadius: 14,
-        textDecoration: "none",
-        color: active ? "var(--text)" : "var(--muted)",
-        background: active
-          ? "linear-gradient(135deg,rgba(101,87,255,0.24),rgba(0,213,178,0.08))"
-          : "transparent",
-        border: active ? "1px solid rgba(255,255,255,0.08)" : "1px solid transparent",
-        transition: "all 0.18s ease"
-      }}
     >
-      <NavIcon active={active}>{item.icon}</NavIcon>
-
-      <span
-        style={{
-          fontSize: 14,
-          fontWeight: active ? 900 : 700,
-          flex: 1
-        }}
-      >
-        {label}
+      <span className={`nav-item-icon-wrap${active ? " active" : ""}`}>
+        <Icon size={16} />
       </span>
 
+      <span className="nav-item-label">{label}</span>
+
       {item.badgeKey && (
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 900,
-            color: "#06d6a0",
-            background: "rgba(6,214,160,0.12)",
-            border: "1px solid rgba(6,214,160,0.25)",
-            padding: "3px 7px",
-            borderRadius: 999
-          }}
-        >
-          {t(item.badgeKey)}
-        </span>
+        <span className="nav-badge nav-badge-accent">{t(item.badgeKey)}</span>
       )}
 
-      {active && (
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "#06d6a0",
-            boxShadow: "0 0 12px rgba(6,214,160,0.8)"
-          }}
-        />
+      {item.badge && (
+        <span className="nav-badge nav-badge-primary">{item.badge}</span>
       )}
+
+      {active && <span className="nav-active-dot" />}
     </Link>
   );
 }
 
 export default function Sidebar() {
   const { t } = useLanguage();
+
   return (
-    <aside
-      className="sidebar metrics-sidebar"
-      style={{
-        width: 280,
-        minHeight: "100vh",
-        background: "rgba(7,9,20,0.98)",
-        borderRight: "1px solid var(--border)",
-        padding: 18,
-        position: "sticky",
-        top: 0,
-        display: "flex",
-        flexDirection: "column",
-        gap: 18
-      }}
-    >
-      <Link
-        className="sidebar-header"
-        href="/dashboard"
-        prefetch={false}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          textDecoration: "none",
-          padding: "8px 8px 16px",
-          borderBottom: "1px solid var(--border)"
-        }}
-      >
-        {/* Icon mark only — viewBox cropped to just the bars square */}
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 307.88 307.88" style={{ width: 36, height: 36, flexShrink: 0 }}>
-          <rect x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22" fill="#6366f1" opacity="0.1"/>
-          <rect x=".5" y=".5" width="306.88" height="306.88" rx="22" ry="22" fill="none" stroke="#6366f1" strokeWidth="1.5" opacity="0.35"/>
-          <rect x="47.71" y="212.96" width="41.31" height="59.02" rx="5" ry="5" fill="#6366f1" opacity="0.25"/>
-          <rect x="100.83" y="168.7" width="41.31" height="103.28" rx="5" ry="5" fill="#6366f1" opacity="0.55"/>
-          <rect x="153.94" y="118.53" width="41.31" height="153.44" rx="5" ry="5" fill="#6366f1" opacity="0.82"/>
-          <rect x="218.86" y="53.61" width="41.31" height="218.36" rx="5" ry="5" fill="#06d6a0"/>
+    <aside className="sidebar">
+      {/* Logo */}
+      <Link className="sidebar-logo" href="/dashboard" prefetch={false}>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 307.88 307.88"
+          className="sidebar-logo-icon"
+        >
+          <rect
+            x=".5" y=".5" width="306.88" height="306.88"
+            rx="22" ry="22" fill="#6366f1" opacity="0.1"
+          />
+          <rect
+            x=".5" y=".5" width="306.88" height="306.88"
+            rx="22" ry="22" fill="none" stroke="#6366f1"
+            strokeWidth="1.5" opacity="0.35"
+          />
+          <rect x="47.71" y="212.96" width="41.31" height="59.02" rx="5" ry="5" fill="#6366f1" opacity="0.25" />
+          <rect x="100.83" y="168.7" width="41.31" height="103.28" rx="5" ry="5" fill="#6366f1" opacity="0.55" />
+          <rect x="153.94" y="118.53" width="41.31" height="153.44" rx="5" ry="5" fill="#6366f1" opacity="0.82" />
+          <rect x="218.86" y="53.61" width="41.31" height="218.36" rx="5" ry="5" fill="#06d6a0" />
         </svg>
 
-        {/* Wordmark as HTML text */}
-        <div>
-          <div style={{ fontFamily:"'Space Grotesk',sans-serif", fontSize: 19, fontWeight: 700, color: "#f0f3ff", lineHeight: 1, letterSpacing: "-0.3px" }}>
-            Metrics<span style={{ color: "#06d6a0" }}>Flo</span>
+        <div className="sidebar-logo-text">
+          <div className="sidebar-logo-name">
+            Metrics<span className="sidebar-logo-accent">Flo</span>
           </div>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "#4a5278", letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 4 }}>
-            {t("brand.subtitle")}
-          </div>
+          <div className="sidebar-logo-sub">{t("brand.subtitle")}</div>
         </div>
       </Link>
 
-      <div
-        className="sidebar-workspace"
-        style={{
-          background: "rgba(255,255,255,0.035)",
-          border: "1px solid var(--border)",
-          borderRadius: 18,
-          padding: 12
-        }}
-      >
-        <button
-          type="button"
-          style={{
-            width: "100%",
-            border: "none",
-            background: "transparent",
-            color: "var(--text)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            cursor: "pointer",
-            fontFamily: "inherit",
-            fontWeight: 800,
-            fontSize: 14
-          }}
-        >
-          <span>{t("common.selectWorkspace")}</span>
-
-          <span
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: 10,
-              background: "linear-gradient(135deg,#6557ff,#00d5b2)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontSize: 12,
-              fontWeight: 900
-            }}
-          >
-            ↗
+      {/* Workspace Switcher */}
+      <div className="sidebar-workspace">
+        <button type="button" className="sidebar-workspace-btn">
+          <span className="sidebar-workspace-label">{t("common.selectWorkspace")}</span>
+          <span className="sidebar-workspace-arrow">
+            <ChevronRight size={14} />
           </span>
         </button>
       </div>
 
-      <nav
-        className="sidebar-nav sidebar-nav-channels"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 6
-        }}
-      >
-        <div
-          style={{
-            color: "var(--muted)",
-            fontSize: 10,
-            fontWeight: 900,
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            padding: "8px 12px"
-          }}
-        >
-          {t("common.channels")}
-        </div>
-
+      {/* Channels Nav */}
+      <nav className="sidebar-nav">
+        <div className="sidebar-section-label">{t("common.channels")}</div>
         {channels.map((item) => (
           <SidebarLink key={item.href} item={item} />
         ))}
       </nav>
 
-      <nav
-        className="sidebar-nav sidebar-nav-account"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-          borderTop: "1px solid var(--border)",
-          paddingTop: 14
-        }}
-      >
-        <div
-          style={{
-            color: "var(--muted)",
-            fontSize: 10,
-            fontWeight: 900,
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            padding: "8px 12px"
-          }}
-        >
-          {t("common.account")}
-        </div>
-
+      {/* Account Nav */}
+      <nav className="sidebar-nav sidebar-nav-account">
+        <div className="sidebar-section-label">{t("common.account")}</div>
         {accountLinks.map((item) => (
           <SidebarLink key={item.href} item={item} />
         ))}
       </nav>
 
-      <div className="sidebar-footer" style={{ marginTop: "auto", display: "grid", gap: 10 }}>
+      {/* Footer */}
+      <div className="sidebar-footer">
         <LanguageSwitcher />
         <AccountMenu />
-        <div
-          style={{
-            border: "1px solid rgba(6,214,160,0.25)",
-            background: "rgba(6,214,160,0.08)",
-            borderRadius: 16,
-            padding: "13px 14px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10
-          }}
-        >
-          <span
-            style={{
-              color: "#06d6a0",
-              fontSize: 13,
-              fontWeight: 900
-            }}
-          >
-            {t("common.connected")}
-          </span>
-
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: "#06d6a0",
-              boxShadow: "0 0 12px rgba(6,214,160,0.8)"
-            }}
-          />
+        <div className="sidebar-connected">
+          <Wifi size={14} className="sidebar-connected-icon" />
+          <span className="sidebar-connected-label">{t("common.connected")}</span>
+          <span className="sidebar-connected-dot" />
         </div>
       </div>
     </aside>

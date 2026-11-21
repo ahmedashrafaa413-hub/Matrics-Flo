@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { apiGet, apiPost } from "../../lib/api";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
@@ -112,7 +113,7 @@ export default function SallaPage() {
       </div>
 
       {notice && <div className="dash-message">{notice}</div>}
-      {error && error!=="NOT_CONNECTED" && <div className="dash-message error">⚠ {error}</div>}
+      {error && error!=="NOT_CONNECTED" && <div className="dash-message error" style={{ display:"flex", alignItems:"center", gap:7 }}><AlertTriangle size={14} /> {error}</div>}
 
       <div className="dash-kpi-grid" style={{ gridTemplateColumns:"repeat(4,1fr)" }}>
         {[

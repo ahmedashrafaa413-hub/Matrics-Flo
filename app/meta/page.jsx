@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import {
+  Wallet, TrendingUp, ShoppingCart, Target, BarChart2,
+  Layers, LayoutGrid, List, Image, RefreshCw,
+  AlertTriangle, CheckCircle2, TrendingDown,
+} from "lucide-react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting } from "../../lib/storage";
 import { toSAR, safeDivide, formatSAR, formatROAS } from "../../lib/currency";
@@ -104,11 +109,11 @@ function diagnoseCreative(row) {
 }
 
 const TABS = [
-  { key:"overview",   label:"Overview",   icon:"⬡" },
-  { key:"campaigns",  label:"Campaigns",  icon:"◈" },
-  { key:"adsets",     label:"Ad Sets",    icon:"◫" },
-  { key:"ads",        label:"Ads",        icon:"▣" },
-  { key:"creative",   label:"Creative",   icon:"✦" },
+  { key:"overview",   label:"Overview",   Icon: LayoutGrid },
+  { key:"campaigns",  label:"Campaigns",  Icon: Layers },
+  { key:"adsets",     label:"Ad Sets",    Icon: List },
+  { key:"ads",        label:"Ads",        Icon: BarChart2 },
+  { key:"creative",   label:"Creative",   Icon: Image },
 ];
 
 const ChartTip = ({ active, payload, label }) => {
@@ -150,29 +155,29 @@ function SignalBadge({ row }) {
   return <span style={{ padding:"3px 9px", borderRadius:999, fontSize:11, fontWeight:700, color:cfg.color, background:cfg.bg, border:`1px solid ${cfg.color}25`, whiteSpace:"nowrap" }}>{cfg.label}</span>;
 }
 
-function KPICard({ label, value, delta, color, icon }) {
+function KPICard({ label, value, delta, color, Icon }) {
   const isUp = delta > 0;
   return (
     <div className="dash-kpi-card" style={{ position:"relative", overflow:"hidden" }}>
       <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:color, borderRadius:"20px 20px 0 0" }} />
       <div className="dash-kpi-top">
         <span className="dash-kpi-label">{label}</span>
-        <span className="dash-kpi-icon">{icon}</span>
+        {Icon && <Icon size={14} style={{ color, opacity:0.7 }} />}
       </div>
       <strong style={{ color:"var(--text)", fontFamily:"'Space Grotesk',sans-serif", fontSize:24 }}>{value}</strong>
       {delta !== null && delta !== undefined && (
         <div style={{ fontSize:11, marginTop:5, display:"flex", alignItems:"center", gap:3, color: isUp ? "#06d6a0" : "#f43f5e" }}>
-          {isUp ? "↑" : "↓"} {Math.abs(delta).toFixed(1)}% vs prev
+          {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />} {Math.abs(delta).toFixed(1)}% vs prev
         </div>
       )}
     </div>
   );
 }
 
-function SectionLabel({ icon, title }) {
+function SectionLabel({ Icon, title }) {
   return (
     <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:12 }}>
-      <span style={{ fontSize:14 }}>{icon}</span>
+      {Icon && <Icon size={13} style={{ color:"var(--muted)" }} />}
       <span style={{ fontSize:11, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", letterSpacing:"1px" }}>{title}</span>
     </div>
   );
@@ -416,7 +421,7 @@ export default function MetaPage() {
           }} style={{ background:"var(--card)", color:"var(--text)", border:"1px solid var(--border-2)", borderRadius:"var(--radius-md)", padding:"8px 12px", fontSize:12, fontWeight:600, fontFamily:"inherit", outline:"none", cursor:"pointer" }}>
             {DATE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <button className="dash-refresh" onClick={refresh} disabled={campLoading}>{campLoading?"⏳":"↺"} Refresh</button>
+          <button className="dash-refresh" onClick={refresh} disabled={campLoading} style={{ display:"inline-flex", alignItems:"center", gap:6 }}><RefreshCw size={13} className={campLoading?"analytics-spin":""} /> Refresh</button>
         </div>
       </div>
 
@@ -446,12 +451,12 @@ export default function MetaPage() {
             color: activeTab===tab.key?"var(--text)":"var(--muted)",
             borderBottom: activeTab===tab.key?"2px solid var(--primary)":"2px solid transparent"
           }}>
-            <span>{tab.icon}</span> {tab.label}
+            <tab.Icon size={13} /> {tab.label}
           </button>
         ))}
       </div>
 
-      {error && <div className="dash-message error">⚠ {error}</div>}
+      {error && <div className="dash-message error" style={{ display:"flex", alignItems:"center", gap:7 }}><AlertTriangle size={14} /> {error}</div>}
 
       {/* ══ OVERVIEW TAB ══ */}
       {activeTab==="overview" && (
@@ -467,14 +472,14 @@ export default function MetaPage() {
           )}
 
           {/* KPIs */}
-          <SectionLabel icon="📊" title="Overview" />
+          <SectionLabel Icon={BarChart2} title="Overview" />
           <div className="dash-kpi-grid">
-            <KPICard label="Spend (SAR)"     value={campLoading?"—":fmt.money(totals.spend, metaCurrency)}          color="#6366f1" icon="💰" />
-            <KPICard label="Revenue (SAR)"   value={campLoading?"—":fmt.money(totals.purchase_value, metaCurrency)} color="#06d6a0" icon="💵" />
-            <KPICard label="ROAS"      value={campLoading?"—":fmt.x(totals.roas)}               color="#06d6a0" icon="📈" />
-            <KPICard label="Purchases" value={campLoading?"—":fmt.number(totals.purchases)}     color="#f59e0b" icon="🛒" />
-            <KPICard label="CPA (SAR)"       value={campLoading?"—":fmt.money(totals.cpa, metaCurrency)}            color="#f43f5e" icon="🎯" />
-            <KPICard label="CTR"       value={campLoading?"—":fmt.percent(totals.ctr)}          color="#8b5cf6" icon="📊" />
+            <KPICard label="Spend (SAR)"     value={campLoading?"—":fmt.money(totals.spend, metaCurrency)}          color="#6366f1" Icon={Wallet} />
+            <KPICard label="Revenue (SAR)"   value={campLoading?"—":fmt.money(totals.purchase_value, metaCurrency)} color="#06d6a0" Icon={TrendingUp} />
+            <KPICard label="ROAS"      value={campLoading?"—":fmt.x(totals.roas)}               color="#06d6a0" Icon={TrendingUp} />
+            <KPICard label="Purchases" value={campLoading?"—":fmt.number(totals.purchases)}     color="#f59e0b" Icon={ShoppingCart} />
+            <KPICard label="CPA (SAR)"       value={campLoading?"—":fmt.money(totals.cpa, metaCurrency)}            color="#f43f5e" Icon={Target} />
+            <KPICard label="CTR"       value={campLoading?"—":fmt.percent(totals.ctr)}          color="#8b5cf6" Icon={BarChart2} />
           </div>
 
           {/* Real ROAS from Salla */}
@@ -496,7 +501,7 @@ export default function MetaPage() {
             <div className="dash-chart-card">
               <div className="dash-chart-head"><div><h2>Revenue vs Spend</h2><p>Top campaigns — {DATE_OPTIONS.find(d=>d.value===datePreset)?.label}</p></div></div>
               <div className="dash-chart-box">
-                {chartData.length===0 ? <div className="dash-empty"><h3>{campLoading?"⏳ Loading...":"No data"}</h3></div> :
+                {chartData.length===0 ? <div className="dash-empty"><h3>{campLoading?"Loading...":"No data"}</h3></div> :
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartData} barGap={3}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -524,7 +529,7 @@ export default function MetaPage() {
                     <div style={{ fontSize:10, color:"var(--muted)", marginBottom:1 }}>{step.label}</div>
                     <div style={{ fontSize:14, fontWeight:700, color:"var(--text)" }}>{campLoading?"—":step.val}</div>
                   </div>
-                  {step.rate && <span style={{ fontSize:10, fontWeight:700, color:step.warn?"var(--red)":"var(--accent)", whiteSpace:"nowrap" }}>{step.rate}{step.warn?" ⚠":""}</span>}
+                  {step.rate && <span style={{ fontSize:10, fontWeight:700, color:step.warn?"var(--red)":"var(--accent)", whiteSpace:"nowrap", display:"inline-flex", alignItems:"center", gap:2 }}>{step.rate}{step.warn && <AlertTriangle size={9} />}</span>}
                 </div>
               ))}
             </div>
@@ -533,7 +538,7 @@ export default function MetaPage() {
           {/* Funnel Diagnosis */}
           {funnel.length>0 && funnel[0].stage!=="Funnel Health" && (
             <>
-              <SectionLabel icon="🔍" title="Funnel diagnosis" />
+              <SectionLabel Icon={Target} title="Funnel diagnosis" />
               <div className="dash-insights-grid">
                 {funnel.map((item,i)=>(
                   <div className="dash-insight-card" key={i} dir="ltr">
@@ -550,7 +555,7 @@ export default function MetaPage() {
           {/* Creative snapshot */}
           {adLoaded && rankedAds.length > 0 && (
             <>
-              <SectionLabel icon="✦" title="Creative snapshot" />
+              <SectionLabel Icon={Image} title="Creative snapshot" />
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
                 {rankedAds.slice(0,4).map((row,i)=>{
                   const s=row._scoring;
@@ -589,7 +594,7 @@ export default function MetaPage() {
           <div className="dash-table-head">
             <div><h2>Campaigns</h2><p>{campLoading?"Loading...":filteredCamps.length+" campaigns"}</p></div>
           </div>
-          {campLoading ? <div className="dash-empty"><h3>⏳ Loading...</h3></div> :
+          {campLoading ? <div className="dash-empty"><h3>Loading...</h3></div> :
           filteredCamps.length===0 ? <div className="dash-empty"><h3>No campaigns</h3></div> :
           <div className="dash-table-scroll">
             <table className="dash-data-table">
@@ -621,7 +626,7 @@ export default function MetaPage() {
           <div className="dash-table-head">
             <div><h2>Ad Sets</h2><p>{adsetLoading?"Loading...":filteredAdsets.length+" ad sets"}</p></div>
           </div>
-          {adsetLoading ? <div className="dash-empty"><h3>⏳ Loading...</h3></div> :
+          {adsetLoading ? <div className="dash-empty"><h3>Loading...</h3></div> :
           filteredAdsets.length===0 ? <div className="dash-empty"><h3>No ad sets</h3></div> :
           <div className="dash-table-scroll">
             <table className="dash-data-table">
@@ -650,7 +655,7 @@ export default function MetaPage() {
       {/* ══ ADS TAB ══ */}
       {activeTab==="ads" && (
         <>
-          {!adLoaded && <div className="dash-empty"><h3>{adLoading?"⏳ Loading ads...":"Ads will load when you switch to this tab."}</h3></div>}
+          {!adLoaded && <div className="dash-empty"><h3>{adLoading?"Loading ads...":"Ads will load when you switch to this tab."}</h3></div>}
           {adLoaded && (
             <>
               {/* Summary */}
@@ -675,8 +680,8 @@ export default function MetaPage() {
                     <div key={i} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:"var(--radius-xl)", padding:"14px 18px", display:"grid", gridTemplateColumns:"2fr 90px 70px 80px 80px 70px 70px 110px", gap:12, alignItems:"center" }}>
                       <div style={{ minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:700, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{row._name}</div>
-                        {s.diagnosis.primaryIssue && <div style={{ fontSize:11, color:"var(--red)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>⚠ {s.diagnosis.primaryIssue}</div>}
-                        {!s.diagnosis.primaryIssue && s.diagnosis.primaryWin && <div style={{ fontSize:11, color:"var(--accent)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>✓ {s.diagnosis.primaryWin}</div>}
+                        {s.diagnosis.primaryIssue && <div style={{ fontSize:11, color:"var(--red)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:3 }}><AlertTriangle size={9} /> {s.diagnosis.primaryIssue}</div>}
+                        {!s.diagnosis.primaryIssue && s.diagnosis.primaryWin && <div style={{ fontSize:11, color:"var(--accent)", marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:3 }}><CheckCircle2 size={9} /> {s.diagnosis.primaryWin}</div>}
                       </div>
                       <div><div style={{ fontSize:9, color:"var(--muted)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px", marginBottom:3 }}>Status</div><StatusDot effectiveStatus={adStatus[row.ad_id||""]?.effective_status}/></div>
                       {[
@@ -701,7 +706,7 @@ export default function MetaPage() {
       {/* ══ CREATIVE GALLERY TAB ══ */}
       {activeTab==="creative" && (
         <>
-          {!adLoaded && <div className="dash-empty"><h3>{adLoading?"⏳ Loading ads...":"Switch to this tab to load creative data."}</h3></div>}
+          {!adLoaded && <div className="dash-empty"><h3>{adLoading?"Loading ads...":"Switch to this tab to load creative data."}</h3></div>}
           {adLoaded && (() => {
             // Sort: winners → highest ROAS → purchases → spend
             const SEVERITY_ORDER = { success:0, high:1, medium:2, neutral:3 };
