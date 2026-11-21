@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bucketDate, dailyRows, missingParents, parseTimeseries, sumDaily } from "../lib/snapchatDaily.mjs";
+import { alignEndToDay, bucketDate, dailyRows, missingParents, parseTimeseries, sumDaily } from "../lib/snapchatDaily.mjs";
 
 const day = (start, spend, purchases, value) => ({
   start_time: `${start}T00:00:00.000+03:00`,
@@ -59,4 +59,10 @@ test("names campaigns whose ad squads were not fully covered", () => {
   const missing = missingParents(parents, rows);
   assert.deepEqual(missing.map((m) => m.id), ["c2", "c3"]);
   assert.equal(missing[0].covered_spend, 100);
+});
+
+test("moves an hour-aligned range end to the next local midnight", () => {
+  assert.equal(alignEndToDay("2026-11-21T23:00:00.000+03:00"), "2026-11-22T00:00:00.000+03:00");
+  assert.equal(alignEndToDay("2026-11-30T05:00:00.000+03:00"), "2026-12-01T00:00:00.000+03:00");
+  assert.equal(alignEndToDay("2026-11-22T00:00:00.000+03:00"), "2026-11-22T00:00:00.000+03:00");
 });
