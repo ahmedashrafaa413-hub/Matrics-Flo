@@ -150,11 +150,26 @@ export async function POST(request) {
       cache: "no-store",
       signal: AbortSignal.timeout(25000)
     });
-    if (!response.ok) return fail(id, -32000, "Analytics source unavailable", 502);
     const responseText = await response.text();
     if (responseText.length > 512000) return fail(id, -32000, "Analytics response too large; narrow your request", 413);
-    const data = JSON.parse(responseText);
-    if (data?.success !== true || data?.workspace?.id !== workspaceId) return fail(id, -32000, "Analytics workspace validation failed", 502);
+    let data;
+    try { data = JSON.parse(responseText); } catch { return fail(id, -32000, "Analytics returned invalid JSON", 502); }
+    // Accept a partial/empty response (no platforms connected yet) but still return it
+    // so Claude can explain what's missing rather than showing a generic 503.
+    if (data?.workspace && data.workspace.id !== workspaceId) return fail(id, -32000, "Analytics workspace validation failed", 502);
+    if (!response.ok || data?.success === false) {
+      // Return a structured "not configured" response instead of a hard error
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify({
+        success: false,
+        workspace: { id: workspaceId },
+        date_preset: preset,
+        message: data?.error || "No ad platforms connected yet. Connect Meta, Snapchat, TikTok or Google Ads in MetricsFlo to see performance data.",
+        platforms: [],
+        campaigns: [],
+        current: null,
+        previous: null
+      }) }] });
+    }
     return rpc(id, { content: [{ type: "text", text: JSON.stringify(data) }] });
   } catch {
     return fail(id, -32000, "Analytics request failed", 502);
