@@ -13,6 +13,7 @@ import {
   getSnapchatInsightsForWorkspace
 } from "../../../lib/mcpWorkspaceData";
 import { MAX_RANGE_DAYS, parseCustomRange } from "../../../lib/mcpDateRange.mjs";
+import { MAX_DAILY_RANGE_DAYS } from "../../../lib/snapchatDaily.mjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -82,7 +83,8 @@ const GET_SNAPCHAT_INSIGHTS_TOOL = {
       ...RANGE_PROPS,
       level: { type: "string", enum: ["account", "campaign", "adsquad", "ad"], description: "Aggregation level (default: campaign). adsquad and ad drill down from the campaigns that spent; on large accounts pass campaign_id (or adsquad_id for ads) for complete numbers." },
       campaign_id: { type: "string", description: "Optional: limit adsquad or ad level to this campaign ID (from a campaign-level row)." },
-      adsquad_id: { type: "string", description: "Optional: limit ad level to this ad squad ID (from an adsquad-level row)." }
+      adsquad_id: { type: "string", description: "Optional: at ad level, only this ad squad's ads; at adsquad level, only this ad squad (e.g. with daily, its days around a budget or bid edit)." },
+      daily: { type: "boolean", description: `Optional: add a day-by-day series (date, spend, revenue, purchases, add_to_cart, initiate_checkout, impressions, swipes, roas, cpa, ctr, cpm) to every row and to summary, for lining edits from get_snapchat_change_history up with the days before and after. Core metrics only (no extended). Range up to ${MAX_DAILY_RANGE_DAYS} days; not with date_preset maximum.` }
     },
     required: ["workspace_id", "account_id"],
     additionalProperties: false
@@ -214,7 +216,7 @@ export async function POST(request) {
     [TOOL.name]: ["workspace_id", "date_preset", "since", "until", "snapchat_account_id", "meta_account_id"],
     [LIST_AD_ACCOUNTS_TOOL.name]: ["workspace_id"],
     [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
-    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id"],
+    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id", "daily"],
     [GET_SNAPCHAT_CHANGE_HISTORY_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "entity_id", "categories"],
     [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until", "property_id"]
   };
@@ -284,7 +286,16 @@ export async function POST(request) {
       if (!/^[A-Za-z0-9-]{1,64}$/.test(value)) return fail(id, -32602, `Invalid ${arg}`);
       scope[field] = value;
     }
-    if (scope.adsquadId && level !== "ad") return fail(id, -32602, "adsquad_id only applies to level ad");
+    if (scope.adsquadId && !(level === "ad" || (!isMeta && level === "adsquad"))) return fail(id, -32602, "adsquad_id only applies to levels adsquad and ad");
+    if (scope.adsquadId && scope.campaignId && level === "adsquad") return fail(id, -32602, "Give campaign_id or adsquad_id at level adsquad, not both");
+    let daily = false;
+    if (!isMeta && args.daily !== undefined) {
+      if (typeof args.daily !== "boolean") return fail(id, -32602, "daily must be true or false");
+      daily = args.daily;
+    }
+    if (daily && (range ? range.days > MAX_DAILY_RANGE_DAYS : datePreset === "maximum")) {
+      return fail(id, -32602, `daily is limited to ${MAX_DAILY_RANGE_DAYS} days; pass a shorter since/until range`);
+    }
     if (scope.campaignId && !["adsquad", "ad"].includes(level)) return fail(id, -32602, "campaign_id only applies to levels adsquad and ad");
 
     // The account must belong to this workspace.
@@ -299,7 +310,7 @@ export async function POST(request) {
     try {
       const result = isMeta
         ? await getMetaInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range })
-        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range, ...scope });
+        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range, ...scope, ...(daily ? { daily } : {}) });
       if (!result.success) return ok({ success: false, platform, account_id: accountId, ...period, message: result.message });
 
       if (isMeta) {
@@ -369,12 +380,16 @@ export async function POST(request) {
           failed_requests: result.failed_requests,
           parents_unlisted: result.parents_unlisted,
           upstream_incomplete: result.upstream_incomplete,
+          ...(result.missing_campaigns ? { missing_campaigns: result.missing_campaigns, missing_campaigns_total: result.missing_campaigns_total } : {}),
+          ...(daily ? { daily: true } : {}),
           extended_metrics: result.extended_metrics,
           ...(scope.campaignId ? { campaign_id: scope.campaignId } : {}),
           ...(scope.adsquadId ? { adsquad_id: scope.adsquadId } : {}),
           ...(result.complete
             ? {}
-            : { note: "Not every entity could be checked in time. summary covers the checked entities only (spend_coverage_pct of account_spend); pass campaign_id (or adsquad_id for ads) or a shorter date range for full coverage." }),
+            : { note: result.missing_campaigns?.length
+                ? "Not every entity could be checked in time. summary covers the checked entities only (spend_coverage_pct of account_spend). missing_campaigns lists the campaigns whose ad squads are not fully covered: ask again with campaign_id for each to complete them."
+                : "Not every entity could be checked in time. summary covers the checked entities only (spend_coverage_pct of account_spend); pass campaign_id (or adsquad_id for ads) or a shorter date range for full coverage." }),
           attribution: result.attribution,
           start_time: result.start_time,
           end_time: result.end_time
