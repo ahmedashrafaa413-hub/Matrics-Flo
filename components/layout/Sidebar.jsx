@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import {
   BrainCircuit,
   BarChart3,
@@ -15,10 +16,38 @@ import {
   Settings,
   ChevronRight,
   Wifi,
+  Sun,
+  Moon,
 } from "lucide-react";
 import LanguageSwitcher from "../LanguageSwitcher";
 import AccountMenu from "./AccountMenu";
 import { useLanguage } from "../../app/context/LanguageContext";
+
+function ThemeToggle() {
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("mf-theme");
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const dark = stored ? stored === "dark" : prefersDark;
+    setIsDark(dark);
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  }, []);
+
+  const toggle = () => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
+    localStorage.setItem("mf-theme", next ? "dark" : "light");
+  };
+
+  return (
+    <button onClick={toggle} className="theme-toggle-btn" title={isDark ? "وضع النهار" : "وضع الليل"}>
+      {isDark ? <Sun size={15} /> : <Moon size={15} />}
+      <span>{isDark ? "نهاري" : "ليلي"}</span>
+    </button>
+  );
+}
 
 const channels = [
   {
@@ -191,6 +220,7 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="sidebar-footer">
+        <ThemeToggle />
         <LanguageSwitcher />
         <AccountMenu />
         <div className="sidebar-connected">

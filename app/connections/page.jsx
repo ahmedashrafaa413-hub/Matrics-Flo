@@ -2,15 +2,60 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, XCircle, AlertTriangle, RefreshCw, Circle, Ghost } from "lucide-react";
+import { CheckCircle2, XCircle, AlertTriangle, RefreshCw, Circle } from "lucide-react";
 import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
 const COMING_SOON = [
-  { name: "Google Ads", icon: "G", iconBg: "#4285F4", desc: "Search, Performance Max, YouTube" },
-  { name: "TikTok Ads", icon: "T", iconBg: "#010101", desc: "Campaigns, ad groups, creatives"  },
-  { name: "Shopify",    icon: "S", iconBg: "#96BF48", desc: "Revenue, orders, products"         },
+  { name: "Google Ads",  iconBg: "#4285F4", desc: "Search, Performance Max, YouTube",  platform: "google-ads" },
+  { name: "TikTok Ads",  iconBg: "#010101", desc: "Campaigns, ad groups, creatives",   platform: "tiktok"     },
+  { name: "Shopify",     iconBg: "#96BF48", desc: "Revenue, orders, products",          platform: "shopify"    },
 ];
+
+/* ── Platform SVG Icons ── */
+const MetaIcon = () => (
+  <svg viewBox="0 0 36 36" width="26" height="26" fill="none">
+    <path d="M18 3C9.716 3 3 9.716 3 18c0 7.49 5.49 13.701 12.68 14.812V22.3h-3.812V18H15.68v-3.274c0-3.76 2.24-5.836 5.665-5.836 1.641 0 3.358.293 3.358.293v3.692h-1.891c-1.863 0-2.444 1.156-2.444 2.342V18h4.16l-.665 4.3H20.37v10.512C27.51 31.701 33 25.49 33 18c0-8.284-6.716-15-15-15z" fill="white"/>
+  </svg>
+);
+
+const GA4Icon = () => (
+  <svg viewBox="0 0 48 48" width="26" height="26" fill="none">
+    <path d="M44 24c0 11.046-8.954 20-20 20S4 35.046 4 24 12.954 4 24 4s20 8.954 20 20z" fill="white" fillOpacity="0.15"/>
+    <rect x="10" y="30" width="8" height="10" rx="2" fill="white"/>
+    <rect x="20" y="22" width="8" height="18" rx="2" fill="white" fillOpacity="0.85"/>
+    <rect x="30" y="14" width="8" height="26" rx="2" fill="white" fillOpacity="0.65"/>
+  </svg>
+);
+
+const SnapchatIcon = () => (
+  <svg viewBox="0 0 36 36" width="26" height="26" fill="none">
+    <path d="M18.001 4c-3.308 0-7.14 2.077-7.14 7.56v1.52c-.48-.072-.912-.108-1.236-.108-.504 0-.816.168-.996.336-.288.264-.396.636-.288 1.02.228.828 1.44 1.464 2.472 1.776-.072.252-.168.516-.288.78-1.248 2.724-3.576 3.504-4.308 3.792-.432.168-.528.516-.516.78.012.252.096.552.456.78.9.564 2.436.816 3.084.9.144.516.3 1.56 1.428 1.56.588 0 1.284-.168 2.148-.372.684-.168 1.464-.36 2.364-.36.792 0 1.44.192 2.028.372.84.252 1.56.468 2.244.468 1.14 0 1.308-1.056 1.44-1.572.636-.084 2.172-.336 3.072-.9.36-.228.456-.516.456-.78.012-.264-.084-.612-.516-.78-.732-.288-3.06-1.068-4.308-3.792a7.14 7.14 0 0 1-.288-.78c1.032-.312 2.244-.948 2.472-1.776.108-.384 0-.756-.288-1.02-.18-.168-.492-.336-.996-.336-.324 0-.756.036-1.236.108v-1.52C25.141 6.077 21.309 4 18.001 4z" fill="#000"/>
+  </svg>
+);
+
+const TikTokIcon = () => (
+  <svg viewBox="0 0 36 36" width="26" height="26" fill="none">
+    <path d="M25.5 8.1a7.2 7.2 0 0 1-1.74-4.68h-4.8v17.4c-.06 1.98-1.68 3.6-3.66 3.6a3.66 3.66 0 0 1-3.66-3.66 3.66 3.66 0 0 1 3.66-3.66c.36 0 .72.06 1.05.15V12.3c-.34-.05-.69-.09-1.05-.09a8.46 8.46 0 0 0-8.46 8.46 8.46 8.46 0 0 0 8.46 8.46 8.46 8.46 0 0 0 8.46-8.46V12c1.59 1.14 3.51 1.8 5.58 1.8V9c-1.4 0-2.73-.45-3.84-1.2l-.01.3z" fill="white"/>
+    <path d="M25.5 8.1a7.2 7.2 0 0 1-1.74-4.68h-1.56s.72 3.3 3.3 4.68z" fill="#25F4EE"/>
+    <path d="M15.3 24.84a3.66 3.66 0 0 1-3.66-3.66 3.66 3.66 0 0 1 3.66-3.66c.36 0 .72.06 1.05.15v-4.47c-.34-.05-.69-.09-1.05-.09a8.46 8.46 0 0 0-8.46 8.46 8.46 8.46 0 0 0 8.46 8.46 8.46 8.46 0 0 0 8.46-8.46l-.03-9c1.59 1.14 3.51 1.8 5.58 1.8v-4.8c-3.3-.09-5.94-2.4-6.42-5.46h-4.8v17.4c-.06 1.98-1.68 3.6-3.66 3.6l-.13-.03z" fill="#FE2C55"/>
+    <path d="M29.34 13.8v-4.8c-3.3-.09-5.94-2.4-6.42-5.46h-1.5c.48 3.06 3.12 5.37 6.42 5.46v4.8c-2.07 0-3.99-.66-5.58-1.8l.03 9a8.46 8.46 0 0 1-8.49 8.43 8.46 8.46 0 0 1-7.11-3.9 8.46 8.46 0 0 0 7.11 3.9 8.46 8.46 0 0 0 8.49-8.43l-.03-9c1.56 1.14 3.51 1.8 5.58 1.8z" fill="#25F4EE"/>
+  </svg>
+);
+
+const GoogleAdsIcon = () => (
+  <svg viewBox="0 0 36 36" width="26" height="26" fill="none">
+    <path d="M22.5 8L11 27h7l11.5-19H22.5z" fill="white"/>
+    <circle cx="8" cy="27" r="4" fill="white" fillOpacity="0.7"/>
+    <circle cx="28" cy="27" r="4" fill="white" fillOpacity="0.5"/>
+  </svg>
+);
+
+const ShopifyIcon = () => (
+  <svg viewBox="0 0 36 36" width="26" height="26" fill="none">
+    <path d="M25.5 10.5c0-.15-.12-.27-.27-.27-.12 0-2.1-.15-2.1-.15s-1.38-1.38-1.53-1.5c-.15-.15-.42-.12-.54-.09l-.75.24C20.01 8.1 19.5 7.5 18.6 7.5c-.03 0-.06 0-.09.003C18.3 7.2 17.97 7.08 17.61 7.08c-2.73 0-4.05 3.42-4.47 5.16-.27.03-2.1.651-2.1.651-.6.183-.621.204-.699.771L8.76 25.5l13.44 2.52 7.26-1.572S25.5 10.65 25.5 10.5zm-6.21-.69c-.54.165-1.14.351-1.74.54.003-.075.006-.153.006-.234 0-.72-.099-1.302-.261-1.77.642.072 1.071.705 1.995 1.464z" fill="white"/>
+  </svg>
+);
 
 function ConnectionsPageInner() {
   const searchParams = useSearchParams();
@@ -117,22 +162,22 @@ function ConnectionsPageInner() {
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 24 }}>
 
         {/* META */}
-        <div style={{
-          background: "var(--card)", 
-          border: metaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
-          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        <div className={`platform-card platform-meta${metaConnected ? " connected" : ""}`} style={{
+          background: "var(--card)",
+          border: metaConnected ? "1px solid rgba(24,119,242,0.25)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden", position: "relative"
         }}>
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             padding: "22px 24px", borderBottom: metaConnected ? "1px solid var(--border)" : "none"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 12, background: "#1877F2",
+              <div className="platform-icon platform-meta" style={{
+                width: 44, height: 44, borderRadius: 12, background: "rgba(24,119,242,0.12)",
+                border: "1px solid rgba(24,119,242,0.3)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20, fontWeight: 900, color: "white", flexShrink: 0,
-                boxShadow: "0 0 16px rgba(24,119,242,0.3)"
-              }}>f</div>
+                flexShrink: 0, boxShadow: "0 0 16px rgba(24,119,242,0.2)"
+              }}><MetaIcon /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -221,22 +266,23 @@ function ConnectionsPageInner() {
         </div>
 
         {/* GA4 */}
-        <div style={{
-          background: "var(--card)", 
-          border: gaConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid var(--border)",
-          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        <div className={`platform-card platform-ga4${gaConnected ? " connected" : ""}`} style={{
+          background: "var(--card)",
+          border: gaConnected ? "1px solid rgba(249,171,0,0.25)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden", position: "relative"
         }}>
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             padding: "22px 24px", borderBottom: gaConnected ? "1px solid var(--border)" : "none"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 12, background: "#E37400",
+              <div className="platform-icon platform-ga4" style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: "linear-gradient(135deg, rgba(249,171,0,0.15), rgba(227,116,0,0.15))",
+                border: "1px solid rgba(249,171,0,0.3)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 18, fontWeight: 900, color: "white", flexShrink: 0,
-                boxShadow: "0 0 16px rgba(227,116,0,0.3)"
-              }}>G</div>
+                flexShrink: 0, boxShadow: "0 0 16px rgba(249,171,0,0.2)"
+              }}><GA4Icon /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -352,22 +398,21 @@ function ConnectionsPageInner() {
 
       {/* ── Snapchat Ads ── */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{
-          background: "var(--card)", 
-          border: snapConnected ? "1px solid rgba(255,252,0,0.25)" : "1px solid var(--border)",
-          borderRadius: "var(--radius-xl)", overflow: "hidden"
+        <div className={`platform-card platform-snapchat${snapConnected ? " connected" : ""}`} style={{
+          background: "var(--card)",
+          border: snapConnected ? "1px solid rgba(255,252,0,0.3)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden", position: "relative"
         }}>
           <div style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
             padding: "22px 24px"
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
+              <div className="platform-icon platform-snapchat" style={{
                 width: 44, height: 44, borderRadius: 12, background: "#FFFC00",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0,
-                boxShadow: "0 0 16px rgba(255,252,0,0.25)"
-              }}><Ghost size={22} color="#000" /></div>
+                flexShrink: 0, boxShadow: "0 0 16px rgba(255,252,0,0.3)"
+              }}><SnapchatIcon /></div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
@@ -446,7 +491,7 @@ function ConnectionsPageInner() {
         }}>
           {COMING_SOON.map((p) => (
             <div key={p.name} style={{
-              background: "var(--card)", 
+              background: "var(--card)",
               border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
               padding: "20px", display: "flex", flexDirection: "column",
               gap: 10, opacity: 0.6
@@ -454,9 +499,11 @@ function ConnectionsPageInner() {
               <div style={{
                 width: 40, height: 40, borderRadius: 10, background: p.iconBg,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 16, fontWeight: 900,
-                color: p.iconBg === "#FFFC00" ? "#000" : "white"
-              }}>{p.icon}</div>
+              }}>
+                {p.platform === "google-ads" && <GoogleAdsIcon />}
+                {p.platform === "tiktok" && <TikTokIcon />}
+                {p.platform === "shopify" && <ShopifyIcon />}
+              </div>
               <div>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>{p.name}</h3>
                 <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>{p.desc}</p>
