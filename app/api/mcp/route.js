@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const PRESETS = ["today", "yesterday", "last_7d", "last_30d", "maximum"];
+const GA_RANGE_MAP = { today: "today", yesterday: "yesterday", last_7d: "7daysAgo", last_30d: "30daysAgo", maximum: "30daysAgo" };
 const FIELDS_TOOL = { name: "list_fields", description: "Discover canonical marketing metrics and platform mappings. Mappings do not assert live availability.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["snapchat", "meta", "tiktok", "google"] } }, additionalProperties: false } };
 const ACCOUNTS_TOOL = { name: "list_accounts", description: "Discover accessible MetricsFlo accounts. Account IDs are workspace UUIDs; missing integration status is null, never invented.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
 const WORKSPACES_TOOL = { name: "list_workspaces", description: "List workspaces available to the authenticated MetricsFlo owner.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
@@ -19,6 +20,61 @@ const TOOL = {
     properties: {
       date_preset: { type: "string", enum: PRESETS },
       workspace_id: { type: "string", description: "Workspace UUID authorized for this user" }
+    },
+    required: ["workspace_id"],
+    additionalProperties: false
+  }
+};
+const LIST_AD_ACCOUNTS_TOOL = {
+  name: "list_ad_accounts",
+  description: "List Meta and Snapchat ad accounts connected to a workspace. Returns account IDs and names needed for get_meta_insights and get_snapchat_insights.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      workspace_id: { type: "string", description: "Workspace UUID" }
+    },
+    required: ["workspace_id"],
+    additionalProperties: false
+  }
+};
+const GET_META_INSIGHTS_TOOL = {
+  name: "get_meta_insights",
+  description: "Fetch Meta Ads campaign and account-level performance data (spend, impressions, clicks, purchases, revenue, ROAS) for a date preset.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      workspace_id: { type: "string", description: "Workspace UUID" },
+      account_id: { type: "string", description: "Meta ad account ID (e.g. act_123456789) from list_ad_accounts" },
+      date_preset: { type: "string", enum: PRESETS },
+      level: { type: "string", enum: ["account", "campaign"], description: "Aggregation level (default: campaign)" }
+    },
+    required: ["workspace_id", "account_id"],
+    additionalProperties: false
+  }
+};
+const GET_SNAPCHAT_INSIGHTS_TOOL = {
+  name: "get_snapchat_insights",
+  description: "Fetch Snapchat Ads campaign and account-level performance data (spend, impressions, clicks, purchases, revenue) for a date preset.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      workspace_id: { type: "string", description: "Workspace UUID" },
+      account_id: { type: "string", description: "Snapchat ad account ID from list_ad_accounts" },
+      date_preset: { type: "string", enum: PRESETS },
+      level: { type: "string", enum: ["account", "campaign"], description: "Aggregation level (default: campaign)" }
+    },
+    required: ["workspace_id", "account_id"],
+    additionalProperties: false
+  }
+};
+const GET_GA4_OVERVIEW_TOOL = {
+  name: "get_ga4_overview",
+  description: "Fetch Google Analytics 4 website metrics (sessions, users, bounce rate, engagement rate, pageviews, conversions) for a date preset.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      workspace_id: { type: "string", description: "Workspace UUID" },
+      date_preset: { type: "string", enum: PRESETS }
     },
     required: ["workspace_id"],
     additionalProperties: false
@@ -102,11 +158,12 @@ export async function POST(request) {
   }
   if (body.method === "notifications/initialized") return new Response(null, { status: 202, headers: { "Cache-Control": "no-store" } });
   if (body.method === "ping") return rpc(id, {});
-  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, FIELDS_TOOL, WORKSPACES_TOOL, TOOL] });
+  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, FIELDS_TOOL, WORKSPACES_TOOL, TOOL, LIST_AD_ACCOUNTS_TOOL, GET_META_INSIGHTS_TOOL, GET_SNAPCHAT_INSIGHTS_TOOL, GET_GA4_OVERVIEW_TOOL] });
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
   const { name, arguments: args = {} } = body.params || {};
-  if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !["workspace_id", "date_preset", "platform"].includes(key))) return fail(id, -32602, "Invalid tool arguments");
+  const ALLOWED_ARGS = ["workspace_id", "date_preset", "platform", "account_id", "level"];
+  if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !ALLOWED_ARGS.includes(key))) return fail(id, -32602, "Invalid tool arguments");
   if (name === FIELDS_TOOL.name) {
     if (Object.keys(args).some((key) => key !== "platform")) return fail(id, -32602, "Unexpected arguments");
     try { return rpc(id, { content: [{ type: "text", text: JSON.stringify({ fields: listCanonicalFields(args.platform) }) }] }); }
@@ -142,6 +199,133 @@ export async function POST(request) {
       return rpc(id, { content: [{ type: "text", text: JSON.stringify(name === ACCOUNTS_TOOL.name ? { accounts } : workspaces.map(({ id, name, role }) => ({ id, name, role }))) }] });
     } catch { return fail(id, -32000, "Workspaces unavailable", 502); }
   }
+  // ── Shared helper: validate workspace access and build internal fetch base ──
+  async function validateWorkspaceAndOrigin(workspaceId) {
+    if (!workspaceId || typeof workspaceId !== "string" || !/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(workspaceId)) {
+      return { error: fail(id, -32602, "Invalid workspace_id") };
+    }
+    if (!(await userHasWorkspaceAccess(user.id, workspaceId))) {
+      return { error: fail(id, -32003, "Workspace access denied", 403) };
+    }
+    const origin = process.env.METRICSFLO_INTERNAL_ORIGIN;
+    let validatedOrigin;
+    try {
+      validatedOrigin = new URL(origin);
+      if (validatedOrigin.protocol !== "https:" || validatedOrigin.username || validatedOrigin.password ||
+          validatedOrigin.pathname !== "/" || validatedOrigin.search || validatedOrigin.hash) {
+        return { error: fail(id, -32000, "Invalid internal origin", 503) };
+      }
+    } catch { return { error: fail(id, -32000, "Internal origin is not configured", 503) }; }
+    return { validatedOrigin };
+  }
+
+  async function internalFetch(url) {
+    const response = await fetch(url, {
+      headers: { Cookie: `sb-access-token=${encodeURIComponent(token)}` },
+      redirect: "error",
+      cache: "no-store",
+      signal: AbortSignal.timeout(25000)
+    });
+    const text = await response.text();
+    if (text.length > 512000) throw new Error("Response too large");
+    return { ok: response.ok, status: response.status, data: JSON.parse(text) };
+  }
+
+  // ── list_ad_accounts ──
+  if (name === LIST_AD_ACCOUNTS_TOOL.name) {
+    const { workspace_id: wsId } = args;
+    const { error: wsErr, validatedOrigin } = await validateWorkspaceAndOrigin(wsId);
+    if (wsErr) return wsErr;
+    try {
+      const [metaRes, snapRes] = await Promise.all([
+        internalFetch(new URL("/api/meta/accounts", validatedOrigin)),
+        internalFetch(new URL("/api/snapchat/accounts", validatedOrigin))
+      ].map(p => p.catch(e => ({ ok: false, data: null, error: e.message }))));
+      const metaAccounts = (metaRes?.data?.data || []).map(a => ({
+        id: a.id, name: a.name, currency: a.currency, platform: "meta",
+        status: a.account_status === 1 ? "active" : "inactive"
+      }));
+      const snapAccounts = (snapRes?.data?.organizations || snapRes?.data?.adaccounts || []).map(a => ({
+        id: a.id || a.ad_account_id, name: a.name, currency: a.currency, platform: "snapchat"
+      }));
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify({
+        workspace_id: wsId,
+        meta: { connected: metaRes?.ok && metaRes?.data?.success !== false, accounts: metaAccounts },
+        snapchat: { connected: snapRes?.ok && snapRes?.data?.success !== false, accounts: snapAccounts }
+      }) }] });
+    } catch (e) { return fail(id, -32000, `Ad accounts unavailable: ${e.message}`, 502); }
+  }
+
+  // ── get_meta_insights ──
+  if (name === GET_META_INSIGHTS_TOOL.name) {
+    const { workspace_id: wsId, account_id, date_preset = "last_30d", level = "campaign" } = args;
+    if (!account_id || typeof account_id !== "string") return fail(id, -32602, "account_id is required");
+    if (!PRESETS.includes(date_preset)) return fail(id, -32602, "Invalid date_preset");
+    if (!["account", "campaign"].includes(level)) return fail(id, -32602, "Invalid level");
+    const { error: wsErr, validatedOrigin } = await validateWorkspaceAndOrigin(wsId);
+    if (wsErr) return wsErr;
+    try {
+      const url = new URL("/api/meta/insights", validatedOrigin);
+      url.searchParams.set("account_id", account_id);
+      url.searchParams.set("level", level);
+      url.searchParams.set("date_preset", date_preset);
+      const res = await internalFetch(url);
+      if (!res.ok || res.data?.success === false) {
+        return rpc(id, { content: [{ type: "text", text: JSON.stringify({
+          success: false, platform: "meta", account_id, date_preset,
+          message: res.data?.error || "Meta Ads data unavailable or account not connected."
+        }) }] });
+      }
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify({ success: true, platform: "meta", account_id, date_preset, level, ...res.data }) }] });
+    } catch (e) { return fail(id, -32000, `Meta insights unavailable: ${e.message}`, 502); }
+  }
+
+  // ── get_snapchat_insights ──
+  if (name === GET_SNAPCHAT_INSIGHTS_TOOL.name) {
+    const { workspace_id: wsId, account_id, date_preset = "last_30d", level = "campaign" } = args;
+    if (!account_id || typeof account_id !== "string") return fail(id, -32602, "account_id is required");
+    if (!PRESETS.includes(date_preset)) return fail(id, -32602, "Invalid date_preset");
+    if (!["account", "campaign"].includes(level)) return fail(id, -32602, "Invalid level");
+    const { error: wsErr, validatedOrigin } = await validateWorkspaceAndOrigin(wsId);
+    if (wsErr) return wsErr;
+    try {
+      const url = new URL("/api/snapchat/data", validatedOrigin);
+      url.searchParams.set("account_id", account_id);
+      url.searchParams.set("level", level);
+      url.searchParams.set("date_preset", date_preset);
+      url.searchParams.set("page_size", "200");
+      const res = await internalFetch(url);
+      if (!res.ok || res.data?.success === false) {
+        return rpc(id, { content: [{ type: "text", text: JSON.stringify({
+          success: false, platform: "snapchat", account_id, date_preset,
+          message: res.data?.error || "Snapchat Ads data unavailable or account not connected."
+        }) }] });
+      }
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify({ success: true, platform: "snapchat", account_id, date_preset, level, ...res.data }) }] });
+    } catch (e) { return fail(id, -32000, `Snapchat insights unavailable: ${e.message}`, 502); }
+  }
+
+  // ── get_ga4_overview ──
+  if (name === GET_GA4_OVERVIEW_TOOL.name) {
+    const { workspace_id: wsId, date_preset = "last_30d" } = args;
+    if (!PRESETS.includes(date_preset)) return fail(id, -32602, "Invalid date_preset");
+    const { error: wsErr, validatedOrigin } = await validateWorkspaceAndOrigin(wsId);
+    if (wsErr) return wsErr;
+    try {
+      const range = GA_RANGE_MAP[date_preset] || "30daysAgo";
+      const url = new URL("/api/ga/overview", validatedOrigin);
+      url.searchParams.set("range", range);
+      const res = await internalFetch(url);
+      if (!res.ok || res.data?.success === false) {
+        return rpc(id, { content: [{ type: "text", text: JSON.stringify({
+          success: false, platform: "ga4", date_preset,
+          message: res.data?.error || "Google Analytics data unavailable or property not connected."
+        }) }] });
+      }
+      return rpc(id, { content: [{ type: "text", text: JSON.stringify({ success: true, platform: "ga4", date_preset, range, ...res.data }) }] });
+    } catch (e) { return fail(id, -32000, `GA4 data unavailable: ${e.message}`, 502); }
+  }
+
   if (name !== TOOL.name) return fail(id, -32602, "Unknown tool");
   if (Object.keys(args).some((key) => !["workspace_id", "date_preset"].includes(key))) return fail(id, -32602, "Unexpected arguments");
   const preset = args.date_preset || "last_30d";
