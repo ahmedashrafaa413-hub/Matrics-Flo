@@ -77,6 +77,22 @@ export default function GoogleAnalyticsDashboard() {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState([]);
 
+  // Save the choice on the server so everything else that reads this
+  // workspace's GA4 data (reports, the MCP connector) uses the same property.
+  async function saveSelectedProperty(propertyId, propertyName) {
+    if (!propertyId) return;
+    try {
+      await fetch("/api/ga/select-property", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ property_id: propertyId, property_name: propertyName || "" })
+      });
+    } catch {
+      // The dashboard still works from the URL parameter if saving fails.
+    }
+  }
+
   async function loadProperties() {
     try {
       const data = await getJson("/api/ga/properties");
@@ -88,6 +104,9 @@ export default function GoogleAnalyticsDashboard() {
           ) || data.properties?.[0];
         setSelectedProperty(String(defaultProperty?.id || ""));
         setSelectedPropertyName(defaultProperty?.name || "");
+        if (defaultProperty?.id && !data.selected_property_id) {
+          saveSelectedProperty(String(defaultProperty.id), defaultProperty.name);
+        }
       }
     } catch (error) {
       setErrors((prev) => [...prev, errorToText(error)]);
@@ -100,6 +119,7 @@ export default function GoogleAnalyticsDashboard() {
     );
     setSelectedProperty(String(propertyId));
     setSelectedPropertyName(property?.name || "");
+    saveSelectedProperty(String(propertyId), property?.name || "");
     setOverview({
       sessions: 0,
       users: 0,

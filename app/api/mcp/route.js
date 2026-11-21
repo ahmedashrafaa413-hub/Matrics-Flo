@@ -116,7 +116,8 @@ const GET_GA4_OVERVIEW_TOOL = {
     properties: {
       workspace_id: { type: "string", description: "Workspace UUID" },
       date_preset: { type: "string", enum: PRESETS },
-      ...RANGE_PROPS
+      ...RANGE_PROPS,
+      property_id: { type: "string", description: "Optional GA4 property ID (digits). Default: the property selected in MetricsFlo, or the only one on the Google account. If neither exists the error lists the available properties." }
     },
     required: ["workspace_id"],
     additionalProperties: false
@@ -215,7 +216,7 @@ export async function POST(request) {
     [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
     [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id"],
     [GET_SNAPCHAT_CHANGE_HISTORY_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "entity_id", "categories"],
-    [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until"]
+    [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until", "property_id"]
   };
   const allowedArgs = TOOL_ARGS[name];
   if (!allowedArgs) return fail(id, -32602, "Unknown tool");
@@ -447,7 +448,12 @@ export async function POST(request) {
 
   if (name === GET_GA4_OVERVIEW_TOOL.name) {
     try {
-      const result = await getGa4OverviewForWorkspace({ workspaceId, datePreset, range });
+      let propertyId = "";
+      if (args.property_id !== undefined) {
+        propertyId = typeof args.property_id === "string" ? args.property_id.trim().replace(/^properties\//, "") : "";
+        if (!/^\d{1,20}$/.test(propertyId)) return fail(id, -32602, "Invalid property_id");
+      }
+      const result = await getGa4OverviewForWorkspace({ workspaceId, datePreset, range, propertyId });
       return ok({ platform: "ga4", ...period, ...result });
     } catch (e) { return toolError(`GA4 data unavailable: ${e.message}`); }
   }
