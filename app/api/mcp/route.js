@@ -345,6 +345,7 @@ export async function POST(request) {
           entities_unchecked: result.entities_unchecked,
           failed_requests: result.failed_requests,
           parents_unlisted: result.parents_unlisted,
+          upstream_incomplete: result.upstream_incomplete,
           ...(scope.campaignId ? { campaign_id: scope.campaignId } : {}),
           ...(scope.adsquadId ? { adsquad_id: scope.adsquadId } : {}),
           ...(result.complete
