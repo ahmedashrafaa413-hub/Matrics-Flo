@@ -9,6 +9,7 @@ import {
   getIntegrationsByWorkspace,
   getMetaInsightsForWorkspace,
   getPerformanceOverviewForWorkspace,
+  getSnapchatChangeHistoryForWorkspace,
   getSnapchatInsightsForWorkspace
 } from "../../../lib/mcpWorkspaceData";
 import { MAX_RANGE_DAYS, parseCustomRange } from "../../../lib/mcpDateRange.mjs";
@@ -82,6 +83,26 @@ const GET_SNAPCHAT_INSIGHTS_TOOL = {
       level: { type: "string", enum: ["account", "campaign", "adsquad", "ad"], description: "Aggregation level (default: campaign). adsquad and ad drill down from the campaigns that spent; on large accounts pass campaign_id (or adsquad_id for ads) for complete numbers." },
       campaign_id: { type: "string", description: "Optional: limit adsquad or ad level to this campaign ID (from a campaign-level row)." },
       adsquad_id: { type: "string", description: "Optional: limit ad level to this ad squad ID (from an adsquad-level row)." }
+    },
+    required: ["workspace_id", "account_id"],
+    additionalProperties: false
+  }
+};
+const CHANGE_CATEGORIES = ["budget", "bid", "status", "schedule", "targeting", "optimization", "creative", "name", "other"];
+const GET_SNAPCHAT_CHANGE_HISTORY_TOOL = {
+  name: "get_snapchat_change_history",
+  description: "Live Snapchat change history (Snapchat audit logs): every edit to ad squads (default), campaigns or ads in a date range, with before and after values, who made it and when. Budgets and bids are in account currency, with delta and delta_pct, so budget increases and bid changes can be lined up with get_snapchat_insights.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      workspace_id: { type: "string", description: "Workspace UUID" },
+      account_id: { type: "string", description: "Snapchat ad account ID from list_ad_accounts" },
+      date_preset: { type: "string", enum: PRESETS },
+      ...RANGE_PROPS,
+      level: { type: "string", enum: ["campaign", "adsquad", "ad"], description: "Which entities' changes to read (default: adsquad). ad needs campaign_id." },
+      campaign_id: { type: "string", description: "Optional: only this campaign (its ad squads or ads at those levels)." },
+      entity_id: { type: "string", description: "Optional: one campaign or ad squad ID (matching level) for its full history in the range." },
+      categories: { type: "array", items: { type: "string", enum: CHANGE_CATEGORIES }, description: "Optional: only these kinds of change, e.g. [\"budget\", \"bid\"]. Default: all." }
     },
     required: ["workspace_id", "account_id"],
     additionalProperties: false
@@ -179,7 +200,7 @@ export async function POST(request) {
   }
   if (body.method === "notifications/initialized") return new Response(null, { status: 202, headers: { "Cache-Control": "no-store" } });
   if (body.method === "ping") return rpc(id, {});
-  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, FIELDS_TOOL, WORKSPACES_TOOL, TOOL, LIST_AD_ACCOUNTS_TOOL, GET_META_INSIGHTS_TOOL, GET_SNAPCHAT_INSIGHTS_TOOL, GET_GA4_OVERVIEW_TOOL] });
+  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, FIELDS_TOOL, WORKSPACES_TOOL, TOOL, LIST_AD_ACCOUNTS_TOOL, GET_META_INSIGHTS_TOOL, GET_SNAPCHAT_INSIGHTS_TOOL, GET_SNAPCHAT_CHANGE_HISTORY_TOOL, GET_GA4_OVERVIEW_TOOL] });
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
   const { name, arguments: args = {} } = body.params || {};
@@ -193,6 +214,7 @@ export async function POST(request) {
     [LIST_AD_ACCOUNTS_TOOL.name]: ["workspace_id"],
     [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
     [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id"],
+    [GET_SNAPCHAT_CHANGE_HISTORY_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "entity_id", "categories"],
     [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until"]
   };
   const allowedArgs = TOOL_ARGS[name];
@@ -346,6 +368,7 @@ export async function POST(request) {
           failed_requests: result.failed_requests,
           parents_unlisted: result.parents_unlisted,
           upstream_incomplete: result.upstream_incomplete,
+          extended_metrics: result.extended_metrics,
           ...(scope.campaignId ? { campaign_id: scope.campaignId } : {}),
           ...(scope.adsquadId ? { adsquad_id: scope.adsquadId } : {}),
           ...(result.complete
@@ -369,6 +392,56 @@ export async function POST(request) {
       });
     } catch (e) {
       return toolError(`${isMeta ? "Meta" : "Snapchat"} insights unavailable: ${e.message}`);
+    }
+  }
+
+  if (name === GET_SNAPCHAT_CHANGE_HISTORY_TOOL.name) {
+    const accountId = typeof args.account_id === "string" ? args.account_id.trim() : "";
+    if (!accountId || accountId.length > 100 || !/^[A-Za-z0-9_-]+$/.test(accountId)) return fail(id, -32602, "Invalid account_id");
+    const level = args.level ?? "adsquad";
+    if (!["campaign", "adsquad", "ad"].includes(level)) return fail(id, -32602, "Invalid level");
+    const ids = {};
+    for (const arg of ["campaign_id", "entity_id"]) {
+      if (args[arg] === undefined) continue;
+      const value = typeof args[arg] === "string" ? args[arg].trim() : "";
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(value)) return fail(id, -32602, `Invalid ${arg}`);
+      ids[arg] = value;
+    }
+    if (ids.entity_id && level === "ad") return fail(id, -32602, "entity_id applies to levels campaign and adsquad");
+    if (level === "ad" && !ids.campaign_id) return fail(id, -32602, "level ad needs campaign_id");
+    let categories = [];
+    if (args.categories !== undefined) {
+      if (!Array.isArray(args.categories) || args.categories.some((c) => !CHANGE_CATEGORIES.includes(c))) return fail(id, -32602, "Invalid categories");
+      categories = [...new Set(args.categories)];
+    }
+    let account;
+    try {
+      const { snapchat } = await getAdAccounts(workspaceId);
+      account = snapchat.accounts.find((a) => a.id === accountId);
+    } catch (e) { return toolError(`Ad accounts unavailable: ${e.message}`); }
+    if (!account) return toolError(`Snapchat account ${accountId} is not connected to this workspace. Use list_ad_accounts to see valid IDs.`);
+    try {
+      const result = await getSnapchatChangeHistoryForWorkspace({
+        workspaceId, accountId, datePreset, range, level, categories,
+        campaignId: ids.campaign_id || "", entityId: ids.entity_id || ""
+      });
+      if (!result.success) return ok({ success: false, platform: "snapchat", account_id: accountId, ...period, message: result.message });
+      const { success, ...history } = result;
+      return ok({
+        success: true,
+        platform: "snapchat",
+        source: "live",
+        account_id: accountId,
+        account_name: account.name,
+        currency: account.currency || null,
+        ...period,
+        ...(categories.length ? { categories } : {}),
+        ...history,
+        ...(history.complete ? {} : { note: "Some entities could not be checked in time or failed; pass campaign_id or entity_id, or a shorter range, for full coverage." }),
+        money_note: "Budget and bid values (fields ending in _micro in Snapchat) are converted to account currency."
+      });
+    } catch (e) {
+      return toolError(`Snapchat change history unavailable: ${e.message}`);
     }
   }
 
