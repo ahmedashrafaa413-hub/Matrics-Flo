@@ -91,14 +91,24 @@ export async function POST(request) {
         userId = parsed?.sub;
       }
       if (userId) {
-        await fetch(`${supabaseUrl}/functions/v1/set-oauth-user`, {
+        // Call PostgREST RPC directly — no Edge Function, no header stripping.
+        const rpcUrl = `${supabaseUrl}/rest/v1/rpc/set_oauth_authorization_user`;
+        const rpcRes = await fetch(rpcUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${serviceRoleKey}`
+            "Authorization": `Bearer ${serviceRoleKey}`,
+            "apikey": supabaseAnonKey || serviceRoleKey
           },
-          body: JSON.stringify({ authorization_id: authorizationId, user_id: userId })
+          body: JSON.stringify({
+            p_authorization_id: authorizationId,
+            p_user_id: userId
+          })
         });
+        if (!rpcRes.ok) {
+          const errText = await rpcRes.text().catch(() => "");
+          console.error(`[authorize-decide] RPC failed: ${rpcRes.status} ${errText}`);
+        }
       }
     } catch {
       // Non-fatal — proceed with consent attempt

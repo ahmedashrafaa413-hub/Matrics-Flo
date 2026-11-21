@@ -195,22 +195,36 @@ export async function GET(request) {
     );
   }
 
-  // Step 2: Call a Supabase Edge Function to set user_id on the authorization record.
-  // The Edge Function runs server-side inside Supabase — no header stripping, and
-  // db.schema: 'auth' works correctly there. It authenticates via the service role key.
+  // Step 2: Set user_id on the authorization record via Supabase PostgREST RPC.
+  // We call the SECURITY DEFINER function set_oauth_authorization_user() which runs
+  // as the DB owner and can UPDATE auth.oauth_authorizations regardless of RLS.
+  // Using PostgREST REST API directly (service role key) — no Edge Function needed.
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseAnonKeyVal = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (serviceRoleKey) {
     try {
-      await fetch(`${SUPABASE_URL}/functions/v1/set-oauth-user`, {
+      const rpcUrl = `${SUPABASE_URL}/rest/v1/rpc/set_oauth_authorization_user`;
+      const rpcRes = await fetch(rpcUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${serviceRoleKey}`
+          "Authorization": `Bearer ${serviceRoleKey}`,
+          "apikey": supabaseAnonKeyVal || serviceRoleKey
         },
-        body: JSON.stringify({ authorization_id: authorizationId, user_id: userId })
+        body: JSON.stringify({
+          p_authorization_id: authorizationId,
+          p_user_id: userId
+        })
       });
-    } catch {
-      // Non-fatal
+      if (!rpcRes.ok) {
+        const errText = await rpcRes.text().catch(() => "");
+        console.error(`[authorize] RPC set_oauth_authorization_user failed: ${rpcRes.status} ${errText}`);
+      } else {
+        const result = await rpcRes.json().catch(() => null);
+        console.log(`[authorize] RPC set_oauth_authorization_user result: ${result}`);
+      }
+    } catch (err) {
+      console.error(`[authorize] RPC call error:`, err);
     }
   }
 
