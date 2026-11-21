@@ -79,7 +79,9 @@ const GET_SNAPCHAT_INSIGHTS_TOOL = {
       account_id: { type: "string", description: "Snapchat ad account ID from list_ad_accounts" },
       date_preset: { type: "string", enum: PRESETS },
       ...RANGE_PROPS,
-      level: { type: "string", enum: ["account", "campaign", "adsquad", "ad"], description: "Aggregation level (default: campaign)" }
+      level: { type: "string", enum: ["account", "campaign", "adsquad", "ad"], description: "Aggregation level (default: campaign). adsquad and ad drill down from the campaigns that spent; on large accounts pass campaign_id (or adsquad_id for ads) for complete numbers." },
+      campaign_id: { type: "string", description: "Optional: limit adsquad or ad level to this campaign ID (from a campaign-level row)." },
+      adsquad_id: { type: "string", description: "Optional: limit ad level to this ad squad ID (from an adsquad-level row)." }
     },
     required: ["workspace_id", "account_id"],
     additionalProperties: false
@@ -190,7 +192,7 @@ export async function POST(request) {
     [TOOL.name]: ["workspace_id", "date_preset", "since", "until", "snapchat_account_id", "meta_account_id"],
     [LIST_AD_ACCOUNTS_TOOL.name]: ["workspace_id"],
     [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
-    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
+    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id"],
     [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until"]
   };
   const allowedArgs = TOOL_ARGS[name];
@@ -252,6 +254,15 @@ export async function POST(request) {
     const levels = isMeta ? ["account", "campaign", "adset", "ad"] : ["account", "campaign", "adsquad", "ad"];
     if (!accountId || accountId.length > 100 || !/^[A-Za-z0-9_-]+$/.test(accountId)) return fail(id, -32602, "Invalid account_id");
     if (!levels.includes(level)) return fail(id, -32602, "Invalid level");
+    const scope = {};
+    for (const [arg, field] of [["campaign_id", "campaignId"], ["adsquad_id", "adsquadId"]]) {
+      if (args[arg] === undefined) continue;
+      const value = typeof args[arg] === "string" ? args[arg].trim() : "";
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(value)) return fail(id, -32602, `Invalid ${arg}`);
+      scope[field] = value;
+    }
+    if (scope.adsquadId && level !== "ad") return fail(id, -32602, "adsquad_id only applies to level ad");
+    if (scope.campaignId && !["adsquad", "ad"].includes(level)) return fail(id, -32602, "campaign_id only applies to levels adsquad and ad");
 
     // The account must belong to this workspace.
     let account;
@@ -265,7 +276,7 @@ export async function POST(request) {
     try {
       const result = isMeta
         ? await getMetaInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range })
-        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range });
+        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range, ...scope });
       if (!result.success) return ok({ success: false, platform, account_id: accountId, ...period, message: result.message });
 
       if (isMeta) {
@@ -333,9 +344,12 @@ export async function POST(request) {
           entities_checked: result.entities_checked,
           entities_unchecked: result.entities_unchecked,
           failed_requests: result.failed_requests,
+          parents_unlisted: result.parents_unlisted,
+          ...(scope.campaignId ? { campaign_id: scope.campaignId } : {}),
+          ...(scope.adsquadId ? { adsquad_id: scope.adsquadId } : {}),
           ...(result.complete
             ? {}
-            : { note: "Not every entity could be checked in time. summary covers the checked entities only (spend_coverage_pct of account_spend); use a narrower level or date range for full coverage." }),
+            : { note: "Not every entity could be checked in time. summary covers the checked entities only (spend_coverage_pct of account_spend); pass campaign_id (or adsquad_id for ads) or a shorter date range for full coverage." }),
           attribution: result.attribution,
           start_time: result.start_time,
           end_time: result.end_time
