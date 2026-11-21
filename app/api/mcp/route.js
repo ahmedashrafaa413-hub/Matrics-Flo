@@ -290,8 +290,10 @@ export async function POST(request) {
     if (scope.adsquadId && scope.campaignId && level === "adsquad") return fail(id, -32602, "Give campaign_id or adsquad_id at level adsquad, not both");
     let daily = false;
     if (!isMeta && args.daily !== undefined) {
-      if (typeof args.daily !== "boolean") return fail(id, -32602, "daily must be true or false");
-      daily = args.daily;
+      // Clients holding an older copy of the tool schema send "true"/"false".
+      const value = typeof args.daily === "string" ? args.daily.trim().toLowerCase() : args.daily;
+      if (value !== true && value !== false && value !== "true" && value !== "false") return fail(id, -32602, "daily must be true or false");
+      daily = value === true || value === "true";
     }
     if (daily && (range ? range.days > MAX_DAILY_RANGE_DAYS : datePreset === "maximum")) {
       return fail(id, -32602, `daily is limited to ${MAX_DAILY_RANGE_DAYS} days; pass a shorter since/until range`);
