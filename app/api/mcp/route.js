@@ -404,15 +404,38 @@ export async function POST(request) {
       return fail(id, -32000, "Invalid internal origin", 503);
     }
   } catch { return fail(id, -32000, "Internal origin is not configured", 503); }
+
+  // Fetch connected platform account IDs for this workspace so analytics/overview
+  // can pull real data instead of returning empty platforms.
+  let snapchatAccountId = "";
+  let metaAccountId = "";
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data: connections } = await supabase
+      .from("platform_connections")
+      .select("provider, account_id")
+      .eq("workspace_id", workspaceId)
+      .eq("is_active", true)
+      .in("provider", ["snapchat", "meta"]);
+    if (connections) {
+      const snap = connections.find(c => c.provider === "snapchat");
+      const meta = connections.find(c => c.provider === "meta");
+      if (snap) snapchatAccountId = snap.account_id;
+      if (meta) metaAccountId = meta.account_id;
+    }
+  } catch (_) { /* non-fatal — analytics still runs without account IDs */ }
+
   const url = new URL("/api/analytics/overview", validatedOrigin);
   url.searchParams.set("date_preset", preset);
   url.searchParams.set("workspace_id", workspaceId);
+  if (snapchatAccountId) url.searchParams.set("snapchat_account_id", snapchatAccountId);
+  if (metaAccountId) url.searchParams.set("meta_account_id", metaAccountId);
   try {
     const response = await fetch(url, {
       headers: {
         Cookie: `sb-access-token=${encodeURIComponent(token)}; metricsflo_active_workspace=${encodeURIComponent(workspaceId)}`
       },
-      redirect: "error",
+      redirect: "follow",
       cache: "no-store",
       signal: AbortSignal.timeout(25000)
     });
