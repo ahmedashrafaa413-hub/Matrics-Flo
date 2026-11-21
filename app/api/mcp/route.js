@@ -164,7 +164,10 @@ export async function POST(request) {
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
   const { name, arguments: args = {} } = body.params || {};
-  const ALLOWED_ARGS = ["workspace_id", "date_preset", "platform", "account_id", "level"];
+  const ALLOWED_ARGS = [
+    "workspace_id", "date_preset", "platform", "account_id", "level",
+    "snapchat_account_id", "meta_account_id"
+  ];
   if (!args || typeof args !== "object" || Array.isArray(args) || Object.keys(args).some((key) => !ALLOWED_ARGS.includes(key))) return fail(id, -32602, "Invalid tool arguments");
   if (name === FIELDS_TOOL.name) {
     if (Object.keys(args).some((key) => key !== "platform")) return fail(id, -32602, "Unexpected arguments");
@@ -223,6 +226,12 @@ export async function POST(request) {
       if (validatedOrigin.protocol !== "https:" || validatedOrigin.username || validatedOrigin.password ||
           validatedOrigin.pathname !== "/" || validatedOrigin.search || validatedOrigin.hash) {
         return { error: fail(id, -32000, "Invalid internal origin", 503) };
+      }
+      // The apex production domain redirects to www. Use the canonical host
+      // before attaching the authenticated workspace cookies so internal
+      // requests never depend on a cross-host redirect.
+      if (validatedOrigin.hostname === "metricsflo.com") {
+        validatedOrigin.hostname = "www.metricsflo.com";
       }
     } catch { return { error: fail(id, -32000, "Internal origin is not configured", 503) }; }
     return { validatedOrigin };
@@ -433,6 +442,9 @@ export async function POST(request) {
     if (validatedOrigin.protocol !== "https:" || validatedOrigin.username || validatedOrigin.password ||
         validatedOrigin.pathname !== "/" || validatedOrigin.search || validatedOrigin.hash) {
       return fail(id, -32000, "Invalid internal origin", 503);
+    }
+    if (validatedOrigin.hostname === "metricsflo.com") {
+      validatedOrigin.hostname = "www.metricsflo.com";
     }
   } catch { return fail(id, -32000, "Internal origin is not configured", 503); }
 
