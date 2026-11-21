@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -40,6 +40,24 @@
   --gold:        #f59e0b;
   --blue:        #3b82f6;
 
+  /* Platform brand colors */
+  --meta:        #1877f2;
+  --meta-glow:   rgba(24, 119, 242, 0.25);
+  --meta-soft:   rgba(24, 119, 242, 0.12);
+  --snap:        #fffc00;
+  --snap-glow:   rgba(255, 252, 0, 0.2);
+  --snap-soft:   rgba(255, 252, 0, 0.1);
+  --snap-text:   #111111;
+  --ga4-a:       #F9AB00;
+  --ga4-b:       #E37400;
+  --ga4-glow:    rgba(249, 171, 0, 0.22);
+  --ga4-soft:    rgba(249, 171, 0, 0.1);
+  --tiktok-bg:   #010101;
+  --tiktok-cyan: #25f4ee;
+  --tiktok-red:  #fe2c55;
+  --tiktok-glow: rgba(37, 244, 238, 0.2);
+  --tiktok-soft: rgba(37, 244, 238, 0.08);
+
   /* Misc */
   --radius-sm:   10px;
   --radius-md:   14px;
@@ -49,16 +67,67 @@
   --shadow-lg:   0 20px 60px rgba(0,0,0,0.5);
 }
 
+/* ── Light Mode ── */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg:          #f0f2ff;
+    --bg-2:        #e8ebff;
+    --sidebar:     rgba(240, 242, 255, 0.97);
+    --card:        rgba(255, 255, 255, 0.95);
+    --card-solid:  #ffffff;
+    --card-2:      rgba(248, 249, 255, 0.9);
+    --glass:       rgba(255, 255, 255, 0.7);
+    --glass-2:     rgba(255, 255, 255, 0.85);
+    --border:      rgba(99, 102, 241, 0.15);
+    --border-2:    rgba(99, 102, 241, 0.25);
+    --border-glow: rgba(99, 102, 241, 0.3);
+    --text:        #0f1133;
+    --text-2:      #2d3366;
+    --muted:       #6672a0;
+    --muted-2:     #9099c0;
+    --shadow:      0 4px 20px rgba(99, 102, 241, 0.12);
+    --shadow-lg:   0 12px 40px rgba(99, 102, 241, 0.18);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg:          #f0f2ff;
+  --bg-2:        #e8ebff;
+  --sidebar:     rgba(240, 242, 255, 0.97);
+  --card:        rgba(255, 255, 255, 0.95);
+  --card-solid:  #ffffff;
+  --card-2:      rgba(248, 249, 255, 0.9);
+  --glass:       rgba(255, 255, 255, 0.7);
+  --glass-2:     rgba(255, 255, 255, 0.85);
+  --border:      rgba(99, 102, 241, 0.15);
+  --border-2:    rgba(99, 102, 241, 0.25);
+  --border-glow: rgba(99, 102, 241, 0.3);
+  --text:        #0f1133;
+  --text-2:      #2d3366;
+  --muted:       #6672a0;
+  --muted-2:     #9099c0;
+  --shadow:      0 4px 20px rgba(99, 102, 241, 0.12);
+  --shadow-lg:   0 12px 40px rgba(99, 102, 241, 0.18);
+  color-scheme: light;
+}
+
 /* ── Base ── */
 html { scroll-behavior: smooth; }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Inter', sans-serif;
+  font-family: 'Cairo', 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   overflow-x: hidden;
+}
+
+/* Arabic text uses Cairo, Latin headings use Space Grotesk */
+[lang="ar"] body, :lang(ar),
+h1, h2, h3, h4, h5, h6,
+.sidebar-nav-label, .page-title, .stat-label, .kpi-label {
+  font-family: 'Cairo', 'Space Grotesk', sans-serif;
 }
 
 /* Animated mesh background */
@@ -323,6 +392,35 @@ body::after {
   flex-direction: column;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* Theme Toggle */
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Cairo', sans-serif;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--glass-2);
+  border-color: var(--border-2);
+  color: var(--text);
+}
+
+.theme-toggle-btn svg {
+  flex-shrink: 0;
+  color: var(--primary);
 }
 
 .sidebar-connected {
@@ -1236,15 +1334,28 @@ body::after {
 
 .platform-card {
   background: var(--card);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   padding: 24px;
   text-align: center;
-  transition: border-color 0.2s, transform 0.2s;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
   position: relative;
   overflow: hidden;
 }
+
+.platform-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  height: 3px;
+  background: var(--primary);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.platform-card.connected::before { opacity: 1; }
 
 .platform-card:hover {
   border-color: var(--border-2);
@@ -1255,12 +1366,22 @@ body::after {
   border-color: rgba(6, 214, 160, 0.3);
 }
 
+/* Platform-colored cards */
+.platform-card.platform-meta::before        { background: var(--meta); box-shadow: 0 0 12px var(--meta-glow); }
+.platform-card.platform-meta.connected      { border-color: var(--meta-soft); box-shadow: 0 4px 24px var(--meta-glow); }
+.platform-card.platform-snapchat::before    { background: var(--snap); box-shadow: 0 0 12px var(--snap-glow); }
+.platform-card.platform-snapchat.connected  { border-color: var(--snap-soft); box-shadow: 0 4px 24px var(--snap-glow); }
+.platform-card.platform-ga4::before         { background: linear-gradient(90deg, var(--ga4-a), var(--ga4-b)); box-shadow: 0 0 12px var(--ga4-glow); }
+.platform-card.platform-ga4.connected       { border-color: var(--ga4-soft); box-shadow: 0 4px 24px var(--ga4-glow); }
+.platform-card.platform-tiktok::before      { background: linear-gradient(90deg, var(--tiktok-cyan), var(--tiktok-red)); box-shadow: 0 0 12px var(--tiktok-glow); }
+.platform-card.platform-tiktok.connected    { border-color: var(--tiktok-soft); box-shadow: 0 4px 24px var(--tiktok-glow); }
+
 .platform-icon {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   background: var(--glass-2);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1269,7 +1390,17 @@ body::after {
   color: var(--primary);
   margin: 0 auto 14px;
   font-family: 'Space Grotesk', sans-serif;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
 }
+
+.platform-icon svg { width: 32px; height: 32px; display: block; }
+.platform-icon img { width: 36px; height: 36px; object-fit: contain; }
+
+.platform-card.platform-meta .platform-icon     { background: rgba(24,119,242,0.12); border-color: rgba(24,119,242,0.3); }
+.platform-card.platform-snapchat .platform-icon { background: rgba(255,252,0,0.12);  border-color: rgba(255,252,0,0.3); }
+.platform-card.platform-ga4 .platform-icon      { background: rgba(249,171,0,0.12);  border-color: rgba(249,171,0,0.3); }
+.platform-card.platform-tiktok .platform-icon   { background: rgba(1,1,1,0.5);       border-color: rgba(37,244,238,0.3); }
 
 .platform-card h3 {
   font-size: 15px;
@@ -1387,8 +1518,21 @@ body::after {
 .perf-source-freshness strong { color: var(--muted); font-size: 10px; }
 .perf-source-freshness .connected i { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 .perf-source-freshness .unavailable i { background: #ff5c8a; }
-.perf-kpi-card { min-height: 140px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 22px; position: relative; background: rgba(10,14,31,.66); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+.perf-kpi-card { min-height: 140px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 22px; position: relative; background: rgba(10,14,31,.66); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s; }
+.perf-kpi-card::before { content: ''; position: absolute; top: 0; inset-inline: 0; height: 3px; border-radius: 0; }
 .perf-kpi-card:hover { border-color: var(--border-2); }
+
+/* Platform-colored KPI cards */
+.perf-kpi-card.meta::before    { background: var(--meta); box-shadow: 0 0 10px var(--meta-glow); }
+.perf-kpi-card.meta            { border-color: var(--meta-soft); box-shadow: 0 4px 20px var(--meta-glow); }
+.perf-kpi-card.snapchat::before{ background: var(--snap); box-shadow: 0 0 10px var(--snap-glow); }
+.perf-kpi-card.snapchat        { border-color: var(--snap-soft); box-shadow: 0 4px 20px var(--snap-glow); }
+.perf-kpi-card.ga4::before     { background: linear-gradient(90deg, var(--ga4-a), var(--ga4-b)); box-shadow: 0 0 10px var(--ga4-glow); }
+.perf-kpi-card.ga4             { border-color: var(--ga4-soft); box-shadow: 0 4px 20px var(--ga4-glow); }
+.perf-kpi-card.tiktok::before  { background: linear-gradient(90deg, var(--tiktok-cyan), var(--tiktok-red)); }
+.perf-kpi-card.tiktok          { border-color: var(--tiktok-soft); box-shadow: 0 4px 20px var(--tiktok-glow); }
+.perf-kpi-card.total::before   { background: linear-gradient(90deg, var(--primary), var(--accent)); }
+.perf-kpi-card.total           { border-color: var(--primary-glow); box-shadow: 0 4px 20px var(--primary-glow); }
 .perf-kpi-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; z-index: 1; }
 .perf-kpi-label { color: var(--muted); font-size: 13px; font-weight: 700; }
 .perf-kpi-copy strong { color: var(--text); font: 800 27px/1.1 'Space Grotesk', sans-serif; white-space: nowrap; }
@@ -1499,12 +1643,13 @@ body::after {
   stroke-opacity: 0.6 !important;
 }
 
-/* ── Insight Cards — fix RTL ── */
-.dash-insight-card,
-.dash-insight-card p,
-.dash-insight-card h3 {
-  text-align: left !important;
-  direction: ltr !important;
+/* ── Insight Cards — RTL-aware ── */
+.dash-insight-card {
+  /* respect page direction — no override */
+}
+.dash-insight-card .insight-chart-wrap,
+.dash-insight-card .recharts-wrapper {
+  direction: ltr; /* charts always LTR for axis labels */
 }
 
 /* ── Custom Tooltip ── */

@@ -44,7 +44,7 @@ function decodeJwtPayload(token) {
 
 const ALLOWED_PARAMS = new Set([
   "response_type", "client_id", "redirect_uri", "scope", "state",
-  "code_challenge", "code_challenge_method", "resource"
+  "code_challenge", "code_challenge_method", "resource", "ui_locales"
 ]);
 
 export async function GET(request) {

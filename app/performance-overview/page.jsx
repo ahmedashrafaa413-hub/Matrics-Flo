@@ -284,9 +284,9 @@ function MetricSignal({ values, color = "#6366f1" }) {
 
 /* ─── KPI card ──────────────────────────────────────────────────────────── */
 
-function KPICard({ label, value, values, color, hint, Icon }) {
+function KPICard({ label, value, values, color, hint, Icon, platform }) {
   return (
-    <article className="perf-kpi-card">
+    <article className={`perf-kpi-card${platform ? ` ${platform}` : ""}`}>
       <div className="perf-kpi-top">
         <span className="perf-kpi-icon" style={{ color }}>
           <Icon size={16} />
@@ -698,14 +698,16 @@ export default function PerformanceOverviewPage() {
               color="#2870ff"
               hint="مبيعات سلة من كل المصادر"
               Icon={TrendingUp}
+              platform="total"
             />
             <KPICard
               label="مبيعات الإعلانات"
               value={formatSAR(summary.total_ads_sales)}
               values={metricValues.ads}
-              color="#2870ff"
+              color="var(--meta)"
               hint="المبيعات المنسوبة لمنصات الإعلانات"
               Icon={Megaphone}
+              platform="meta"
             />
             <KPICard
               label="المبيعات العضوية"
@@ -727,9 +729,10 @@ export default function PerformanceOverviewPage() {
               label="إجمالي الإنفاق الإعلاني"
               value={formatSAR(summary.total_ads_spend)}
               values={metricValues.spend}
-              color="#f7b84b"
+              color="var(--snap)"
               hint="Meta وSnapchat موحدان بالريال"
               Icon={BadgeDollarSign}
+              platform="snapchat"
             />
             <KPICard
               label="العائد التسويقي"
@@ -738,6 +741,7 @@ export default function PerformanceOverviewPage() {
               color={roasColor(summary.actual_roas)}
               hint="إجمالي المبيعات ÷ الإنفاق الإعلاني"
               Icon={Percent}
+              platform="ga4"
             />
           </div>
         )}
