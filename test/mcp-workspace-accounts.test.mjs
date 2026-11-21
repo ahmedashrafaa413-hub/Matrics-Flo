@@ -21,3 +21,12 @@ test("MCP internal analytics requests carry the selected workspace", () => {
   );
   assert.match(mcpRoute, /internalFetch\(url, wsId\)/);
 });
+
+test("MCP accepts explicit platform account IDs and canonicalizes production origin", () => {
+  assert.match(mcpRoute, /["']snapchat_account_id["']/);
+  assert.match(mcpRoute, /["']meta_account_id["']/);
+  assert.match(
+    mcpRoute,
+    /validatedOrigin\.hostname = ["']www\.metricsflo\.com["']/
+  );
+});
