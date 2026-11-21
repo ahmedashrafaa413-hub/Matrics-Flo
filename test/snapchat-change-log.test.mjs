@@ -27,7 +27,8 @@ test("parses micros, JSON strings and deltas", () => {
   }));
   const by = Object.fromEntries(e.changes.map((c) => [c.field, c]));
   assert.deepEqual([by.daily_budget.before, by.daily_budget.after, by.daily_budget.delta, by.daily_budget.delta_pct], [100, 150, 50, 50]);
-  assert.equal(by.bid.before, 0.87);
+  assert.equal(by.bid.before, 0.868402);
+  assert.equal(by.bid.delta, 0.007772);
   assert.equal(by.status.after, "PAUSED");
   assert.equal(by.end_time.before, null);
   assert.equal(by.end_time.after, "2019-07-19T23:54:51.000Z");
@@ -57,4 +58,10 @@ test("filters by range and category, newest first, and summarizes", () => {
   assert.deepEqual({ ...s.budget, last_change_at: undefined }, { changes: 2, increases: 1, decreases: 1, first_before: 100, last_after: 90, last_change_at: undefined });
   assert.equal(s.bid, null);
   assert.equal(s.status.changes, 1);
+});
+
+test("sub-cent bid changes keep their direction", () => {
+  const e = parseChangeLogEntry(raw("x", "2026-11-10T00:00:00.000Z", { bid_micro: { before_value: "868402", after_value: "869000" } }));
+  assert.equal(e.changes[0].delta, 0.000598);
+  assert.equal(summarizeEntityChanges([e]).bid.increases, 1);
 });
