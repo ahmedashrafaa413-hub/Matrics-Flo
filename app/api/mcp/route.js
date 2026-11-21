@@ -11,22 +11,28 @@ import {
   getPerformanceOverviewForWorkspace,
   getSnapchatInsightsForWorkspace
 } from "../../../lib/mcpWorkspaceData";
+import { MAX_RANGE_DAYS, parseCustomRange } from "../../../lib/mcpDateRange.mjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const PRESETS = ["today", "yesterday", "last_7d", "last_30d", "maximum"];
+const RANGE_PROPS = {
+  since: { type: "string", description: `Custom range start, YYYY-MM-DD (Asia/Riyadh), inclusive. Give with until; overrides date_preset. Max ${MAX_RANGE_DAYS} days.` },
+  until: { type: "string", description: "Custom range end, YYYY-MM-DD (Asia/Riyadh), inclusive. Give with since." }
+};
 const FIELDS_TOOL = { name: "list_fields", description: "Discover canonical marketing metrics and platform mappings. Mappings do not assert live availability.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["snapchat", "meta", "tiktok", "google"] } }, additionalProperties: false } };
 const ACCOUNTS_TOOL = { name: "list_accounts", description: "Discover accessible MetricsFlo accounts. Account IDs are workspace UUIDs; missing integration status is null, never invented.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
 const WORKSPACES_TOOL = { name: "list_workspaces", description: "List workspaces available to the authenticated MetricsFlo owner.", inputSchema: { type: "object", properties: {}, additionalProperties: false } };
 const TOOL = {
   name: "get_performance_overview",
-  description: "Cross-platform performance for a workspace: totals in SAR plus one row per Meta and Snapchat ad account (all connected accounts unless an account ID is given), and GA4. Meta is live; Snapchat is the last synced snapshot. Never infer missing metrics.",
+  description: "Cross-platform performance for a workspace: totals in SAR plus one row per Meta and Snapchat ad account (all connected accounts unless an account ID is given), and GA4. Meta and Snapchat are live from the ad platforms. Accepts a date_preset or a custom since/until range. Never infer missing metrics.",
   inputSchema: {
     type: "object",
     properties: {
       date_preset: { type: "string", enum: PRESETS },
+      ...RANGE_PROPS,
       workspace_id: { type: "string", description: "Workspace UUID authorized for this user" },
       snapchat_account_id: { type: "string", description: "Optional Snapchat ad account ID from list_ad_accounts. If omitted, every connected Snapchat account is included." },
       meta_account_id: { type: "string", description: "Optional Meta ad account ID (act_...) from list_ad_accounts. If omitted, every connected Meta account is included." }
@@ -49,13 +55,14 @@ const LIST_AD_ACCOUNTS_TOOL = {
 };
 const GET_META_INSIGHTS_TOOL = {
   name: "get_meta_insights",
-  description: "Live Meta Ads performance (spend, impressions, clicks, purchases, revenue, ROAS, funnel and video metrics) by account, campaign, ad set or ad for a date preset.",
+  description: "Live Meta Ads performance (spend, impressions, clicks, purchases, revenue, ROAS, funnel and video metrics) by account, campaign, ad set or ad, for a date preset or a custom since/until range.",
   inputSchema: {
     type: "object",
     properties: {
       workspace_id: { type: "string", description: "Workspace UUID" },
       account_id: { type: "string", description: "Meta ad account ID (e.g. act_123456789) from list_ad_accounts" },
       date_preset: { type: "string", enum: PRESETS },
+      ...RANGE_PROPS,
       level: { type: "string", enum: ["account", "campaign", "adset", "ad"], description: "Aggregation level (default: campaign)" }
     },
     required: ["workspace_id", "account_id"],
@@ -64,13 +71,14 @@ const GET_META_INSIGHTS_TOOL = {
 };
 const GET_SNAPCHAT_INSIGHTS_TOOL = {
   name: "get_snapchat_insights",
-  description: "Snapchat Ads performance (spend, impressions, swipes, purchases, revenue, ROAS) by account, campaign, ad squad or ad, from the most recent MetricsFlo sync for that date preset.",
+  description: "Live Snapchat Ads performance from the Snapchat Marketing API (spend, impressions, swipes, purchases, revenue, ROAS) by account, campaign, ad squad or ad, for a date preset or a custom since/until range. Attribution: 28-day swipe, 1-day view, impression time.",
   inputSchema: {
     type: "object",
     properties: {
       workspace_id: { type: "string", description: "Workspace UUID" },
       account_id: { type: "string", description: "Snapchat ad account ID from list_ad_accounts" },
       date_preset: { type: "string", enum: PRESETS },
+      ...RANGE_PROPS,
       level: { type: "string", enum: ["account", "campaign", "adsquad", "ad"], description: "Aggregation level (default: campaign)" }
     },
     required: ["workspace_id", "account_id"],
@@ -79,12 +87,13 @@ const GET_SNAPCHAT_INSIGHTS_TOOL = {
 };
 const GET_GA4_OVERVIEW_TOOL = {
   name: "get_ga4_overview",
-  description: "Fetch Google Analytics 4 website metrics (sessions, users, bounce rate, engagement rate, pageviews, conversions) for a date preset.",
+  description: "Fetch Google Analytics 4 website metrics (sessions, users, bounce rate, engagement rate, pageviews, conversions) for a date preset or a custom since/until range.",
   inputSchema: {
     type: "object",
     properties: {
       workspace_id: { type: "string", description: "Workspace UUID" },
-      date_preset: { type: "string", enum: PRESETS }
+      date_preset: { type: "string", enum: PRESETS },
+      ...RANGE_PROPS
     },
     required: ["workspace_id"],
     additionalProperties: false
@@ -178,11 +187,11 @@ export async function POST(request) {
     [FIELDS_TOOL.name]: ["platform"],
     [ACCOUNTS_TOOL.name]: [],
     [WORKSPACES_TOOL.name]: [],
-    [TOOL.name]: ["workspace_id", "date_preset", "snapchat_account_id", "meta_account_id"],
+    [TOOL.name]: ["workspace_id", "date_preset", "since", "until", "snapchat_account_id", "meta_account_id"],
     [LIST_AD_ACCOUNTS_TOOL.name]: ["workspace_id"],
-    [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "level"],
-    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "level"],
-    [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset"]
+    [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
+    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
+    [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until"]
   };
   const allowedArgs = TOOL_ARGS[name];
   if (!allowedArgs) return fail(id, -32602, "Unknown tool");
@@ -224,6 +233,10 @@ export async function POST(request) {
 
   const datePreset = args.date_preset ?? "last_30d";
   if (!PRESETS.includes(datePreset)) return fail(id, -32602, "Invalid date_preset");
+  const range = parseCustomRange(args.since, args.until);
+  if (range?.error) return fail(id, -32602, range.error);
+  // What the caller sees as the period of the numbers.
+  const period = range ? { date_preset: "custom", date_range: { since: range.since, until: range.until } } : { date_preset: datePreset };
 
   if (name === LIST_AD_ACCOUNTS_TOOL.name) {
     try {
@@ -251,9 +264,9 @@ export async function POST(request) {
     const platform = isMeta ? "meta" : "snapchat";
     try {
       const result = isMeta
-        ? await getMetaInsightsForWorkspace({ workspaceId, accountId, datePreset, level })
-        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level });
-      if (!result.success) return ok({ success: false, platform, account_id: accountId, date_preset: datePreset, message: result.message });
+        ? await getMetaInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range })
+        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range });
+      if (!result.success) return ok({ success: false, platform, account_id: accountId, ...period, message: result.message });
 
       if (isMeta) {
         return ok({
@@ -261,7 +274,7 @@ export async function POST(request) {
           platform,
           account_id: accountId,
           account_name: account.name,
-          date_preset: datePreset,
+          ...period,
           level,
           currency: result.currency || account.currency || null,
           summary: result.summary,
@@ -296,22 +309,41 @@ export async function POST(request) {
         });
       }
 
-      return ok({
+      const common = {
         success: true,
         platform,
+        source: result.source,
         account_id: accountId,
         account_name: account.name,
-        date_preset: datePreset,
+        ...period,
         level,
         currency: result.summary?.currency || account.currency || "USD",
-        summary: result.summary,
+        summary: result.summary
+      };
+      if (result.source === "live") {
+        return ok({
+          ...common,
+          rows: result.rows,
+          total_rows: result.rows.length,
+          complete: result.complete,
+          entities_total: result.entities_total,
+          entities_checked: result.entities_checked,
+          failed_requests: result.failed_requests,
+          attribution: result.attribution,
+          start_time: result.start_time,
+          end_time: result.end_time
+        });
+      }
+      return ok({
+        ...common,
         rows: result.rows.map(({ raw, ...r }) => r),
         total_rows: result.total_rows,
         has_more: result.has_more,
         snapshot_date: result.metric_date,
         last_synced_at: result.last_synced_at,
         is_cached_data: true,
-        note: "Snapchat data is the most recent MetricsFlo sync for this date preset. Run a sync from the Snapchat page to refresh."
+        live_error: result.live_error,
+        note: "The live Snapchat request failed, so these numbers are the most recent MetricsFlo sync for this date preset."
       });
     } catch (e) {
       return toolError(`${isMeta ? "Meta" : "Snapchat"} insights unavailable: ${e.message}`);
@@ -320,8 +352,8 @@ export async function POST(request) {
 
   if (name === GET_GA4_OVERVIEW_TOOL.name) {
     try {
-      const result = await getGa4OverviewForWorkspace({ workspaceId, datePreset });
-      return ok({ platform: "ga4", date_preset: datePreset, ...result });
+      const result = await getGa4OverviewForWorkspace({ workspaceId, datePreset, range });
+      return ok({ platform: "ga4", ...period, ...result });
     } catch (e) { return toolError(`GA4 data unavailable: ${e.message}`); }
   }
 
@@ -331,6 +363,7 @@ export async function POST(request) {
     const overview = await getPerformanceOverviewForWorkspace({
       workspaceId,
       datePreset,
+      range,
       metaAccountId: clean(args.meta_account_id),
       snapchatAccountId: clean(args.snapchat_account_id)
     });
