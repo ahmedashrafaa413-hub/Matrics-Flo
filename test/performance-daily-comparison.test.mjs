@@ -11,5 +11,5 @@ test("performance overview compares today with yesterday and reads GA realtime",
   assert.match(source, /\/api\/ga\/overview\?range=today/);
   assert.match(source, /\/api\/ga\/overview\?range=yesterday/);
   assert.match(source, /\/api\/ga\/realtime/);
-  assert.match(source, /setInterval\(loadRealtime, 30000\)/);
+  assert.match(source, /setInterval\(loadRealtime, 30_?000\)/);
 });
