@@ -18,6 +18,7 @@ import {
   Wifi,
   Sun,
   Moon,
+  Filter,
 } from "lucide-react";
 import LanguageSwitcher from "../LanguageSwitcher";
 import AccountMenu from "./AccountMenu";
@@ -60,6 +61,12 @@ const channels = [
     labelKey: "navigation.performance",
     href: "/performance-overview",
     Icon: BarChart3,
+    badgeKey: "common.new",
+  },
+  {
+    labelKey: "navigation.funnel",
+    href: "/funnel",
+    Icon: Filter,
     badgeKey: "common.new",
   },
   {
