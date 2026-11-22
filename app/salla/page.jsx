@@ -168,8 +168,10 @@ export default function SallaPage() {
     { label: "Avg Order", value: fmt.money(totals.avg_order_value), sub: `${fmt.pct(totals.multi_item_pct)} multi-item`, color: "#f59e0b", icon: "🧾" },
     {
       label: "Abandoned Carts",
-      value: carts ? fmt.number(carts.in_range.count) : "—",
-      sub: carts ? `${fmt.money(carts.in_range.value)} · ${fmt.number(carts.open_total.count)} open in total` : (data?.abandoned_carts_error ? "not available" : ""),
+      value: carts ? `${fmt.number(carts.in_range.count)}${carts.complete ? "" : "+"}` : "—",
+      sub: carts
+        ? `${carts.complete ? "" : "at least "}${fmt.money(carts.in_range.value)} · ${fmt.number(carts.open_total.count)}${carts.complete ? "" : "+"} open in total${carts.complete ? "" : " (first 650 carts only)"}`
+        : (data?.abandoned_carts_error ? "not available" : ""),
       color: "#ef4444",
       icon: "🧺"
     }
@@ -235,6 +237,7 @@ export default function SallaPage() {
           </div>
         </div>
         {adsError && <div className="dash-message error">{adsError}</div>}
+        {cmp?.partial && <div className="dash-message">Salla did not return all orders for this range in time, so the comparison below is incomplete. Pick a shorter range for exact numbers.</div>}
         {cmp && (
           <div className="dash-table-scroll">
             <table className="dash-data-table">
@@ -267,7 +270,7 @@ export default function SallaPage() {
             </table>
             <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
               Real (blended) cost per order: <strong style={{ color: "var(--text)" }}>{fmt.money(cmp.blended_cpa_sar)}</strong> · Real ROAS from store revenue: <strong style={{ color: "var(--text)" }}>{cmp.blended_roas}</strong>
-              {cmp.over_attributed ? " · The platforms claim more orders than the store received, so they are counting the same orders." : ` · ${fmt.number(cmp.unattributed_orders)} store orders not claimed by any platform.`}
+              {cmp.partial ? "" : cmp.over_attributed ? " · The platforms claim more orders than the store received, so they are counting the same orders." : ` · ${fmt.number(cmp.unattributed_orders)} store orders not claimed by any platform.`}
             </p>
             {ads?.errors?.length > 0 && <p style={{ fontSize: 11, color: "#f59e0b" }}>{ads.errors.map((e) => `${e.platform}: ${e.error}`).join(" · ")}</p>}
           </div>

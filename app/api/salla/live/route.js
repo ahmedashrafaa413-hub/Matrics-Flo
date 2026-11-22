@@ -148,7 +148,8 @@ async function adsView({ workspaceId, connection, since, until, params }) {
     success: true,
     date_range: { since, until },
     orders_complete: ordersResult.value.complete,
-    comparison,
+    // With partial store orders the shares, CPA and ROAS are not trustworthy.
+    comparison: { ...comparison, partial: !ordersResult.value.complete },
     accounts: overview.accounts,
     errors: overview.errors,
     notes: [
