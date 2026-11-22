@@ -59,3 +59,16 @@ test("settings, labels and source-suffixed totals", () => {
     { conversion_purchases_total: 5, conversion_purchases_web: 4, spend: 1, conversion_purchases: 5 });
   assert.deepEqual(withTotalNames({ conversion_purchases: 3, conversion_purchases_total: 5 }), { conversion_purchases: 3, conversion_purchases_total: 5 });
 });
+
+test("summed columns keep a shared goal and mark mixed goals", () => {
+  const stats = { spend: 10_000_000, swipes: 25, conversion_purchases: 2, impressions: 1000 };
+  const swipes = buildAdsManagerColumns(stats, { summed: true, goal: "SWIPES" });
+  assert.equal(swipes["Result"], 25);
+  assert.equal(swipes["Cost per result"], 0.4);
+  assert.equal(swipes["Cost per result type"], "COST_PER_SWIPE");
+  const mixed = buildAdsManagerColumns(stats, { summed: true, goal: "mixed" });
+  assert.equal(mixed["Result"], null);
+  assert.equal(mixed["Cost per result"], null);
+  assert.equal(mixed["Result type"], "mixed");
+  assert.equal(mixed["Purchases"], 2);
+});
