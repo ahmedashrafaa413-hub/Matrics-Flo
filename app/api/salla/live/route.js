@@ -19,6 +19,7 @@ import {
   summarizeAbandonedCarts,
   summarizeSallaOrders
 } from "../../../../lib/sallaLive.mjs";
+import { crmConfigured, fetchCrmStore } from "../../../../lib/crmStore.mjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -45,6 +46,33 @@ function readRange(params) {
   if (!PRESETS.includes(preset)) return { error: "Invalid date_preset" };
   const { from, to } = getRiyadhDateRange(preset);
   return { since: from, until: to, preset };
+}
+
+// The CRM holds one store, so it is only used for the workspace named in
+// CRM_WORKSPACE_ID; every other workspace keeps reading its own Salla OAuth.
+function useCrm(workspaceId, params) {
+  if (params.get("source") === "salla") return false;
+  return crmConfigured() && process.env.CRM_WORKSPACE_ID === workspaceId;
+}
+
+async function crmStoreView({ since, until }) {
+  try {
+    const data = await fetchCrmStore({ since, until });
+    return json({
+      success: true,
+      source: "crm",
+      fetched_at: new Date().toISOString(),
+      store: { name: process.env.CRM_STORE_NAME || "Salla Store (CRM)", merchant_id: null },
+      ...data,
+      abandoned_carts_error: null,
+      notes: [
+        "Numbers come from the CRM, which is updated from Salla webhooks.",
+        "Abandoned carts are the carts open right now, not only those in the selected range."
+      ]
+    });
+  } catch (error) {
+    return json({ success: false, error: error.message || "CRM request failed" }, error.status || 502);
+  }
 }
 
 async function storeView({ connection, since, until }) {
@@ -106,15 +134,18 @@ async function storeView({ connection, since, until }) {
   });
 }
 
-async function adsView({ workspaceId, connection, since, until, params }) {
+async function adsView({ workspaceId, connection, since, until, params, fromCrm = false }) {
   const snap = params.get("snapchat_account_id") || "";
   const meta = params.get("meta_account_id") || "";
   for (const id of [snap, meta]) {
     if (id && !ID_RE.test(id)) return json({ success: false, error: "Invalid account id" }, 400);
   }
 
+  const storeTask = fromCrm
+    ? fetchCrmStore({ since, until }).then((data) => ({ crm: data, complete: data.complete }))
+    : fetchSallaOrders({ accessToken: connection.access_token, since, until, timeBudgetMs: 30000 });
   const [ordersResult, overviewResult] = await Promise.allSettled([
-    fetchSallaOrders({ accessToken: connection.access_token, since, until, timeBudgetMs: 30000 }),
+    storeTask,
     getPerformanceOverviewForWorkspace({
       workspaceId,
       datePreset: "custom",
@@ -133,7 +164,7 @@ async function adsView({ workspaceId, connection, since, until, params }) {
     return json({ success: false, error: error?.message || "Ad platforms request failed" }, error?.status || 502);
   }
 
-  const summary = summarizeSallaOrders(ordersResult.value.orders, { since, until });
+  const summary = ordersResult.value.crm || summarizeSallaOrders(ordersResult.value.orders, { since, until });
   const overview = overviewResult.value;
   const comparison = compareAttribution({
     storeOrders: summary.totals.valid_orders,
@@ -186,7 +217,8 @@ export async function GET(request) {
     }
   }
 
-  if (!connection?.access_token) {
+  const fromCrm = useCrm(workspace.id, params);
+  if (!fromCrm && !connection?.access_token) {
     return json({ success: false, error: "NOT_CONNECTED" }, 401);
   }
 
@@ -194,8 +226,8 @@ export async function GET(request) {
   if (range.error) return json({ success: false, error: range.error }, 400);
 
   try {
-    if (view === "ads") return await adsView({ workspaceId: workspace.id, connection, ...range, params });
-    if (view === "store") return await storeView({ connection, ...range });
+    if (view === "ads") return await adsView({ workspaceId: workspace.id, connection, ...range, params, fromCrm });
+    if (view === "store") return fromCrm ? await crmStoreView(range) : await storeView({ connection, ...range });
     return json({ success: false, error: "Invalid view" }, 400);
   } catch (error) {
     return json({ success: false, error: error.message || "Salla live request failed" }, error.status || 500);

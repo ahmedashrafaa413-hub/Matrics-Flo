@@ -161,6 +161,7 @@ export default function SallaPage() {
   const totals = data?.totals || {};
   const carts = data?.abandoned_carts;
   const cmp = ads?.comparison;
+  const hasProductRevenue = (data?.products || []).some((p) => Number(p.revenue) > 0);
 
   const kpis = [
     { label: "Orders", value: fmt.number(totals.valid_orders), sub: totals.void_orders ? `${fmt.number(totals.void_orders)} cancelled/returned` : "", color: "#6366f1", icon: "📦" },
@@ -168,8 +169,10 @@ export default function SallaPage() {
     { label: "Avg Order", value: fmt.money(totals.avg_order_value), sub: `${fmt.pct(totals.multi_item_pct)} multi-item`, color: "#f59e0b", icon: "🧾" },
     {
       label: "Abandoned Carts",
-      value: carts ? `${fmt.number(carts.in_range.count)}${carts.complete ? "" : "+"}` : "—",
-      sub: carts
+      value: carts ? (carts.in_range ? `${fmt.number(carts.in_range.count)}${carts.complete ? "" : "+"}` : fmt.number(carts.open_total.count)) : "—",
+      sub: carts && !carts.in_range
+        ? `${fmt.money(carts.open_total.value)} · open right now`
+        : carts
         ? `${carts.complete ? "" : "at least "}${fmt.money(carts.in_range.value)} · ${fmt.number(carts.open_total.count)}${carts.complete ? "" : "+"} open in total${carts.complete ? "" : " (first 650 carts only)"}`
         : (data?.abandoned_carts_error ? "not available" : ""),
       color: "#ef4444",
@@ -185,7 +188,7 @@ export default function SallaPage() {
           <div>
             <h1 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 20, fontWeight: 700, color: "var(--text)" }}>{data?.store?.name || "Salla Store"}</h1>
             <p style={{ fontSize: 12, color: "var(--muted)" }}>
-              {loading ? "Loading live data from Salla…" : data?.success ? `${data.date_range.since} → ${data.date_range.until} · live ${new Date(data.fetched_at).toLocaleTimeString("en", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit" })}` : ""}
+              {loading ? "Loading live data from Salla…" : data?.success ? `${data.date_range.since} → ${data.date_range.until} · ${data.source === "crm" ? "from CRM" : "live from Salla"} ${new Date(data.fetched_at).toLocaleTimeString("en", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit" })}` : ""}
             </p>
           </div>
         </div>
@@ -281,7 +284,19 @@ export default function SallaPage() {
         <div className="dash-chart-card" style={{ gridColumn: "1 / -1" }}>
           <div className="dash-chart-head"><div><h2>Daily Orders & Revenue</h2><p>Revenue excludes cancelled orders</p></div></div>
           <div className="dash-chart-box">
-            {!data?.daily?.length ? <div className="dash-empty"><h3>{loading ? "⏳ Loading..." : "No data"}</h3></div> :
+            {!data?.daily?.length && data?.monthly?.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.monthly.map((m) => ({ date: m.month, revenue: m.revenue, orders: m.orders }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="date" stroke="var(--muted)" fontSize={10} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="rev" stroke="var(--muted)" fontSize={10} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="ord" orientation="right" stroke="var(--muted)" fontSize={10} tickLine={false} axisLine={false} />
+                  <Tooltip content={<ChartTip />} cursor={{ fill: "rgba(124,58,237,0.04)" }} />
+                  <Bar yAxisId="rev" dataKey="revenue" name="Revenue (SAR)" fill="#7C3AED" radius={[5, 5, 0, 0]} />
+                  <Bar yAxisId="ord" dataKey="orders" name="Orders" fill="#06d6a0" radius={[5, 5, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : !data?.daily?.length ? <div className="dash-empty"><h3>{loading ? "⏳ Loading..." : "No data"}</h3></div> :
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.daily.map((d) => ({ date: d.date.slice(5), revenue: d.revenue, orders: d.orders }))}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -303,6 +318,12 @@ export default function SallaPage() {
           <div className="dash-chart-head"><div><h2>Order Status</h2></div></div>
           <BarList rows={data?.statuses || []} />
         </div>
+        {data?.segments?.length > 0 && (
+          <div className="dash-chart-card">
+            <div className="dash-chart-head"><div><h2>Customers</h2><p>New vs returning buyers</p></div></div>
+            <BarList rows={data.segments} />
+          </div>
+        )}
         {data?.cities?.length > 0 && (
           <div className="dash-chart-card">
             <div className="dash-chart-head"><div><h2>Top Cities</h2></div></div>
@@ -311,12 +332,29 @@ export default function SallaPage() {
         )}
       </div>
 
+      {data?.insights?.length > 0 && (
+        <div className="dash-chart-card">
+          <div className="dash-chart-head"><div><h2>Insights</h2><p>From the CRM</p></div></div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {data.insights.map((i) => (
+              <div key={i.title} dir="auto" style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontWeight: 700, fontSize: 13 }}>
+                  <span>{i.icon} {i.title}</span>
+                  {i.stat && <span style={{ color: i.level === "warn" ? "#f59e0b" : "#06d6a0" }}>{i.stat}</span>}
+                </div>
+                <p style={{ fontSize: 12, color: "var(--text-2)", marginTop: 4 }}>{i.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="dash-table-card">
         <div className="dash-table-head"><div><h2>Top Products</h2><p>By number of orders</p></div></div>
         {!data?.products?.length ? <div className="dash-empty"><h3>{loading ? "⏳ Loading..." : "No data"}</h3></div> :
           <div className="dash-table-scroll">
             <table className="dash-data-table">
-              <thead><tr><th>Product</th><th>Orders</th><th>Units</th><th>% of orders</th></tr></thead>
+              <thead><tr><th>Product</th><th>Orders</th><th>Units</th>{hasProductRevenue && <th>Revenue</th>}<th>% of orders</th></tr></thead>
               <tbody>
                 {data.products.map((p) => {
                   const pct = totals.orders ? (p.orders / totals.orders) * 100 : 0;
@@ -325,6 +363,7 @@ export default function SallaPage() {
                       <td className="dash-name-cell">{p.name}</td>
                       <td style={{ fontWeight: 700 }}>{fmt.number(p.orders)}</td>
                       <td>{fmt.number(p.units)}</td>
+                      {hasProductRevenue && <td style={{ fontWeight: 700, color: "var(--accent)" }}>{fmt.money(p.revenue)}</td>}
                       <td>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ flex: 1, height: 4, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
