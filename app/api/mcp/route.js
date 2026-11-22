@@ -392,6 +392,7 @@ export async function POST(request) {
           upstream_incomplete: result.upstream_incomplete,
           ...(result.missing_campaigns ? { missing_campaigns: result.missing_campaigns, missing_campaigns_total: result.missing_campaigns_total } : {}),
           ...(daily ? { daily: true } : {}),
+          ...(result.ads_manager_note ? { ads_manager_note: result.ads_manager_note } : {}),
           extended_metrics: result.extended_metrics,
           ...(scope.campaignId ? { campaign_id: scope.campaignId } : {}),
           ...(scope.adsquadId ? { adsquad_id: scope.adsquadId } : {}),
