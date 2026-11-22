@@ -34,3 +34,11 @@ test("MCP get_snapchat_insights defaults to conversion time and validates action
   assert.match(route, /let actionReportTime = "conversion";/);
   assert.match(route, /action_report_time must be one of/);
 });
+
+test("conversion-time reporting keeps purchase rows without spend and reuses the matching campaign pass", async () => {
+  const live = await readFile(new URL("../lib/snapchatLive.js", import.meta.url), "utf8");
+  assert.match(live, /Number\(r\.metrics\?\.purchases \|\| 0\) > 0/);
+  assert.match(live, /const campaignKey = `\$\{accountId\}:campaign:\$\{startTime\}:\$\{endTime\}:::\$\{timeBudgetMs\}:\$\{actionReportTime\}`;/);
+  assert.match(live, /const key = `\$\{accountId\}:\$\{level\}:\$\{startTime\}:\$\{endTime\}:\$\{campaignId\}:\$\{adsquadId\}:\$\{timeBudgetMs\}:\$\{actionReportTime\}/);
+  assert.match(live, /lookbackMs: lookbackFor\(actionReportTime\)/);
+});
