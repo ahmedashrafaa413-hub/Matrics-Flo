@@ -14,6 +14,7 @@ import {
 } from "../../../lib/mcpWorkspaceData";
 import { MAX_RANGE_DAYS, parseCustomRange } from "../../../lib/mcpDateRange.mjs";
 import { MAX_DAILY_RANGE_DAYS } from "../../../lib/snapchatDaily.mjs";
+import { ACTION_REPORT_TIMES } from "../../../lib/snapchatApi";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -73,7 +74,7 @@ const GET_META_INSIGHTS_TOOL = {
 };
 const GET_SNAPCHAT_INSIGHTS_TOOL = {
   name: "get_snapchat_insights",
-  description: "Live Snapchat Ads performance from the Snapchat Marketing API (spend, impressions, swipes, purchases, revenue, ROAS) by account, campaign, ad squad or ad, for a date preset or a custom since/until range. Attribution: 28-day swipe, 1-day view, impression time.",
+  description: "Live Snapchat Ads performance from the Snapchat Marketing API (spend, impressions, swipes, purchases, revenue, ROAS) by account, campaign, ad squad or ad, for a date preset or a custom since/until range. Attribution: 28-day swipe, 1-day view; purchases on the day they happened (conversion time) unless action_report_time is impression.",
   inputSchema: {
     type: "object",
     properties: {
@@ -84,7 +85,8 @@ const GET_SNAPCHAT_INSIGHTS_TOOL = {
       level: { type: "string", enum: ["account", "campaign", "adsquad", "ad"], description: "Aggregation level (default: campaign). adsquad and ad drill down from the campaigns that spent; on large accounts pass campaign_id (or adsquad_id for ads) for complete numbers." },
       campaign_id: { type: "string", description: "Optional: limit adsquad or ad level to this campaign ID (from a campaign-level row)." },
       adsquad_id: { type: "string", description: "Optional: at ad level, only this ad squad's ads; at adsquad level, only this ad squad (e.g. with daily, its days around a budget or bid edit)." },
-      daily: { type: "boolean", description: `Optional: add a day-by-day series (date, spend, revenue, purchases, add_to_cart, initiate_checkout, impressions, swipes, roas, cpa, ctr, cpm) to every row and to summary, for lining edits from get_snapchat_change_history up with the days before and after. Core metrics only (no extended). Range up to ${MAX_DAILY_RANGE_DAYS} days; not with date_preset maximum.` }
+      daily: { type: "boolean", description: `Optional: add a day-by-day series (date, spend, revenue, purchases, add_to_cart, initiate_checkout, impressions, swipes, roas, cpa, ctr, cpm) to every row and to summary, for lining edits from get_snapchat_change_history up with the days before and after. Core metrics only (no extended). Range up to ${MAX_DAILY_RANGE_DAYS} days; not with date_preset maximum.` },
+      action_report_time: { type: "string", enum: ACTION_REPORT_TIMES, description: "Optional: conversion (default) counts a purchase on the day it happened, as Ads Manager does with conversion-time reporting; impression counts it on the day of the ad impression it is attributed to." }
     },
     required: ["workspace_id", "account_id"],
     additionalProperties: false
@@ -216,7 +218,7 @@ export async function POST(request) {
     [TOOL.name]: ["workspace_id", "date_preset", "since", "until", "snapchat_account_id", "meta_account_id"],
     [LIST_AD_ACCOUNTS_TOOL.name]: ["workspace_id"],
     [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
-    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id", "daily"],
+    [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id", "daily", "action_report_time"],
     [GET_SNAPCHAT_CHANGE_HISTORY_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "entity_id", "categories"],
     [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until", "property_id"]
   };
@@ -299,6 +301,12 @@ export async function POST(request) {
       return fail(id, -32602, `daily is limited to ${MAX_DAILY_RANGE_DAYS} days; pass a shorter since/until range`);
     }
     if (scope.campaignId && !["adsquad", "ad"].includes(level)) return fail(id, -32602, "campaign_id only applies to levels adsquad and ad");
+    let actionReportTime = "conversion";
+    if (!isMeta && args.action_report_time !== undefined) {
+      const value = typeof args.action_report_time === "string" ? args.action_report_time.trim().toLowerCase() : "";
+      if (!ACTION_REPORT_TIMES.includes(value)) return fail(id, -32602, `action_report_time must be one of ${ACTION_REPORT_TIMES.join(", ")}`);
+      actionReportTime = value;
+    }
 
     // The account must belong to this workspace.
     let account;
@@ -312,7 +320,7 @@ export async function POST(request) {
     try {
       const result = isMeta
         ? await getMetaInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range })
-        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range, ...scope, ...(daily ? { daily } : {}) });
+        : await getSnapchatInsightsForWorkspace({ workspaceId, accountId, datePreset, level, range, ...scope, ...(daily ? { daily } : {}), actionReportTime });
       if (!result.success) return ok({ success: false, platform, account_id: accountId, ...period, message: result.message });
 
       if (isMeta) {

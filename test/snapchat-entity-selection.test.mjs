@@ -34,3 +34,14 @@ test("selection puts active, recently changed entities first and applies the lim
   assert.equal(result.candidates, 3);
   assert.equal(result.skipped_out_of_range, 1);
 });
+
+test("lookback keeps entities that stopped before the range but inside the attribution window", () => {
+  const range = { startTime: "2026-11-22T00:00:00.000+03:00", endTime: "2026-11-23T00:00:00.000+03:00" };
+  const entities = [
+    { id: "paused-yesterday", status: "PAUSED", updated_at: "2026-11-21T10:00:00Z" },
+    { id: "ended-two-months-ago", status: "PAUSED", updated_at: "2026-09-01T00:00:00Z" }
+  ];
+  assert.deepEqual(selectReportableEntities(entities, { ...range, limit: 10 }).selected.map((e) => e.id), []);
+  const widened = selectReportableEntities(entities, { ...range, limit: 10, lookbackMs: 28 * 24 * 3600_000 });
+  assert.deepEqual(widened.selected.map((e) => e.id), ["paused-yesterday"]);
+});
