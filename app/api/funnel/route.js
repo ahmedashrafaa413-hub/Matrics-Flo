@@ -28,6 +28,11 @@ function json(payload, status = 200) {
   return NextResponse.json(payload, { status, headers: { "Cache-Control": "no-store" } });
 }
 
+function riyadhDay(offset) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date(Date.now() + offset * 86400000));
+}
+
 function readRange(params) {
   const since = params.get("since");
   const until = params.get("until");
@@ -67,8 +72,12 @@ export async function GET(request) {
 
   if (view === "ga4") {
     try {
-      const result = await getGa4OverviewForWorkspace({ workspaceId, datePreset: datePreset || "last_30d", range });
-      return json(result.success ? result : { success: false, error: result.message }, result.success ? 200 : 200);
+      // Resolve multi-day presets to the same calendar days Snapchat uses
+      // (today and the 6 or 29 days before it); GA4's "7daysAgo" adds a day.
+      const span = { last_7d: 6, last_30d: 29 }[datePreset];
+      const gaRange = range || (span !== undefined ? { since: riyadhDay(-span), until: riyadhDay(0) } : null);
+      const result = await getGa4OverviewForWorkspace({ workspaceId, datePreset: datePreset || "last_30d", range: gaRange });
+      return json(result.success ? result : { success: false, error: result.message });
     } catch (error) {
       return json({ success: false, error: error.message }, 500);
     }

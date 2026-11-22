@@ -98,3 +98,16 @@ test("image ads (no video views) are not judged on hook rate", () => {
   const b = buildFunnel({ ...summary, extended: { video_views: 110000 } });
   assert.equal(diagnose(f, b).verdict, "scale");
 });
+
+test("a measured zero landing-page count is judged, not skipped", () => {
+  const f = buildFunnel(row({ spend: 200, revenue: 900, impressions: 200000, swipes: 2200, lpv: 0, atc: 25, ic: 10, pur: 5 }));
+  assert.equal(f.has_landing, true);
+  const d = diagnose(f, bench);
+  assert.equal(d.break_area, "landing");
+  assert.notEqual(d.verdict, "scale");
+});
+
+test("landing views missing from extended metrics stay unknown", () => {
+  const f = buildFunnel({ spend: 10, impressions: 1000, swipes: 10, extended: {} });
+  assert.equal(f.has_landing, false);
+});
