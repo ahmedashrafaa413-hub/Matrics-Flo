@@ -7,7 +7,6 @@ import { apiGet } from "../../lib/api";
 import { getSetting, saveSetting, removeSetting } from "../../lib/storage";
 
 const COMING_SOON = [
-  { name: "Google Ads",  iconBg: "#4285F4", desc: "Search, Performance Max, YouTube",  platform: "google-ads" },
   { name: "TikTok Ads",  iconBg: "#010101", desc: "Campaigns, ad groups, creatives",   platform: "tiktok"     },
   { name: "Shopify",     iconBg: "#96BF48", desc: "Revenue, orders, products",          platform: "shopify"    },
 ];
@@ -70,6 +69,9 @@ function ConnectionsPageInner() {
   const [gaConnected,     setGaConnected]     = useState(false);
   const [gaProperty,      setGaProperty]      = useState("");
 
+  const [gadsConnected,   setGadsConnected]   = useState(false);
+  const [gadsStatus,      setGadsStatus]      = useState("");
+
   const [sallaConnected,  setSallaConnected]  = useState(false);
   const [snapConnected,   setSnapConnected]   = useState(false);
   const [snapAccount,     setSnapAccount]     = useState("");
@@ -83,6 +85,13 @@ function ConnectionsPageInner() {
       setSnapStatus("error:" + snapError);
     } else if (snapSuccess === "connected") {
       setSnapStatus("success:Connected successfully");
+    }
+    const gadsError   = searchParams.get("google_ads_error");
+    if (gadsError) {
+      setGadsStatus("error:" + gadsError);
+    } else if (searchParams.get("google_ads") === "connected") {
+      const count = searchParams.get("google_ads_accounts");
+      setGadsStatus(`success:Connected${count ? ` (${count} ad account${count === "1" ? "" : "s"})` : ""}`);
     }
     loadConnectionStatus();
   }, []);
@@ -110,6 +119,7 @@ function ConnectionsPageInner() {
         providers.ga4?.connected ? "Connected successfully" : "Not connected"
       );
 
+      setGadsConnected(Boolean(providers.google_ads?.connected));
       setSallaConnected(Boolean(providers.salla?.connected));
       setSnapConnected(Boolean(providers.snapchat?.connected));
       setSnapAccount(providers.snapchat?.account_name || "");
@@ -262,6 +272,64 @@ function ConnectionsPageInner() {
                 </p>
               )}
             </div>
+          )}
+        </div>
+
+        {/* Google Ads */}
+        <div className={`platform-card${gadsConnected ? " connected" : ""}`} style={{
+          background: "var(--card)",
+          border: gadsConnected ? "1px solid rgba(66,133,244,0.3)" : "1px solid var(--border)",
+          borderRadius: "var(--radius-xl)", overflow: "hidden", position: "relative"
+        }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "22px 24px", gap: 12, flexWrap: "wrap"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: "#4285F4",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0
+              }}><GoogleAdsIcon /></div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <h2 style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 17, fontWeight: 700, color: "var(--text)" }}>
+                    Google Ads
+                  </h2>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                    background: gadsConnected ? "rgba(6,214,160,0.1)" : "rgba(244,63,94,0.1)",
+                    border: gadsConnected ? "1px solid rgba(6,214,160,0.25)" : "1px solid rgba(244,63,94,0.25)",
+                    color: gadsConnected ? "var(--accent)" : "var(--red)"
+                  }}>
+                    {gadsConnected
+                      ? <><CheckCircle2 size={10} style={{ verticalAlign:"middle" }} /> Connected</>
+                      : <><Circle size={10} style={{ verticalAlign:"middle" }} /> Not Connected</>}
+                  </span>
+                </div>
+                <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
+                  Search, Performance Max, Shopping, YouTube (live from the Google Ads API)
+                </p>
+              </div>
+            </div>
+            <a href="/api/google-ads/auth" style={{
+              background: "linear-gradient(135deg, #4285F4, #2a62c9)",
+              color: "white", border: "none", padding: "10px 18px",
+              borderRadius: "var(--radius-md)", fontWeight: 700, fontSize: 13,
+              cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap"
+            }}>
+              {gadsConnected ? "Reconnect" : "Connect Google Ads"}
+            </a>
+          </div>
+          {gadsStatus && (
+            <p style={{
+              padding: "0 24px 18px", fontSize: 13, fontWeight: 600,
+              color: gadsStatus.startsWith("error:") ? "var(--red)" : "var(--accent)",
+              display: "flex", alignItems: "center", gap: 5
+            }}>
+              {gadsStatus.startsWith("error:")
+                ? <><AlertTriangle size={13} /> {gadsStatus.slice(6)}</>
+                : <><CheckCircle2 size={13} /> {gadsStatus.slice(8)}</>}
+            </p>
           )}
         </div>
 

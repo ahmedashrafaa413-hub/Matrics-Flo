@@ -6,6 +6,8 @@ import { listCanonicalFields } from "../../../lib/mcpFieldDictionary.mjs";
 import {
   getAdAccounts,
   getGa4OverviewForWorkspace,
+  getGoogleAdsAccounts,
+  getGoogleAdsInsightsForWorkspace,
   getIntegrationsByWorkspace,
   getMetaInsightsForWorkspace,
   getPerformanceOverviewForWorkspace,
@@ -15,6 +17,7 @@ import {
 import { MAX_RANGE_DAYS, parseCustomRange } from "../../../lib/mcpDateRange.mjs";
 import { MAX_DAILY_RANGE_DAYS } from "../../../lib/snapchatDaily.mjs";
 import { ACTION_REPORT_TIMES } from "../../../lib/snapchatApi";
+import { GOOGLE_ADS_LEVELS, normalizeCustomerId } from "../../../lib/googleAdsApi.mjs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -46,7 +49,7 @@ const TOOL = {
 };
 const LIST_AD_ACCOUNTS_TOOL = {
   name: "list_ad_accounts",
-  description: "List Meta and Snapchat ad accounts connected to a workspace. Returns account IDs and names needed for get_meta_insights and get_snapchat_insights.",
+  description: "List Meta, Snapchat and Google Ads ad accounts connected to a workspace. Returns account IDs and names needed for get_meta_insights, get_snapchat_insights and get_google_ads_insights. Google Ads accounts are read live from the Google Ads API.",
   inputSchema: {
     type: "object",
     properties: {
@@ -107,6 +110,25 @@ const GET_SNAPCHAT_CHANGE_HISTORY_TOOL = {
       campaign_id: { type: "string", description: "Optional: only this campaign (its ad squads or ads at those levels)." },
       entity_id: { type: "string", description: "Optional: one campaign or ad squad ID (matching level) for its full history in the range." },
       categories: { type: "array", items: { type: "string", enum: CHANGE_CATEGORIES }, description: "Optional: only these kinds of change, e.g. [\"budget\", \"bid\"]. Default: all." }
+    },
+    required: ["workspace_id", "account_id"],
+    additionalProperties: false
+  }
+};
+const GET_GOOGLE_ADS_INSIGHTS_TOOL = {
+  name: "get_google_ads_insights",
+  description: "Live Google Ads performance from the Google Ads API (cost, impressions, clicks, CTR, CPC, conversions, conversion value, ROAS, CPA; search impression share per campaign) by account, campaign, ad group, asset group (Performance Max), ad, keyword or search term, for a date preset or a custom since/until range. Money is in the account currency; conversions are the account's primary conversion actions.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      workspace_id: { type: "string", description: "Workspace UUID" },
+      account_id: { type: "string", description: "Google Ads customer ID (digits, dashes allowed) from list_ad_accounts" },
+      date_preset: { type: "string", enum: PRESETS },
+      ...RANGE_PROPS,
+      level: { type: "string", enum: GOOGLE_ADS_LEVELS, description: "Aggregation level (default: campaign). Performance Max has asset_group instead of ad_group/ad. search_term returns the top 1000 by cost." },
+      campaign_id: { type: "string", description: "Optional: only this campaign (digits)." },
+      ad_group_id: { type: "string", description: "Optional: only this ad group (digits), for ad, keyword and search_term levels." },
+      daily: { type: "boolean", description: `Optional: add a day-by-day series to every row. Range up to ${MAX_DAILY_RANGE_DAYS} days; not with date_preset maximum.` }
     },
     required: ["workspace_id", "account_id"],
     additionalProperties: false
@@ -205,7 +227,7 @@ export async function POST(request) {
   }
   if (body.method === "notifications/initialized") return new Response(null, { status: 202, headers: { "Cache-Control": "no-store" } });
   if (body.method === "ping") return rpc(id, {});
-  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, FIELDS_TOOL, WORKSPACES_TOOL, TOOL, LIST_AD_ACCOUNTS_TOOL, GET_META_INSIGHTS_TOOL, GET_SNAPCHAT_INSIGHTS_TOOL, GET_SNAPCHAT_CHANGE_HISTORY_TOOL, GET_GA4_OVERVIEW_TOOL] });
+  if (body.method === "tools/list") return rpc(id, { tools: [ACCOUNTS_TOOL, FIELDS_TOOL, WORKSPACES_TOOL, TOOL, LIST_AD_ACCOUNTS_TOOL, GET_META_INSIGHTS_TOOL, GET_SNAPCHAT_INSIGHTS_TOOL, GET_SNAPCHAT_CHANGE_HISTORY_TOOL, GET_GOOGLE_ADS_INSIGHTS_TOOL, GET_GA4_OVERVIEW_TOOL] });
   if (body.method !== "tools/call") return fail(id, -32601, "Method not found", 404);
 
   const { name, arguments: args = {} } = body.params || {};
@@ -220,6 +242,7 @@ export async function POST(request) {
     [GET_META_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level"],
     [GET_SNAPCHAT_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "adsquad_id", "daily", "action_report_time"],
     [GET_SNAPCHAT_CHANGE_HISTORY_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "entity_id", "categories"],
+    [GET_GOOGLE_ADS_INSIGHTS_TOOL.name]: ["workspace_id", "account_id", "date_preset", "since", "until", "level", "campaign_id", "ad_group_id", "daily"],
     [GET_GA4_OVERVIEW_TOOL.name]: ["workspace_id", "date_preset", "since", "until", "property_id"]
   };
   const allowedArgs = TOOL_ARGS[name];
@@ -269,8 +292,8 @@ export async function POST(request) {
 
   if (name === LIST_AD_ACCOUNTS_TOOL.name) {
     try {
-      const { meta, snapchat } = await getAdAccounts(workspaceId);
-      return ok({ workspace_id: workspaceId, meta, snapchat });
+      const [{ meta, snapchat }, google_ads] = await Promise.all([getAdAccounts(workspaceId), getGoogleAdsAccounts(workspaceId)]);
+      return ok({ workspace_id: workspaceId, meta, snapchat, google_ads });
     } catch (e) { return toolError(`Ad accounts unavailable: ${e.message}`); }
   }
 
@@ -469,6 +492,62 @@ export async function POST(request) {
       });
     } catch (e) {
       return toolError(`Snapchat change history unavailable: ${e.message}`);
+    }
+  }
+
+  if (name === GET_GOOGLE_ADS_INSIGHTS_TOOL.name) {
+    const accountId = normalizeCustomerId(typeof args.account_id === "string" ? args.account_id.trim() : "");
+    if (!accountId) return fail(id, -32602, "Invalid account_id");
+    const level = args.level ?? "campaign";
+    if (!GOOGLE_ADS_LEVELS.includes(level)) return fail(id, -32602, "Invalid level");
+    const scope = {};
+    for (const [arg, field] of [["campaign_id", "campaignId"], ["ad_group_id", "adGroupId"]]) {
+      if (args[arg] === undefined) continue;
+      const value = typeof args[arg] === "string" ? args[arg].trim() : "";
+      if (!/^\d{1,20}$/.test(value)) return fail(id, -32602, `Invalid ${arg}`);
+      scope[field] = value;
+    }
+    if (scope.campaignId && level === "account") return fail(id, -32602, "campaign_id does not apply to level account");
+    if (scope.adGroupId && !["ad", "keyword", "search_term", "ad_group"].includes(level)) return fail(id, -32602, "ad_group_id applies to levels ad_group, ad, keyword and search_term");
+    let daily = false;
+    if (args.daily !== undefined) {
+      const value = typeof args.daily === "string" ? args.daily.trim().toLowerCase() : args.daily;
+      if (value !== true && value !== false && value !== "true" && value !== "false") return fail(id, -32602, "daily must be true or false");
+      daily = value === true || value === "true";
+    }
+    if (daily && (range ? range.days > MAX_DAILY_RANGE_DAYS : datePreset === "maximum")) {
+      return fail(id, -32602, `daily is limited to ${MAX_DAILY_RANGE_DAYS} days; pass a shorter since/until range`);
+    }
+
+    let accounts;
+    try { accounts = await getGoogleAdsAccounts(workspaceId); }
+    catch (e) { return toolError(`Google Ads accounts unavailable: ${e.message}`); }
+    if (!accounts.connected) return ok({ success: false, platform: "google_ads", account_id: accountId, ...period, message: "Google Ads is not connected for this workspace. Connect it on the Connections page in MetricsFlo." });
+    const account = accounts.accounts.find((a) => a.id === accountId);
+    if (!account) return toolError(`Google Ads account ${accountId} is not reachable from this workspace's Google login${accounts.discovery_error ? ` (${accounts.discovery_error})` : ""}. Use list_ad_accounts to see valid IDs.`);
+
+    try {
+      const result = await getGoogleAdsInsightsForWorkspace({ workspaceId, account, datePreset, level, range, daily, ...scope });
+      if (!result.success) return ok({ success: false, platform: "google_ads", account_id: accountId, ...period, message: result.message });
+      const { success, since, until, summary, rows } = result;
+      const text = JSON.stringify({
+        success: true,
+        platform: "google_ads",
+        source: "live",
+        account_id: accountId,
+        account_name: account.name,
+        currency: account.currency || null,
+        time_zone: account.time_zone || null,
+        ...period,
+        date_range: { since, until },
+        level,
+        summary,
+        rows
+      });
+      if (text.length > 512000) return toolError("Google Ads report too large; pass campaign_id or ad_group_id, or a shorter range");
+      return rpc(id, { content: [{ type: "text", text }] });
+    } catch (e) {
+      return toolError(`Google Ads data unavailable: ${e.message}`);
     }
   }
 
